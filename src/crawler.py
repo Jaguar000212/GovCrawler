@@ -188,7 +188,7 @@ class Crawler:
 
         links_added = 0
         # Taper link budget by depth: seed pages get full budget, deeper pages get less.
-        # depth 0 → max_links_per_page (80), depth 1 → ~30, depth 2+ → 8
+        # depth 0 → max_links_per_page (80), depth 1 → ~26, depth 2+ → 15
         base = self.config['defaults']['max_links_per_page']
         if current_depth == 0:
             max_links = base

@@ -298,7 +298,7 @@ async def _get_root_domains_from_india_gov(p: Playwright, config: dict) -> set:
     log.info(f"httpx yield too low ({len(root_domains)}), trying Playwright + stealth...")
     browser = None
     try:
-        from playwright_stealth import stealth_async
+        from playwright_stealth import Stealth
     except ImportError:
         log.warning("playwright-stealth not installed — skipping stealth step. Run: pip install playwright-stealth")
         log.info(f"Directory scrape found {len(root_domains)} root domains.")
@@ -308,7 +308,7 @@ async def _get_root_domains_from_india_gov(p: Playwright, config: dict) -> set:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(user_agent=config['user_agent'])
         page    = await context.new_page()
-        await stealth_async(page)
+        await Stealth().apply_stealth_async(page)
 
         for dir_url in directory_pages:
             try:

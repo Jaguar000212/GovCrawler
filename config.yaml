@@ -2,7 +2,7 @@
 
 defaults:
   keyword: "contact"
-  max_depth: 3
+  max_depth: 4
   max_links_per_page: 80       # depth-0 limit; depth-1 = ~27, depth-2+ = 15 (tapered in code)
   num_workers: 55
   page_timeout: 30
