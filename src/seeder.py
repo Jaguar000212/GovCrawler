@@ -1,11 +1,12 @@
 import asyncio
-import httpx
 import logging
 import re
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as et
+from urllib.parse import urlparse
+
+import httpx
 from bs4 import BeautifulSoup
 from playwright.async_api import Playwright
-from urllib.parse import urlparse
 
 log = logging.getLogger(__name__)
 
@@ -198,8 +199,8 @@ async def _get_seeds_from_google_api(config: dict, keyword: str) -> set:
 
     params = {
         "key": api_config['api_key'],
-        "cx":  api_config['cse_id'],
-        "q":   search_query,
+        "cx": api_config['cse_id'],
+        "q": search_query,
         "num": 10,
     }
 
@@ -227,7 +228,7 @@ async def _get_seeds_from_bing_api(config: dict, keyword: str) -> set:
     search_query = f'{domain_query} "{keyword}" contact email'
 
     headers = {"Ocp-Apim-Subscription-Key": api_config['api_key']}
-    params  = {"q": search_query, "count": 20}
+    params = {"q": search_query, "count": 20}
 
     found_urls = set()
     try:
@@ -268,9 +269,9 @@ async def _get_root_domains_from_india_gov(p: Playwright, config: dict) -> set:
     log.info("Trying httpx fetch of india.gov.in directory...")
     try:
         async with httpx.AsyncClient(
-            timeout=15,
-            follow_redirects=True,
-            headers={"User-Agent": config['user_agent']},
+                timeout=15,
+                follow_redirects=True,
+                headers={"User-Agent": config['user_agent']},
         ) as client:
             for url in directory_pages:
                 try:
@@ -280,7 +281,7 @@ async def _get_root_domains_from_india_gov(p: Playwright, config: dict) -> set:
                         for a in soup.find_all('a', href=True):
                             parsed = urlparse(a['href'])
                             if parsed.scheme in ('http', 'https') and any(
-                                parsed.netloc.endswith(d) for d in target_domains
+                                    parsed.netloc.endswith(d) for d in target_domains
                             ):
                                 root_domains.add(f"{parsed.scheme}://{parsed.netloc}")
                 except Exception as e:
@@ -307,7 +308,7 @@ async def _get_root_domains_from_india_gov(p: Playwright, config: dict) -> set:
     try:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(user_agent=config['user_agent'])
-        page    = await context.new_page()
+        page = await context.new_page()
         await Stealth().apply_stealth_async(page)
 
         for dir_url in directory_pages:
@@ -382,9 +383,9 @@ async def _get_urls_from_sitemaps(root_domains: set, config: dict) -> set:
             try:
                 async with sem:
                     async with httpx.AsyncClient(
-                        timeout=10,
-                        follow_redirects=True,
-                        headers={"User-Agent": config['user_agent']},
+                            timeout=10,
+                            follow_redirects=True,
+                            headers={"User-Agent": config['user_agent']},
                     ) as client:
                         r = await client.get(f"{root.rstrip('/')}{path}")
 
@@ -393,7 +394,7 @@ async def _get_urls_from_sitemaps(root_domains: set, config: dict) -> set:
 
                 # Strip XML namespaces so ElementTree iter() works without ns prefixes
                 content = re.sub(r'\s+xmlns(?::\w+)?="[^"]+"', '', r.text)
-                root_elem = ET.fromstring(content)
+                root_elem = et.fromstring(content)
 
                 count = 0
                 for loc in root_elem.iter('loc'):

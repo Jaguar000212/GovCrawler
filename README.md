@@ -1,17 +1,25 @@
 # MishaCrawler
 
-An async web crawler for extracting email leads from Indian government websites (`.gov.in` / `.nic.in`). Built on Playwright with concurrent workers, per-domain rate limiting, and a post-crawl classification pipeline.
+An async web crawler for extracting email leads from Indian government websites (`.gov.in` / `.nic.in`). Built on
+Playwright with concurrent workers, per-domain rate limiting, and a post-crawl classification pipeline.
 
 ## Features
 
-- **Concurrent async crawling** — configurable worker pool with per-domain rate limiting (one request at a time per domain)
-- **Three-tier seed generation** — Google CSE / Bing API → india.gov.in directory (httpx + playwright-stealth) → hardcoded seed list of 98 targeted contact pages
-- **Smart link filtering** — from non-contact pages, only follows links matching contact / officer / tender keywords; prevents data and stats pages from flooding the queue
-- **Depth-tapered link budget** — depth-0 seeds get 80 links, depth-1 gets 26, depth-2+ gets 15; avoids crawl sprawl while still following paginated officer directories
-- **Cross-domain discovery** — follows `.gov.in` / `.nic.in` links across ministry boundaries, auto-discovering new domains without manual seeding
-- **Email extraction** — normalises obfuscated addresses (`[at]`, `[dot]`, Unicode variants) before applying regex; filters to government suffixes only
+- **Concurrent async crawling** — configurable worker pool with per-domain rate limiting (one request at a time per
+  domain)
+- **Three-tier seed generation** — Google CSE / Bing API → india.gov.in directory (httpx + playwright-stealth) →
+  hardcoded seed list of 98 targeted contact pages
+- **Smart link filtering** — from non-contact pages, only follows links matching contact / officer / tender keywords;
+  prevents data and stats pages from flooding the queue
+- **Depth-tapered link budget** — depth-0 seeds get 80 links, depth-1 gets 26, depth-2+ gets 15; avoids crawl sprawl
+  while still following paginated officer directories
+- **Cross-domain discovery** — follows `.gov.in` / `.nic.in` links across ministry boundaries, auto-discovering new
+  domains without manual seeding
+- **Email extraction** — normalises obfuscated addresses (`[at]`, `[dot]`, Unicode variants) before applying regex;
+  filters to government suffixes only
 - **SQLite persistence** — visited URLs and leads survive restarts; deduplication enforced at DB level
-- **Post-crawl classification** — `classify.py` tags every lead with ministry name, tier (central / state / district / statutory / psu), state, and confidence level
+- **Post-crawl classification** — `classify.py` tags every lead with ministry name, tier (central / state / district /
+  statutory / psu), state, and confidence level
 
 ## Project Structure
 
@@ -52,16 +60,17 @@ playwright install chromium
 
 All parameters live in `config.yaml`. Key settings:
 
-| Parameter | Default | Description |
-| --- | --- | --- |
-| `max_depth` | `4` | Crawl depth. Seeds are depth 0; each link followed increments depth |
-| `max_links_per_page` | `80` | Link budget at depth 0; tapered automatically at deeper levels |
-| `num_workers` | `55` | Concurrent Playwright workers. Per-domain semaphore keeps rate limiting safe |
-| `page_timeout` | `30` | Seconds before a page navigation is retried once, then abandoned |
-| `url_process_timeout` | `75` | Hard outer timeout per URL — must exceed `page_timeout × 2 + 5` |
-| `request_delay` | `1.5` | Seconds between requests to the same domain |
+| Parameter             | Default | Description                                                                  |
+|-----------------------|---------|------------------------------------------------------------------------------|
+| `max_depth`           | `4`     | Crawl depth. Seeds are depth 0; each link followed increments depth          |
+| `max_links_per_page`  | `80`    | Link budget at depth 0; tapered automatically at deeper levels               |
+| `num_workers`         | `55`    | Concurrent Playwright workers. Per-domain semaphore keeps rate limiting safe |
+| `page_timeout`        | `30`    | Seconds before a page navigation is retried once, then abandoned             |
+| `url_process_timeout` | `75`    | Hard outer timeout per URL — must exceed `page_timeout × 2 + 5`              |
+| `request_delay`       | `1.5`   | Seconds between requests to the same domain                                  |
 
-To enable Google CSE or Bing search seeding, add your API keys and set `enabled: true` under the relevant section in `config.yaml`.
+To enable Google CSE or Bing search seeding, add your API keys and set `enabled: true` under the relevant section in
+`config.yaml`.
 
 ## Running
 
@@ -76,21 +85,23 @@ python3 main.py --workers 80 --max_depth 4
 python3 main.py --help
 ```
 
-The crawler logs to both stdout and `crawler.log`. Press `Ctrl+C` to stop gracefully — leads collected so far are saved to `leads.csv`.
+The crawler logs to both stdout and `crawler.log`. Press `Ctrl+C` to stop gracefully — leads collected so far are saved
+to `leads.csv`.
 
 ## Output
 
 **`leads.csv`** — raw leads, written at the end of every run:
 
-| Column | Description |
-| --- | --- |
-| `Email` | Extracted email address |
-| `Source URL` | Page where it was found |
-| `Page Title` | HTML title of the source page |
+| Column                     | Description                                         |
+|----------------------------|-----------------------------------------------------|
+| `Email`                    | Extracted email address                             |
+| `Source URL`               | Page where it was found                             |
+| `Page Title`               | HTML title of the source page                       |
 | `Context/Surrounding Text` | ~100 chars around the email for manual verification |
-| `Scraped At` | ISO timestamp |
+| `Scraped At`               | ISO timestamp                                       |
 
-**`crawler_session.db`** — SQLite database. Leads accumulate across runs; visited URLs are deduplicated so the same page is never crawled twice in the same session.
+**`crawler_session.db`** — SQLite database. Leads accumulate across runs; visited URLs are deduplicated so the same page
+is never crawled twice in the same session.
 
 ## Post-crawl Classification
 
@@ -103,13 +114,13 @@ python3 classify.py
 
 The classifier adds these columns to every lead:
 
-| Column | Description |
-| --- | --- |
-| `ministry` | Human-readable name (e.g. `Ministry of External Affairs`) |
-| `tier` | `central` / `state` / `district` / `statutory` / `psu` |
-| `state` | Populated for state and district tier rows |
-| `confidence` | `high` = exact domain map match; `low` = inferred from domain string |
-| `nic_email` | `True` if the email is `@nic.in` or `@gov.in` — generic infrastructure, not personal |
+| Column       | Description                                                                          |
+|--------------|--------------------------------------------------------------------------------------|
+| `ministry`   | Human-readable name (e.g. `Ministry of External Affairs`)                            |
+| `tier`       | `central` / `state` / `district` / `statutory` / `psu`                               |
+| `state`      | Populated for state and district tier rows                                           |
+| `confidence` | `high` = exact domain map match; `low` = inferred from domain string                 |
+| `nic_email`  | `True` if the email is `@nic.in` or `@gov.in` — generic infrastructure, not personal |
 
 Terminal summary printed on completion:
 
@@ -128,7 +139,8 @@ Terminal summary printed on completion:
 ==================================================
 ```
 
-Rows with `confidence=low` are domains discovered via cross-domain link following that aren't in the built-in map. Add them to `DOMAIN_MAP` in `classify.py` to get `high` confidence on future runs.
+Rows with `confidence=low` are domains discovered via cross-domain link following that aren't in the built-in map. Add
+them to `DOMAIN_MAP` in `classify.py` to get `high` confidence on future runs.
 
 To classify a specific database file or write to a custom path:
 

@@ -1,16 +1,18 @@
-import sqlite3
 import csv
 import datetime
 import logging
+import sqlite3
 
 # Set up logging
 log = logging.getLogger(__name__)
+
 
 class LocalStorage:
     """
     Manages the SQLite database for storing visited URLs and captured leads.
     Also handles exporting data to a CSV file.
     """
+
     def __init__(self, db_file="crawler_session.db"):
         try:
             self.conn = sqlite3.connect(db_file)
@@ -25,21 +27,37 @@ class LocalStorage:
         """Creates the necessary database tables if they don't already exist."""
         try:
             self.cursor.execute("""
-                CREATE TABLE IF NOT EXISTS visited_urls (
-                    url TEXT PRIMARY KEY,
-                    visited_at TEXT
-                )
-            """)
+                                CREATE TABLE IF NOT EXISTS visited_urls
+                                (
+                                    url
+                                    TEXT
+                                    PRIMARY
+                                    KEY,
+                                    visited_at
+                                    TEXT
+                                )
+                                """)
             self.cursor.execute("""
-                CREATE TABLE IF NOT EXISTS leads (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    email TEXT UNIQUE,
-                    source_url TEXT,
-                    page_title TEXT,
-                    context_snippet TEXT,
-                    captured_at TEXT
-                )
-            """)
+                                CREATE TABLE IF NOT EXISTS leads
+                                (
+                                    id
+                                    INTEGER
+                                    PRIMARY
+                                    KEY
+                                    AUTOINCREMENT,
+                                    email
+                                    TEXT
+                                    UNIQUE,
+                                    source_url
+                                    TEXT,
+                                    page_title
+                                    TEXT,
+                                    context_snippet
+                                    TEXT,
+                                    captured_at
+                                    TEXT
+                                )
+                                """)
             self.conn.commit()
         except sqlite3.Error as e:
             log.error(f"Failed to create database tables: {e}")

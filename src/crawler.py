@@ -1,10 +1,11 @@
 import asyncio
 import logging
-from playwright.async_api import BrowserContext
 from urllib.parse import urljoin, urlparse
 
-from .storage import LocalStorage
+from playwright.async_api import BrowserContext
+
 from .parser import parse_page_for_leads
+from .storage import LocalStorage
 
 log = logging.getLogger(__name__)
 
@@ -39,6 +40,11 @@ def _is_skippable_url(url: str) -> bool:
     return False
 
 
+def _is_priority_url(url: str, anchor_text: str = '') -> bool:
+    combined = (url + ' ' + anchor_text).lower()
+    return any(kw in combined for kw in _PRIORITY_KEYWORDS)
+
+
 class Crawler:
     def __init__(self, config: dict, storage: LocalStorage):
         self.config = config
@@ -67,10 +73,6 @@ class Crawler:
         netloc = urlparse(url).netloc
         target_domains = self.config.get('target_domains', ['.gov.in', '.nic.in'])
         return any(netloc.endswith(d) for d in target_domains)
-
-    def _is_priority_url(self, url: str, anchor_text: str = '') -> bool:
-        combined = (url + ' ' + anchor_text).lower()
-        return any(kw in combined for kw in _PRIORITY_KEYWORDS)
 
     async def run(self, browser_context: BrowserContext, seed_urls: list[str]):
         for url in seed_urls:
@@ -108,17 +110,17 @@ class Crawler:
                 break
 
     async def _process_url(self, url: str, depth: int, context: BrowserContext):
-        max_depth    = self.config['defaults']['max_depth']
+        max_depth = self.config['defaults']['max_depth']
         page_timeout = self.config['defaults']['page_timeout']
         request_delay = self.config['defaults'].get('request_delay', 1.5)
 
-        if max_depth > 0 and depth >= max_depth:
+        if 0 < max_depth <= depth:
             return
 
         self.storage.mark_visited(url)
         log.info(f"Crawling (Depth {depth}): {url}")
 
-        sem  = self._domain_semaphore(url)
+        sem = self._domain_semaphore(url)
         page = await context.new_page()
         try:
             async with sem:
@@ -143,16 +145,16 @@ class Crawler:
                 await asyncio.sleep(request_delay)
 
             html_content = await page.content()
-            page_title   = await page.title()
+            page_title = await page.title()
 
             leads = parse_page_for_leads(html_content)
             new_leads = 0
             for lead in leads:
                 if self.storage.save_lead(
-                    email=lead['email'],
-                    source_url=url,
-                    page_title=page_title,
-                    context_snippet=lead['context_snippet'],
+                        email=lead['email'],
+                        source_url=url,
+                        page_title=page_title,
+                        context_snippet=lead['context_snippet'],
                 ):
                     new_leads += 1
             if new_leads > 0:
@@ -197,7 +199,7 @@ class Crawler:
         else:
             max_links = 15
         # If we're already on a contact/officer/tender page, queue all gov links freely
-        is_priority_page = self._is_priority_url(base_url)
+        is_priority_page = _is_priority_url(base_url)
 
         for item in links_data:
             try:
@@ -213,14 +215,14 @@ class Crawler:
                 if absolute in self.visited_urls:
                     continue
                 # From generic pages: only follow contact/tender-looking links
-                if not is_priority_page and not self._is_priority_url(absolute, text):
+                if not is_priority_page and not _is_priority_url(absolute, text):
                     continue
 
                 self.visited_urls.add(absolute)
                 await self.queue.put((absolute, current_depth + 1))
                 links_added += 1
 
-                if max_links > 0 and links_added >= max_links:
+                if 0 < max_links <= links_added:
                     break
             except Exception:
                 continue

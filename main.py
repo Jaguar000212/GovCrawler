@@ -1,13 +1,14 @@
-import asyncio
 import argparse
+import asyncio
 import logging
 import sys
+
 import yaml
 from playwright.async_api import async_playwright
 
 from src.crawler import Crawler
-from src.storage import LocalStorage
 from src.seeder import get_seed_urls
+from src.storage import LocalStorage
 
 # --- Structured Logging Setup ---
 logging.basicConfig(
@@ -20,6 +21,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+
 def load_config(path="config.yaml") -> dict:
     """Loads the YAML configuration file."""
     try:
@@ -31,6 +33,7 @@ def load_config(path="config.yaml") -> dict:
     except yaml.YAMLError as e:
         log.error(f"Error parsing YAML configuration: {e}")
         sys.exit(1)
+
 
 def merge_args_with_config(args: argparse.Namespace, config: dict) -> dict:
     """Overrides config defaults with any provided command-line arguments."""
@@ -46,17 +49,23 @@ def merge_args_with_config(args: argparse.Namespace, config: dict) -> dict:
         config['defaults']['page_timeout'] = args.timeout
     return config
 
+
 async def main():
     """Main entry point for the web crawler application."""
     config = load_config()
-    
+
     parser = argparse.ArgumentParser(description="A modular, production-ready web crawler.")
-    parser.add_argument("-k", "--keyword", type=str, help=f"Search keyword to target. Overrides default: '{config['defaults']['keyword']}'")
-    parser.add_argument("-d", "--max_depth", type=int, help=f"Maximum crawl depth. 0 for infinite. Overrides default: {config['defaults']['max_depth']}")
-    parser.add_argument("-l", "--max_links", type=int, help=f"Max internal links per page. 0 for infinite. Overrides default: {config['defaults']['max_links_per_page']}")
-    parser.add_argument("-w", "--workers", type=int, help=f"Number of concurrent workers. Overrides default: {config['defaults']['num_workers']}")
-    parser.add_argument("-t", "--timeout", type=int, help=f"Page navigation timeout in seconds. Overrides default: {config['defaults']['page_timeout']}")
-    
+    parser.add_argument("-k", "--keyword", type=str,
+                        help=f"Search keyword to target. Overrides default: '{config['defaults']['keyword']}'")
+    parser.add_argument("-d", "--max_depth", type=int,
+                        help=f"Maximum crawl depth. 0 for infinite. Overrides default: {config['defaults']['max_depth']}")
+    parser.add_argument("-l", "--max_links", type=int,
+                        help=f"Max internal links per page. 0 for infinite. Overrides default: {config['defaults']['max_links_per_page']}")
+    parser.add_argument("-w", "--workers", type=int,
+                        help=f"Number of concurrent workers. Overrides default: {config['defaults']['num_workers']}")
+    parser.add_argument("-t", "--timeout", type=int,
+                        help=f"Page navigation timeout in seconds. Overrides default: {config['defaults']['page_timeout']}")
+
     args = parser.parse_args()
     config = merge_args_with_config(args, config)
 
@@ -64,7 +73,7 @@ async def main():
     try:
         storage = LocalStorage()
         crawler = Crawler(config, storage)
-        
+
         async with async_playwright() as p:
             # --- Seed Generation ---
             seed_urls = await get_seed_urls(p, config, config['defaults']['keyword'])
@@ -74,15 +83,16 @@ async def main():
 
             # --- Crawling ---
             log.info(f"Starting crawl with {len(seed_urls)} seed URLs.")
-            log.info(f"Config: Depth={config['defaults']['max_depth']}, Links/Page={config['defaults']['max_links_per_page']}, Workers={config['defaults']['num_workers']}")
+            log.info(
+                f"Config: Depth={config['defaults']['max_depth']}, Links/Page={config['defaults']['max_links_per_page']}, Workers={config['defaults']['num_workers']}")
             log.info("Press Ctrl+C to stop gracefully and save results.")
-            
+
             browser = await p.chromium.launch(headless=True)
             context = await browser.new_context(user_agent=config['user_agent'])
-            
+
             # Run the crawler and listen for KeyboardInterrupt
             crawl_task = asyncio.create_task(crawler.run(context, seed_urls))
-            
+
             try:
                 await crawl_task
             except asyncio.CancelledError:
@@ -101,6 +111,7 @@ async def main():
             exported_count = storage.export_to_csv()
             log.info(f"Exported {exported_count} unique leads to leads.csv.")
             storage.close()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -1,15 +1,16 @@
 import re
+
 from bs4 import BeautifulSoup
 
 # Obfuscation normalization — applied to full page text before email regex.
 # Order matters: bracketed forms before bare words to avoid partial matches.
 _OBFUSCATION_PATTERNS = [
-    (re.compile(r'\s*\[at\]\s*',  re.IGNORECASE), '@'),
-    (re.compile(r'\s*\(at\)\s*',  re.IGNORECASE), '@'),
-    (re.compile(r'\s+at\s+',      re.IGNORECASE), '@'),
-    (re.compile(r'\s*\[dot\]\s*', re.IGNORECASE), '.'),
+    (re.compile(r'\s*\[at]\s*', re.IGNORECASE), '@'),
+    (re.compile(r'\s*\(at\)\s*', re.IGNORECASE), '@'),
+    (re.compile(r'\s+at\s+', re.IGNORECASE), '@'),
+    (re.compile(r'\s*\[dot]\s*', re.IGNORECASE), '.'),
     (re.compile(r'\s*\(dot\)\s*', re.IGNORECASE), '.'),
-    (re.compile(r'\s+dot\s+',     re.IGNORECASE), '.'),
+    (re.compile(r'\s+dot\s+', re.IGNORECASE), '.'),
 ]
 
 # Standard email regex — runs after obfuscation is normalized away.
@@ -68,7 +69,7 @@ def parse_page_for_leads(html_content: str) -> list[dict]:
 
             start, end = match.span()
             snippet_start = max(0, start - 90)
-            snippet_end   = min(len(text), end + 90)
+            snippet_end = min(len(text), end + 90)
             context_snippet = ' '.join(text[snippet_start:snippet_end].split()).strip()
 
             leads.append({
