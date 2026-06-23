@@ -1,6 +1,7 @@
 import csv
 import datetime
 import logging
+from urllib.parse import urlparse
 from sqlalchemy import create_engine, Column, Integer, String, DateTime
 from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.exc import IntegrityError
@@ -15,6 +16,13 @@ class VisitedUrl(Base):
     url = Column(String, primary_key=True)
     last_hit = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
+class DomainClassification(Base):
+    __tablename__ = 'domain_classifications'
+    domain = Column(String, primary_key=True)
+    category = Column(String, nullable=True)
+    state = Column(String, nullable=True)
+    org_type = Column(String, nullable=True)
+
 class Lead(Base):
     __tablename__ = 'leads'
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -22,12 +30,17 @@ class Lead(Base):
     source_url = Column(String)
     page_title = Column(String)
     context_snippet = Column(String)
-    category = Column(String, nullable=True) # For future frontend classification
+    
+    # Auto-populated metadata fields based on DomainClassification
+    domain_category = Column(String, nullable=True)
+    domain_state = Column(String, nullable=True)
+    domain_org_type = Column(String, nullable=True)
+    
     captured_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 class LocalStorage:
     """
-    Manages the SQLAlchemy database connection for storing visited URLs and captured leads.
+    Manages the SQLAlchemy database connection for storing visited URLs, domain classifications, and captured leads.
     """
 
     def __init__(self, db_uri="sqlite:///crawler_session.db", recrawl_days=30):
@@ -84,15 +97,63 @@ class LocalStorage:
             self.session.rollback()
             log.warning(f"Failed to mark URL as visited: {url} - {e}")
 
-    def save_lead(self, email: str, source_url: str, page_title: str, context_snippet: str, category: str = None) -> bool:
-        """Saves a new lead to the database. Returns True if a new lead was inserted."""
+    def save_domain_classifications(self, classifications: dict[str, dict[str, str]]):
+        """
+        Bulk upserts domain classifications into the database.
+        """
+        log.info(f"Saving {len(classifications)} domain classifications to DB...")
+        try:
+            for domain, metadata in classifications.items():
+                record = self.session.query(DomainClassification).filter_by(domain=domain).first()
+                if record:
+                    record.category = metadata.get("category")
+                    record.state = metadata.get("state")
+                    record.org_type = metadata.get("org_type")
+                else:
+                    new_record = DomainClassification(
+                        domain=domain,
+                        category=metadata.get("category"),
+                        state=metadata.get("state"),
+                        org_type=metadata.get("org_type")
+                    )
+                    self.session.add(new_record)
+            self.session.commit()
+            log.info("Domain classifications saved successfully.")
+        except Exception as e:
+            self.session.rollback()
+            log.error(f"Failed to save domain classifications: {e}")
+
+    def save_lead(self, email: str, source_url: str, page_title: str, context_snippet: str) -> bool:
+        """Saves a new lead to the database. Returns True if a new lead was inserted.
+        Automatically maps the domain to its classification."""
+        
+        # Extract root domain from source_url
+        parsed = urlparse(source_url)
+        root_domain = f"{parsed.scheme}://{parsed.netloc}"
+        
+        # Look up classification
+        domain_cat = None
+        domain_state = None
+        domain_org = None
+        
+        try:
+            classification = self.session.query(DomainClassification).filter_by(domain=root_domain).first()
+            if classification:
+                domain_cat = classification.category
+                domain_state = classification.state
+                domain_org = classification.org_type
+        except Exception as e:
+            log.warning(f"Failed to lookup classification for {root_domain}: {e}")
+
         try:
             new_lead = Lead(
                 email=email,
                 source_url=source_url,
                 page_title=page_title,
                 context_snippet=context_snippet,
-                category=category,
+                domain_category=domain_cat,
+                domain_state=domain_state,
+                domain_org_type=domain_org,
                 captured_at=datetime.datetime.utcnow()
             )
             self.session.add(new_lead)
@@ -121,17 +182,22 @@ class LocalStorage:
             leads = self.session.query(Lead).all()
             with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
                 csv_writer = csv.writer(csvfile)
-                csv_writer.writerow(["Email", "Source URL", "Page Title", "Context/Surrounding Text", "Category", "Scraped At"])
+                csv_writer.writerow([
+                    "Email", "Source URL", "Page Title", "Context/Surrounding Text", 
+                    "Category / Ministry", "State", "Organization Type", "Scraped At"
+                ])
                 for lead in leads:
                     csv_writer.writerow([
                         lead.email,
                         lead.source_url,
                         lead.page_title,
                         lead.context_snippet,
-                        lead.category or "",
+                        lead.domain_category or "Unknown",
+                        lead.domain_state or "Unknown",
+                        lead.domain_org_type or "Unknown",
                         lead.captured_at.isoformat() if lead.captured_at else ""
                     ])
-            log.info(f"Exported {len(leads)} leads to {filename}")
+            log.info(f"Exported {len(leads)} classified leads to {filename}")
             return len(leads)
         except Exception as e:
             log.error(f"Failed to export leads to CSV: {e}")

@@ -19,7 +19,7 @@ _CONTACT_PATHS = [
     "/directory-of-officers",
 ]
 
-async def get_seed_urls(config: dict) -> list[str]:
+async def get_seed_urls(config: dict, storage=None) -> list[str]:
     """
     Generates seed URLs dynamically using the GovScraper module.
     No hardcoded URLs or external search APIs are used.
@@ -27,17 +27,21 @@ async def get_seed_urls(config: dict) -> list[str]:
     log.info("--- Starting Seed Generation via GovScraper ---")
     
     # Run the GovScraper directly
-    root_domains = run_all_domains()
+    domain_metadata = run_all_domains(config)
     
-    if not root_domains:
+    if not domain_metadata:
         log.warning("GovScraper did not find any root domains.")
         return []
+
+    # Save classifications to DB if storage is available
+    if storage:
+        storage.save_domain_classifications(domain_metadata)
 
     target_domains = config.get('target_domains', ['.gov.in', '.nic.in'])
     paths = config.get('contact_path_hints', _CONTACT_PATHS)
     
     seed_urls = set()
-    for root in root_domains:
+    for root in domain_metadata.keys():
         root = root.rstrip('/')
         
         # Verify domain suffix

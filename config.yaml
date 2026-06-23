@@ -19,6 +19,11 @@ database:
   # Connection string for SQLAlchemy (e.g. postgresql://user:pass@localhost:5432/govcrawler or sqlite:///crawler.db)
   uri: "sqlite:///central_crawler.db"
 
+# --- Scraper Filter Configuration ---
+scraper:
+  category_filter: "" # Optional category code to scrape (e.g., "ug" for Union Gov, "sg" for State Gov)
+  org_type_filter: "" # Optional organization type code to scrape (e.g., "E051")
+
 # --- Crawler Behavior ---
 crawler:
   # Skip URLs if they were visited within this many days

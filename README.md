@@ -17,8 +17,6 @@ Playwright with concurrent workers, per-domain rate limiting, and a post-crawl c
 - **Email extraction** — normalises obfuscated addresses (`[at]`, `[dot]`, Unicode variants) before applying regex;
   filters to government suffixes only
 - **Centralized database support** — uses SQLAlchemy (supports SQLite, Postgres, MySQL); enforces deduplication and intelligent recrawl intervals based on a `last_hit` threshold
-- **Post-crawl classification** — `classify.py` tags every lead with ministry name, tier (central / state / district /
-  statutory / psu), state, and confidence level
 
 ## Project Structure
 
@@ -66,8 +64,10 @@ All parameters live in `config.yaml`. Key settings:
 | `max_links_per_page`  | `80`    | Link budget at depth 0; tapered automatically at deeper levels               |
 | `num_workers`         | `55`    | Concurrent Playwright workers. Per-domain semaphore keeps rate limiting safe |
 | `page_timeout`        | `30`    | Seconds before a page navigation is retried once, then abandoned             |
-| `database.uri`        | `sqlite:///central_crawler.db` | SQLAlchemy connection string (e.g. `postgresql://user:pass@host/db`) |
-| `crawler.recrawl_days`| `30`    | Skips URLs if they were already crawled within this many days |
+| `database.uri`            | `sqlite:///central_crawler.db` | SQLAlchemy connection string (e.g. `postgresql://user:pass@host/db`) |
+| `crawler.recrawl_days`    | `30`    | Skips URLs if they were already crawled within this many days |
+| `scraper.category_filter` | `""`    | Optional filter to only scrape a specific category (e.g. `ug`) |
+| `scraper.org_type_filter` | `""`    | Optional filter to only scrape a specific organization code |
 
 ## Running
 
@@ -95,51 +95,10 @@ to `leads.csv`.
 | `Source URL`               | Page where it was found                             |
 | `Page Title`               | HTML title of the source page                       |
 | `Context/Surrounding Text` | ~100 chars around the email for manual verification |
+| `Category / Ministry`      | Real-time category assigned from the web directory  |
+| `State`                    | State associated with the domain                    |
+| `Organization Type`        | Type of organization (e.g. Statutory Body)          |
 | `Scraped At`               | ISO timestamp                                       |
 
 **Centralized Database (e.g., `central_crawler.db`)** — managed via SQLAlchemy. Leads accumulate across runs; visited URLs are deduplicated and evaluated against the `recrawl_days` threshold so the same page isn't needlessly crawled.
 
-## Post-crawl Classification
-
-After a run completes, classify every lead by ministry, tier, and state:
-
-```bash
-python3 classify.py
-# Output: classified_leads.csv
-```
-
-The classifier adds these columns to every lead:
-
-| Column       | Description                                                                          |
-|--------------|--------------------------------------------------------------------------------------|
-| `ministry`   | Human-readable name (e.g. `Ministry of External Affairs`)                            |
-| `tier`       | `central` / `state` / `district` / `statutory` / `psu`                               |
-| `state`      | Populated for state and district tier rows                                           |
-| `confidence` | `high` = exact domain map match; `low` = inferred from domain string                 |
-| `nic_email`  | `True` if the email is `@nic.in` or `@gov.in` — generic infrastructure, not personal |
-
-Terminal summary printed on completion:
-
-```text
-==================================================
-  Total leads classified : 2011
-  By tier:
-    central        847
-    state          612
-    statutory      310
-    district       180
-    psu             62
-  Confidence:
-    high (exact domain map match) : 1890
-    low  (inferred from domain)   : 121
-==================================================
-```
-
-Rows with `confidence=low` are domains discovered via cross-domain link following that aren't in the built-in map. Add
-them to `DOMAIN_MAP` in `classify.py` to get `high` confidence on future runs.
-
-To classify a specific database file or write to a custom path:
-
-```bash
-python3 classify.py --db my_session.db --out my_results.csv
-```

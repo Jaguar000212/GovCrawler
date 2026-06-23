@@ -78,7 +78,7 @@ async def main():
 
         async with async_playwright() as p:
             # --- Seed Generation ---
-            seed_urls = await get_seed_urls(config)
+            seed_urls = await get_seed_urls(config, storage)
             if not seed_urls:
                 log.error("Could not generate any seed URLs. Exiting.")
                 return

@@ -1,14 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="DataSourceManagerImpl" format="xml" multifile-model="true">
-    <data-source source="LOCAL" name="SQLite" uuid="2e9b9037-3d85-420d-be17-5510470ffc12">
-      <driver-ref>sqlite.xerial</driver-ref>
-      <synchronize>true</synchronize>
-      <configured-by-url>true</configured-by-url>
-      <jdbc-driver>org.sqlite.JDBC</jdbc-driver>
-      <jdbc-url>sqlite:///central_crawler.db</jdbc-url>
-      <working-dir>$ProjectFileDir$</working-dir>
-    </data-source>
     <data-source source="LOCAL" name="central_crawler" uuid="0b87f74d-7b8a-48bd-a1fc-c87bd2771e2e">
       <driver-ref>sqlite.xerial</driver-ref>
       <synchronize>true</synchronize>
