@@ -66,6 +66,20 @@ def _root_url(url: str) -> str:
     return f"{p.scheme}://{p.netloc}"
 
 
+def _title_from_url(url: str) -> str:
+    """Derive a readable organization name from a .gov.in URL hostname."""
+    try:
+        host = urlparse(url).netloc.lower()
+        for suffix in ('.gov.in', '.nic.in', '.res.in', '.ac.in', '.edu.in'):
+            if host.endswith(suffix):
+                host = host[:-len(suffix)]
+                break
+        name = host.replace('.', ' ').replace('-', ' ').strip()
+        return ' '.join(w.capitalize() for w in name.split()) if name else ''
+    except Exception:
+        return ''
+
+
 # ── JSON import (zero API calls) ──────────────────────────────────────────────
 
 def import_from_json(db: Database, json_path: str | Path, config: dict):
@@ -134,7 +148,7 @@ def import_from_json(db: Database, json_path: str | Path, config: dict):
                             state=state,
                             org_type=org_code,
                             org_type_title=org_type_title,
-                            title="",          # not present in JSON
+                            title=_title_from_url(url),  # derived from hostname
                             main_url=_root_url(url),
                             contact_url=None,  # discovered by crawler
                         )

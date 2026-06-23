@@ -1,13 +1,17 @@
 """
-FastAPI backend for the MishaCrawler Portal.
+FastAPI backend for the GovCrawler Portal.
 
 Endpoints:
   GET  /                    → frontend HTML
   GET  /api/categories      → [{code, title, count}]
-  GET  /api/states          → [state_name, ...]
-  GET  /api/org-types       → [{code, title, count}]
-  GET  /api/domains         → paginated domain list (filter: category, state, org_type, search)
-  POST /api/import          → start background import from india.gov.in
+  GET  /api/states          → state list (filtered by category if provided)
+  GET  /api/org-types       → org type list (filtered by category+state)
+  GET  /api/domains         → paginated domain list
+  GET  /api/domains/ids     → all matching domain IDs (for select-all)
+  GET  /api/config          → current crawler settings
+  POST /api/config          → save crawler settings
+  POST /api/import/json     → import from gov_domains.json (zero API calls)
+  POST /api/import          → import from live india.gov.in API
   GET  /api/import/status   → import progress
   POST /api/jobs            → create + start a crawl job
   GET  /api/jobs            → list recent jobs
@@ -17,6 +21,7 @@ Endpoints:
 """
 
 import asyncio
+import copy
 import csv
 import io
 import logging
@@ -40,6 +45,7 @@ _config: dict | None = None
 _browser = None
 _playwright_instance = None
 _active_tasks: dict[int, asyncio.Task] = {}
+_config_path: Path | None = None
 
 
 @asynccontextmanager
@@ -59,11 +65,12 @@ async def lifespan(app: FastAPI):
 
 
 def create_app(config: dict, db: Database) -> FastAPI:
-    global _db, _config
+    global _db, _config, _config_path
     _db = db
     _config = config
+    _config_path = Path(__file__).parent.parent / "config.yaml"
 
-    app = FastAPI(title="MishaCrawler Portal", lifespan=lifespan)
+    app = FastAPI(title="GovCrawler Portal", lifespan=lifespan)
     frontend_dir = Path(__file__).parent.parent / "frontend"
 
     # ── Frontend ──────────────────────────────────────────────────────────────
@@ -82,12 +89,12 @@ def create_app(config: dict, db: Database) -> FastAPI:
         return _db.get_categories()
 
     @app.get("/api/states")
-    async def get_states():
-        return _db.get_states()
+    async def get_states(category: str = Query(None)):
+        return _db.get_states(category=category or None)
 
     @app.get("/api/org-types")
-    async def get_org_types():
-        return _db.get_org_types()
+    async def get_org_types(category: str = Query(None), state: str = Query(None)):
+        return _db.get_org_types(category=category or None, state=state or None)
 
     # ── Domains ───────────────────────────────────────────────────────────────
 
@@ -116,11 +123,81 @@ def create_app(config: dict, db: Database) -> FastAPI:
             "pages": max(1, (total + limit - 1) // limit),
         }
 
+    @app.get("/api/domains/ids")
+    async def get_domain_ids(
+        category: str = Query(None),
+        state:    str = Query(None),
+        org_type: str = Query(None),
+        search:   str = Query(None),
+    ):
+        ids = _db.get_domain_ids(
+            category=category or None,
+            state=state or None,
+            org_type=org_type or None,
+            search=search or None,
+        )
+        return {"ids": ids, "total": len(ids)}
+
+    # ── Config ────────────────────────────────────────────────────────────────
+
+    @app.get("/api/config")
+    async def get_config():
+        c = _config
+        return {
+            "workers":              c["crawler"]["workers"],
+            "max_depth":            c["crawler"]["max_depth"],
+            "recrawl_days":         c["crawler"]["recrawl_days"],
+            "request_delay":        c["crawler"]["request_delay"],
+            "per_url_timeout":      c["crawler"]["per_url_timeout"],
+            "httpx_first":          c["crawler"].get("httpx_first", True),
+            "playwright_fallback":  c["crawler"].get("playwright_fallback", True),
+            "playwright_timeout":   c["crawler"]["playwright_timeout"],
+            "js_settle_time":       c["crawler"]["js_settle_time"],
+            "email_enabled":        c["extraction"]["email"]["enabled"],
+            "email_context_chars":  c["extraction"]["email"]["context_chars"],
+            "person_enabled":       c["extraction"]["person"]["enabled"],
+            "person_proximity_chars": c["extraction"]["person"]["proximity_chars"],
+        }
+
+    @app.post("/api/config")
+    async def save_config(body: dict):
+        cfg = copy.deepcopy(_config)
+
+        int_keys   = {"workers", "max_depth", "recrawl_days", "per_url_timeout", "playwright_timeout"}
+        float_keys = {"request_delay", "js_settle_time"}
+        bool_keys  = {"httpx_first", "playwright_fallback"}
+
+        for k in int_keys:
+            if k in body:
+                cfg["crawler"][k] = int(body[k])
+        for k in float_keys:
+            if k in body:
+                cfg["crawler"][k] = float(body[k])
+        for k in bool_keys:
+            if k in body:
+                cfg["crawler"][k] = bool(body[k])
+
+        if "email_enabled" in body:
+            cfg["extraction"]["email"]["enabled"] = bool(body["email_enabled"])
+        if "email_context_chars" in body:
+            cfg["extraction"]["email"]["context_chars"] = int(body["email_context_chars"])
+        if "person_enabled" in body:
+            cfg["extraction"]["person"]["enabled"] = bool(body["person_enabled"])
+        if "person_proximity_chars" in body:
+            cfg["extraction"]["person"]["proximity_chars"] = int(body["person_proximity_chars"])
+
+        _config.update(cfg)
+
+        with open(_config_path, "w") as f:
+            yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+        return {"message": "Settings saved. Crawler settings take effect on the next job."}
+
     # ── Import ────────────────────────────────────────────────────────────────
 
     @app.post("/api/import/json")
     async def trigger_json_import(json_path: str = "gov_domains.json"):
-        """Import domains from a local gov_domains.json file — zero API calls."""
+        """Import domains from gov_domains.json — zero API calls."""
         if import_status.get("running"):
             return {"message": "Import already running", "status": import_status}
         asyncio.create_task(_run_json_import(json_path))

@@ -2,8 +2,8 @@
 SQLAlchemy ORM models and Database access wrapper.
 
 Backends (set database.uri in portal/config.yaml):
-  SQLite  (dev):    sqlite:///portal/data/mishacrawler.db
-  PostgreSQL (server): postgresql://user:pass@host:5432/mishacrawler
+  SQLite  (dev):    sqlite:///portal/data/govcrawler.db
+  PostgreSQL (server): postgresql://user:pass@host:5432/govcrawler
 """
 
 import datetime
@@ -13,7 +13,7 @@ import sqlite3
 
 from sqlalchemy import (
     Column, DateTime, ForeignKey, Integer, String, Text,
-    UniqueConstraint, create_engine, event, func,
+    UniqueConstraint, create_engine, event, func, or_,
 )
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
@@ -159,24 +159,27 @@ class Database:
                 for r in rows
             ]
 
-    def get_states(self) -> list[str]:
+    def get_states(self, category: str = None) -> list[str]:
         with self._Session() as s:
-            rows = (
-                s.query(Domain.state)
-                .filter(Domain.state.isnot(None))
-                .distinct()
-                .order_by(Domain.state)
-                .all()
-            )
+            q = s.query(Domain.state).filter(Domain.state.isnot(None))
+            if category:
+                q = q.filter(Domain.category_code == category)
+            rows = q.distinct().order_by(Domain.state).all()
             return [r[0] for r in rows if r[0]]
 
-    def get_org_types(self) -> list[dict]:
+    def get_org_types(self, category: str = None, state: str = None) -> list[dict]:
         with self._Session() as s:
-            rows = (
+            q = (
                 s.query(Domain.org_type, Domain.org_type_title,
                         func.count(Domain.id).label("count"))
                 .filter(Domain.org_type.isnot(None))
-                .group_by(Domain.org_type, Domain.org_type_title)
+            )
+            if category:
+                q = q.filter(Domain.category_code == category)
+            if state:
+                q = q.filter(Domain.state == state)
+            rows = (
+                q.group_by(Domain.org_type, Domain.org_type_title)
                 .order_by(func.count(Domain.id).desc())
                 .all()
             )
@@ -199,10 +202,14 @@ class Database:
             if org_type:
                 q = q.filter(Domain.org_type == org_type)
             if search:
-                q = q.filter(Domain.title.ilike(f"%{search}%"))
+                # Search title OR the domain URL so it works even when title is empty
+                q = q.filter(
+                    or_(Domain.title.ilike(f"%{search}%"),
+                        Domain.main_url.ilike(f"%{search}%"))
+                )
             total = q.count()
             offset = (page - 1) * limit
-            rows = q.order_by(Domain.title).offset(offset).limit(limit).all()
+            rows = q.order_by(Domain.state, Domain.main_url).offset(offset).limit(limit).all()
             return (
                 [{"id": d.id, "category_code": d.category_code,
                   "category_title": d.category_title, "state": d.state,
@@ -212,6 +219,24 @@ class Database:
                  for d in rows],
                 total,
             )
+
+    def get_domain_ids(self, category: str = None, state: str = None,
+                       org_type: str = None, search: str = None) -> list[int]:
+        """Return all matching domain IDs — used by select-all in the UI."""
+        with self._Session() as s:
+            q = s.query(Domain.id)
+            if category:
+                q = q.filter(Domain.category_code == category)
+            if state:
+                q = q.filter(Domain.state == state)
+            if org_type:
+                q = q.filter(Domain.org_type == org_type)
+            if search:
+                q = q.filter(
+                    or_(Domain.title.ilike(f"%{search}%"),
+                        Domain.main_url.ilike(f"%{search}%"))
+                )
+            return [r[0] for r in q.all()]
 
     def get_domains_by_ids(self, ids: list[int]) -> list[dict]:
         with self._Session() as s:

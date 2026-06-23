@@ -3,123 +3,244 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MishaCrawler Portal</title>
+<title>GovCrawler Portal</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
-    --bg: #0f1117; --surface: #1a1d27; --surface2: #242736;
-    --border: #2e3148; --accent: #5b6cf8; --accent-hover: #4a5ae6;
-    --green: #22c55e; --red: #ef4444; --yellow: #f59e0b;
-    --text: #e2e8f0; --muted: #94a3b8; --small: #64748b;
-    --font: 'Segoe UI', system-ui, sans-serif;
+    --bg: #f5f0ea; --surface: #fdfaf6; --surface2: #ece5db;
+    --border: #d4cbbe; --accent: #7c6f5e; --accent-hover: #5e5448;
+    --green: #4a7a56; --red: #a63830; --yellow: #8a6a00; --orange: #9c5c2a;
+    --text: #2c2620; --muted: #6e6157; --small: #9e9085;
+    --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    --radius: 6px;
   }
   body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; min-height: 100vh; display: flex; flex-direction: column; }
   a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; }
+  code { font-family: 'Courier New', monospace; }
 
-  /* Header */
-  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; height: 56px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
-  header h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }
-  header h1 span { color: var(--accent); }
-  .header-right { display: flex; gap: 10px; align-items: center; }
-
-  /* Buttons */
-  button { cursor: pointer; border: none; border-radius: 6px; font-family: var(--font); font-size: 13px; font-weight: 500; transition: background 0.15s; }
-  .btn-primary   { background: var(--accent); color: #fff; padding: 7px 14px; }
+  /* ── Buttons ── */
+  button { cursor: pointer; border: none; border-radius: var(--radius); font-family: var(--font); font-size: 13px; font-weight: 500; transition: background 0.12s, opacity 0.12s; }
+  .btn-primary   { background: var(--accent); color: #fff; padding: 7px 16px; }
   .btn-primary:hover { background: var(--accent-hover); }
-  .btn-primary:disabled { background: var(--border); color: var(--small); cursor: not-allowed; }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
   .btn-secondary { background: var(--surface2); color: var(--text); padding: 7px 14px; border: 1px solid var(--border); }
   .btn-secondary:hover { background: var(--border); }
-  .btn-sm { padding: 4px 10px; font-size: 12px; }
+  .btn-danger    { background: transparent; color: var(--red); padding: 7px 14px; border: 1px solid var(--red); }
+  .btn-danger:hover { background: rgba(248,81,73,.1); }
+  .btn-sm { padding: 5px 10px; font-size: 12px; }
+  .btn-icon { background: transparent; color: var(--muted); padding: 5px 8px; border-radius: var(--radius); font-size: 16px; line-height: 1; }
+  .btn-icon:hover { background: var(--surface2); color: var(--text); }
 
-  /* Layout */
-  .layout { display: flex; flex: 1; overflow: hidden; }
+  /* ── Header ── */
+  header {
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 0 20px; height: 52px;
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 100;
+  }
+  .logo { font-size: 17px; font-weight: 700; letter-spacing: -0.4px; display: flex; align-items: center; gap: 8px; }
+  .logo-icon { width: 26px; height: 26px; background: var(--accent); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+  .logo span { color: var(--accent); }
+  .header-right { display: flex; align-items: center; gap: 8px; }
+  #live-badge { display:none; align-items:center; gap:5px; background:#ddeee2; border:1px solid #a8cdb4; border-radius:99px; padding:3px 10px; font-size:11px; color:var(--green); }
+  .pulse { width:6px; height:6px; border-radius:50%; background:var(--green); animation:pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+  #db-count { font-size:12px; color:var(--muted); }
 
-  /* Sidebar */
-  aside { width: 260px; min-width: 220px; background: var(--surface); border-right: 1px solid var(--border); padding: 20px 16px; display: flex; flex-direction: column; gap: 18px; overflow-y: auto; }
-  .section-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--small); margin-bottom: 8px; }
-  .form-group { display: flex; flex-direction: column; gap: 5px; }
-  label { font-size: 12px; color: var(--muted); }
-  select, input[type="text"] { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 7px 10px; font-size: 13px; font-family: var(--font); width: 100%; outline: none; }
+  /* ── Layout ── */
+  .layout { display: flex; flex: 1; overflow: hidden; height: calc(100vh - 52px); }
+
+  /* ── Sidebar ── */
+  aside {
+    width: 268px; min-width: 240px; background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; overflow-y: auto; flex-shrink: 0;
+  }
+  .sidebar-section { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+  .section-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--small); font-weight: 600; margin-bottom: 10px; }
+  .form-group { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+  .form-group:last-child { margin-bottom: 0; }
+  label { font-size: 11px; color: var(--muted); font-weight: 500; }
+  select, input[type="text"] {
+    background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+    color: var(--text); padding: 6px 10px; font-size: 13px; font-family: var(--font);
+    width: 100%; outline: none; transition: border-color 0.15s;
+  }
   select:focus, input[type="text"]:focus { border-color: var(--accent); }
 
-  /* Import section */
-  .import-box { border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
-  .import-box-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-  .import-box-top span { font-size: 13px; font-weight: 500; }
-  .import-progress { margin-top: 8px; font-size: 12px; color: var(--muted); display: none; }
-  .progress-bar-wrap { background: var(--border); border-radius: 99px; height: 5px; margin: 5px 0; overflow: hidden; }
-  .progress-bar-fill { height: 100%; background: var(--accent); border-radius: 99px; transition: width 0.3s; }
-  .status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; }
+  /* ── Import box ── */
+  .import-box { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .import-row { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; }
+  .import-row + .import-row { border-top: 1px solid var(--border); }
+  .import-row-label { font-size: 12px; font-weight: 500; }
+  .import-row-sub { font-size: 11px; color: var(--small); margin-top: 1px; }
+  .import-progress { padding: 8px 12px; border-top: 1px solid var(--border); display: none; }
+  .progress-bar-wrap { background: var(--border); border-radius: 99px; height: 4px; margin: 5px 0; overflow: hidden; }
+  .progress-bar-fill { height: 100%; background: var(--accent); border-radius: 99px; transition: width 0.4s; }
+  .import-msg { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 5px; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
   .dot-green  { background: var(--green); }
   .dot-yellow { background: var(--yellow); animation: pulse 1s infinite; }
   .dot-red    { background: var(--red); }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 
-  /* Recent jobs list */
-  .job-item { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 9px 11px; cursor: pointer; }
+  /* ── Selection helper ── */
+  .sel-all-hint { font-size: 11px; color: var(--muted); margin-top: 8px; }
+  .sel-all-hint a { color: var(--accent); cursor: pointer; }
+
+  /* ── Job list ── */
+  .job-item { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; cursor: pointer; transition: border-color 0.12s; }
   .job-item:hover { border-color: var(--accent); }
-  .job-item-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; }
+  .job-item + .job-item { margin-top: 6px; }
+  .job-item-top { display: flex; justify-content: space-between; align-items: center; }
   .job-item-top strong { font-size: 12px; }
-  .job-item-meta { font-size: 11px; color: var(--small); }
+  .job-item-meta { font-size: 11px; color: var(--small); margin-top: 2px; }
 
-  /* Main area */
+  /* ── Main area ── */
   main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-  .table-header { padding: 12px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; background: var(--surface); }
+
+  .table-toolbar {
+    padding: 10px 16px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px;
+    background: var(--surface); flex-shrink: 0;
+  }
+  .toolbar-sep { width: 1px; height: 18px; background: var(--border); margin: 0 2px; }
+
   .table-wrap { flex: 1; overflow-y: auto; }
   table { width: 100%; border-collapse: collapse; }
-  th { background: var(--surface2); color: var(--small); font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; font-weight: 600; padding: 9px 14px; text-align: left; position: sticky; top: 0; z-index: 1; border-bottom: 1px solid var(--border); }
-  td { padding: 9px 14px; border-bottom: 1px solid var(--border); vertical-align: top; font-size: 13px; }
+  th {
+    background: var(--surface); color: var(--small); font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.7px; font-weight: 600;
+    padding: 8px 14px; text-align: left; position: sticky; top: 0; z-index: 1;
+    border-bottom: 1px solid var(--border);
+  }
+  td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; font-size: 13px; }
   tr:hover td { background: var(--surface); }
   input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; }
 
-  /* Tags */
-  .tag { display: inline-block; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; font-size: 11px; color: var(--muted); white-space: nowrap; }
-  .tag-ug   { border-color: #8b5cf6; color: #8b5cf6; }
-  .tag-sg   { border-color: #3b82f6; color: #3b82f6; }
-  .tag-dist { border-color: #22c55e; color: #22c55e; }
-  .tag-jud  { border-color: #f59e0b; color: #f59e0b; }
+  /* ── Domain name display ── */
+  .d-name { font-weight: 500; line-height: 1.3; color: var(--text); }
+  .d-url  { font-size: 11px; color: var(--small); margin-top: 2px; font-family: monospace; }
+  .d-state { font-size: 11px; color: var(--muted); margin-top: 1px; }
 
-  /* Domain title with state subtitle */
-  .domain-title { font-weight: 500; line-height: 1.3; }
-  .domain-sub   { font-size: 11px; color: var(--small); margin-top: 2px; }
+  /* ── Tags ── */
+  .tag { display: inline-block; border-radius: 3px; padding: 2px 6px; font-size: 10px; font-weight: 600; letter-spacing: 0.4px; white-space: nowrap; border: 1px solid; }
+  .tag-sg   { background: #e8e0d5; border-color: #c4b8a8; color: #5e4e38; }
+  .tag-ug   { background: #e5ddf0; border-color: #c0aed8; color: #5c4480; }
+  .tag-dist { background: #ddeee2; border-color: #a8cdb4; color: #2e6640; }
+  .tag-jud  { background: #f0e8d0; border-color: #d4be8c; color: #6e4e00; }
+  .tag-leg  { background: #f0e0d5; border-color: #d4a88c; color: #7a3a1a; }
+  .tag-ims  { background: #f0ddd8; border-color: #d4a8a0; color: #7a2e28; }
+  .tag-apex { background: #d8eae8; border-color: #9cc4c0; color: #2a5e5a; }
+  .tag-default { background: var(--surface2); border-color: var(--border); color: var(--muted); }
 
-  /* Pagination */
-  .pagination { padding: 10px 20px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 10px; background: var(--surface); font-size: 13px; color: var(--muted); }
+  /* ── Pagination ── */
+  .pagination {
+    padding: 8px 16px; border-top: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px;
+    background: var(--surface); font-size: 12px; color: var(--muted); flex-shrink: 0;
+  }
 
-  /* Action bar */
-  .action-bar { padding: 10px 20px; border-top: 2px solid var(--accent); background: var(--surface); display: flex; align-items: center; gap: 12px; }
-  .sel-count { flex: 1; font-size: 13px; color: var(--muted); }
-  .sel-count strong { color: var(--text); }
+  /* ── Action bar ── */
+  .action-bar {
+    padding: 10px 16px; background: var(--surface);
+    border-top: 2px solid var(--accent);
+    display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+  }
+  .sel-info { flex: 1; font-size: 13px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .sel-count-n { font-weight: 600; color: var(--text); }
+  .sel-all-link { font-size: 12px; color: var(--accent); cursor: pointer; white-space: nowrap; }
+  .sel-all-link:hover { text-decoration: underline; }
 
-  /* Job panel (slide-up) */
-  #job-panel { position: fixed; bottom: 0; left: 0; right: 0; background: var(--surface); border-top: 1px solid var(--border); padding: 18px 28px; transform: translateY(100%); transition: transform 0.25s ease; z-index: 200; }
+  /* ── Job panel (slide-up) ── */
+  #job-panel {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: var(--surface); border-top: 1px solid var(--border);
+    padding: 16px 24px; transform: translateY(100%);
+    transition: transform 0.25s ease; z-index: 200;
+  }
   #job-panel.open { transform: translateY(0); }
-  .jp-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-  .jp-header h2 { font-size: 15px; font-weight: 600; }
-  .jp-stats { display: flex; gap: 28px; margin-bottom: 12px; }
-  .jp-stat-label { font-size: 11px; color: var(--small); text-transform: uppercase; }
-  .jp-stat-value { font-size: 20px; font-weight: 600; }
-  .jp-actions { display: flex; gap: 10px; margin-top: 12px; }
+  .jp-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .jp-header h2 { font-size: 14px; font-weight: 600; }
+  .jp-stats { display: flex; gap: 32px; margin-bottom: 10px; }
+  .jp-stat { }
+  .jp-stat-label { font-size: 10px; color: var(--small); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 2px; }
+  .jp-stat-value { font-size: 22px; font-weight: 600; }
+  .jp-actions { display: flex; gap: 8px; margin-top: 10px; }
 
-  /* Results modal */
-  #results-panel { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 300; }
-  #results-panel.open { display: flex; align-items: center; justify-content: center; }
-  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; width: 92vw; max-width: 1100px; max-height: 85vh; display: flex; flex-direction: column; overflow: hidden; }
+  /* ── Leads modal ── */
+  #results-panel { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.3); z-index: 300; align-items: center; justify-content: center; }
+  #results-panel.open { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; width: 94vw; max-width: 1200px; max-height: 88vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,.15); }
   .modal-header { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
   .modal-header h2 { font-size: 14px; font-weight: 600; }
   .modal-body { flex: 1; overflow: auto; }
-  .modal-body td { font-size: 12px; }
+  .modal-body th, .modal-body td { font-size: 12px; }
   .empty-state { text-align: center; padding: 50px 20px; color: var(--small); font-size: 13px; }
+
+  /* ── Config panel (right drawer) ── */
+  #config-panel {
+    position: fixed; top: 52px; right: 0; bottom: 0; width: 420px;
+    background: var(--surface); border-left: 1px solid var(--border);
+    transform: translateX(100%); transition: transform 0.25s ease;
+    z-index: 250; display: flex; flex-direction: column; overflow: hidden;
+  }
+  #config-panel.open { transform: translateX(0); box-shadow: -4px 0 20px rgba(0,0,0,.1); }
+  .cfg-header { padding: 16px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+  .cfg-header h2 { font-size: 14px; font-weight: 600; }
+  .cfg-body { flex: 1; overflow-y: auto; padding: 0; }
+  .cfg-section { padding: 16px 18px; border-bottom: 1px solid var(--border); }
+  .cfg-section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--small); font-weight: 600; margin-bottom: 12px; }
+  .cfg-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .cfg-row:last-child { margin-bottom: 0; }
+  .cfg-label { flex: 1; font-size: 13px; color: var(--text); }
+  .cfg-input { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); padding: 5px 8px; font-size: 13px; font-family: var(--font); width: 80px; outline: none; text-align: right; }
+  .cfg-input:focus { border-color: var(--accent); }
+  .cfg-input-wide { width: 110px; }
+  .cfg-toggle { position: relative; width: 36px; height: 20px; flex-shrink: 0; }
+  .cfg-toggle input { opacity: 0; width: 0; height: 0; }
+  .cfg-toggle-track { position: absolute; inset: 0; background: var(--border); border-radius: 20px; cursor: pointer; transition: background 0.2s; }
+  .cfg-toggle input:checked + .cfg-toggle-track { background: var(--accent); }
+  .cfg-toggle-track::before { content: ''; position: absolute; width: 14px; height: 14px; border-radius: 50%; background: #fff; top: 3px; left: 3px; transition: transform 0.2s; }
+  .cfg-toggle input:checked + .cfg-toggle-track::before { transform: translateX(16px); }
+
+  /* ── Info tooltip ── */
+  .info-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--muted); font-size: 10px; cursor: help;
+    position: relative; font-style: normal; user-select: none; flex-shrink: 0;
+  }
+  .info-icon::after {
+    content: attr(data-tip);
+    position: absolute; right: calc(100% + 8px); top: 50%; transform: translateY(-50%);
+    width: 220px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 12px; font-size: 11px; color: var(--muted);
+    line-height: 1.5; pointer-events: none; opacity: 0; transition: opacity 0.15s;
+    z-index: 1000; box-shadow: 0 4px 16px rgba(0,0,0,.12); white-space: normal;
+  }
+  .info-icon:hover::after { opacity: 1; }
+
+  /* ── Config footer ── */
+  .cfg-footer { padding: 14px 18px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+  .cfg-footer-btns { display: flex; gap: 8px; }
+  .btn-save-big { width: 100%; padding: 11px; font-size: 14px; font-weight: 600; border-radius: var(--radius); }
+  #cfg-save-msg { font-size: 12px; color: var(--green); display: none; align-items: center; justify-content: center; padding: 4px 0; }
 </style>
 </head>
 <body>
 
 <header>
-  <h1>Misha<span>Crawler</span></h1>
+  <div class="logo">
+    <div class="logo-icon">⚡</div>
+    Gov<span>Crawler</span>
+  </div>
   <div class="header-right">
-    <span id="db-summary" style="font-size:12px;color:var(--muted)"></span>
-    <button class="btn-secondary btn-sm" onclick="openResults()">View All Jobs</button>
+    <div id="live-badge"><div class="pulse"></div> Job running</div>
+    <span id="db-count"></span>
+    <button class="btn-icon" onclick="openConfig()" title="Settings">⚙</button>
+    <button class="btn-secondary btn-sm" onclick="openResults()">View Jobs</button>
   </div>
 </header>
 
@@ -129,20 +250,28 @@
   <aside>
 
     <!-- Import -->
-    <div>
-      <div class="section-label">Data Source</div>
+    <div class="sidebar-section">
+      <div class="section-label">Data Import</div>
       <div class="import-box">
-        <div class="import-box-top">
-          <span style="font-size:12px">gov_domains.json</span>
-          <button class="btn-primary btn-sm" id="import-json-btn" onclick="triggerJsonImport()" title="Import from gov_domains.json — no API calls">Import JSON</button>
+        <div class="import-row">
+          <div>
+            <div class="import-row-label">gov_domains.json</div>
+            <div class="import-row-sub">Zero API calls · instant</div>
+          </div>
+          <button class="btn-primary btn-sm" id="import-json-btn" onclick="triggerJsonImport()">Import</button>
         </div>
-        <div style="font-size:11px;color:var(--small);margin-bottom:6px">Place gov_domains.json in project root</div>
-        <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:2px;display:flex;align-items:center;justify-content:space-between;">
-          <span style="font-size:11px;color:var(--small)">Refresh via API</span>
-          <button class="btn-secondary btn-sm" id="import-btn" onclick="triggerImport()" title="Re-import from india.gov.in API (many requests)">API Refresh</button>
+        <div class="import-row">
+          <div>
+            <div class="import-row-label" style="color:var(--muted)">Live API refresh</div>
+            <div class="import-row-sub">Fetches from india.gov.in</div>
+          </div>
+          <button class="btn-secondary btn-sm" id="import-btn" onclick="triggerImport()">Refresh</button>
         </div>
         <div class="import-progress" id="import-progress">
-          <div><span class="status-dot dot-yellow" id="import-dot"></span><span id="import-msg">Starting…</span></div>
+          <div class="import-msg">
+            <div class="dot dot-yellow" id="import-dot"></div>
+            <span id="import-msg-text">Starting…</span>
+          </div>
           <div class="progress-bar-wrap">
             <div class="progress-bar-fill" id="import-bar" style="width:0%"></div>
           </div>
@@ -151,49 +280,52 @@
     </div>
 
     <!-- Filters -->
-    <div>
+    <div class="sidebar-section">
       <div class="section-label">Filters</div>
-      <div style="display:flex;flex-direction:column;gap:10px">
-        <div class="form-group">
-          <label>Category</label>
-          <select id="cat-select" onchange="onFilterChange()">
-            <option value="">All Categories</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>State</label>
-          <select id="state-select" onchange="onFilterChange()">
-            <option value="">All States</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Org Type</label>
-          <select id="orgtype-select" onchange="onFilterChange()">
-            <option value="">All Types</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Search by name</label>
-          <input type="text" id="search-input" placeholder="Ministry, district…" oninput="debounceSearch()">
-        </div>
-        <div style="font-size:12px;color:var(--muted)" id="domain-count-label"></div>
+      <div class="form-group">
+        <label>Category</label>
+        <select id="cat-select" onchange="onCategoryChange()">
+          <option value="">All Categories</option>
+        </select>
       </div>
+      <div class="form-group">
+        <label>State</label>
+        <select id="state-select" onchange="onStateChange()">
+          <option value="">All States</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Org Type</label>
+        <select id="orgtype-select" onchange="onFilterChange()">
+          <option value="">All Types</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Search</label>
+        <input type="text" id="search-input" placeholder="haryana, judiciary, district…" oninput="debounceSearch()">
+      </div>
+      <div style="font-size:12px;color:var(--muted)" id="domain-count-label"></div>
     </div>
 
-    <!-- Recent jobs -->
-    <div>
+    <!-- Recent Jobs -->
+    <div class="sidebar-section" style="flex:1">
       <div class="section-label">Recent Jobs</div>
-      <div id="jobs-list" style="display:flex;flex-direction:column;gap:7px"></div>
+      <div id="jobs-list"></div>
     </div>
 
   </aside>
 
   <!-- Main table -->
   <main>
-    <div class="table-header">
-      <input type="checkbox" id="select-all" onchange="toggleSelectAll(this.checked)" title="Select page">
-      <label for="select-all" style="margin-right:auto;font-size:13px;color:var(--muted);cursor:pointer">Select page</label>
+    <div class="table-toolbar">
+      <input type="checkbox" id="select-all" onchange="toggleSelectAll(this.checked)" title="Select this page">
+      <span style="font-size:12px;color:var(--muted)">Select page</span>
+      <div class="toolbar-sep"></div>
+      <button class="btn-secondary btn-sm" id="btn-select-all-results" onclick="selectAllResults()" style="display:none">
+        Select all <span id="sel-all-toolbar-n"></span>
+      </button>
       <button class="btn-secondary btn-sm" onclick="clearSelection()">Clear</button>
+      <span id="total-label" style="margin-left:auto;font-size:12px;color:var(--muted)"></span>
     </div>
 
     <div class="table-wrap">
@@ -201,14 +333,14 @@
         <thead>
           <tr>
             <th style="width:40px"></th>
-            <th>Ministry / Department</th>
-            <th>Category</th>
+            <th>Domain / Ministry</th>
+            <th style="width:70px">Cat</th>
             <th>Org Type</th>
-            <th>Contact URL</th>
+            <th>URL</th>
           </tr>
         </thead>
         <tbody id="domain-tbody">
-          <tr><td colspan="5" class="empty-state">Import data first, then select domains to crawl.</td></tr>
+          <tr><td colspan="5" class="empty-state">Import domains first, then select and crawl.</td></tr>
         </tbody>
       </table>
     </div>
@@ -217,37 +349,42 @@
       <button class="btn-secondary btn-sm" onclick="prevPage()" id="btn-prev">← Prev</button>
       <span id="page-info">—</span>
       <button class="btn-secondary btn-sm" onclick="nextPage()" id="btn-next">Next →</button>
-      <span style="margin-left:auto" id="total-label"></span>
     </div>
 
-    <div class="action-bar">
-      <div class="sel-count"><strong id="sel-count">0</strong> domains selected</div>
-      <button class="btn-primary" id="crawl-btn" onclick="startCrawl()" disabled>▶ Crawl Selected</button>
+    <div class="action-bar" id="action-bar" style="display:none">
+      <div class="sel-info">
+        <span><span class="sel-count-n" id="sel-count">0</span> domains selected</span>
+        <span class="sel-all-link" id="sel-all-link" onclick="selectAllResults()" style="display:none">
+          Select all <span id="sel-all-n"></span> matching results
+        </span>
+      </div>
+      <button class="btn-secondary btn-sm" onclick="clearSelection()">Clear</button>
+      <button class="btn-primary" id="crawl-btn" onclick="startCrawl()">▶ Crawl Selected</button>
     </div>
   </main>
 </div>
 
-<!-- Job panel -->
+<!-- Job panel (slide-up) -->
 <div id="job-panel">
   <div class="jp-header">
     <h2 id="job-title">Crawl Job</h2>
-    <button class="btn-secondary btn-sm" onclick="closeJobPanel()">✕</button>
+    <button class="btn-icon" onclick="closeJobPanel()">✕</button>
   </div>
   <div class="jp-stats">
-    <div>
+    <div class="jp-stat">
       <div class="jp-stat-label">Status</div>
       <div class="jp-stat-value" id="job-status-val">—</div>
     </div>
-    <div>
+    <div class="jp-stat">
       <div class="jp-stat-label">Domains</div>
       <div class="jp-stat-value" id="job-domains-val">0 / 0</div>
     </div>
-    <div>
+    <div class="jp-stat">
       <div class="jp-stat-label">Leads found</div>
       <div class="jp-stat-value" id="job-leads-val" style="color:var(--green)">0</div>
     </div>
   </div>
-  <div class="progress-bar-wrap" style="height:7px">
+  <div class="progress-bar-wrap" style="height:6px">
     <div class="progress-bar-fill" id="job-bar" style="width:0%;background:var(--green)"></div>
   </div>
   <div class="jp-actions">
@@ -256,14 +393,14 @@
   </div>
 </div>
 
-<!-- Results modal -->
+<!-- Leads modal -->
 <div id="results-panel">
   <div class="modal">
     <div class="modal-header">
       <h2 id="results-title">Leads</h2>
       <div style="display:flex;gap:8px">
         <button class="btn-primary btn-sm" onclick="exportLeads()">⬇ Export CSV</button>
-        <button class="btn-secondary btn-sm" onclick="closeResults()">✕</button>
+        <button class="btn-icon" onclick="closeResults()" style="font-size:14px">✕</button>
       </div>
     </div>
     <div class="modal-body">
@@ -271,11 +408,11 @@
         <thead>
           <tr>
             <th>Email</th>
-            <th>Person</th>
+            <th>Name</th>
             <th>Designation</th>
             <th>Department</th>
             <th>State</th>
-            <th>Ministry</th>
+            <th>Domain</th>
             <th>Cat</th>
             <th>Source</th>
           </tr>
@@ -283,20 +420,146 @@
         <tbody id="leads-tbody"></tbody>
       </table>
     </div>
-    <div class="pagination" style="border-top:1px solid var(--border)">
+    <div class="pagination">
       <button class="btn-secondary btn-sm" onclick="leadsPrev()">← Prev</button>
       <span id="leads-page-info">—</span>
       <button class="btn-secondary btn-sm" onclick="leadsNext()">Next →</button>
-      <span style="margin-left:auto;font-size:12px;color:var(--muted)" id="leads-total-label"></span>
+      <span style="margin-left:auto;color:var(--muted)" id="leads-total-label"></span>
+    </div>
+  </div>
+</div>
+
+<!-- Config panel (right drawer) -->
+<div id="config-panel">
+  <div class="cfg-header">
+    <h2>⚙ Crawler Settings</h2>
+    <button class="btn-icon" onclick="closeConfig()" style="font-size:14px">✕</button>
+  </div>
+  <div class="cfg-body">
+
+    <div class="cfg-section">
+      <div class="cfg-section-title">Crawler</div>
+
+      <div class="cfg-row">
+        <label class="cfg-label">Workers</label>
+        <input type="number" class="cfg-input" id="cfg-workers" min="1" max="20">
+        <span class="info-icon" data-tip="Parallel workers crawling at once. Keep at 5 for gov sites — higher risks IP blocks.">ⓘ</span>
+      </div>
+      <div class="cfg-row">
+        <label class="cfg-label">Max Depth</label>
+        <input type="number" class="cfg-input" id="cfg-max-depth" min="0" max="8">
+        <span class="info-icon" data-tip="How deep to follow links from seed pages. 3 = seed → contact → officer → detail. Beyond 4 rarely yields new contacts.">ⓘ</span>
+      </div>
+      <div class="cfg-row">
+        <label class="cfg-label">Recrawl Days</label>
+        <input type="number" class="cfg-input" id="cfg-recrawl-days" min="0" max="365">
+        <span class="info-icon" data-tip="Skip URLs visited in any previous job within this many days. Prevents repeatedly hitting the same gov pages.">ⓘ</span>
+      </div>
+      <div class="cfg-row">
+        <label class="cfg-label">Request Delay (s)</label>
+        <input type="number" class="cfg-input" id="cfg-request-delay" min="0" max="10" step="0.1">
+        <span class="info-icon" data-tip="Seconds to wait between requests to the same domain. Increase this if sites start blocking or rate-limiting you.">ⓘ</span>
+      </div>
+      <div class="cfg-row">
+        <label class="cfg-label">Per-URL Timeout (s)</label>
+        <input type="number" class="cfg-input" id="cfg-per-url-timeout" min="10" max="300">
+        <span class="info-icon" data-tip="Hard time limit per page. If a page takes longer, the worker moves on. Must be higher than playwright_timeout.">ⓘ</span>
+      </div>
+    </div>
+
+    <div class="cfg-section">
+      <div class="cfg-section-title">HTTP / JavaScript</div>
+
+      <div class="cfg-row">
+        <label class="cfg-label">Try HTTP first</label>
+        <label class="cfg-toggle">
+          <input type="checkbox" id="cfg-httpx-first">
+          <div class="cfg-toggle-track"></div>
+        </label>
+        <span class="info-icon" data-tip="Attempt a fast plain HTTP request before launching Playwright. Saves resources — most gov sites don't need JS.">ⓘ</span>
+      </div>
+      <div class="cfg-row">
+        <label class="cfg-label">Playwright fallback</label>
+        <label class="cfg-toggle">
+          <input type="checkbox" id="cfg-playwright-fallback">
+          <div class="cfg-toggle-track"></div>
+        </label>
+        <span class="info-icon" data-tip="If a page appears to require JavaScript, escalate to Playwright (full browser). Disable to skip JS-heavy pages entirely.">ⓘ</span>
+      </div>
+      <div class="cfg-row">
+        <label class="cfg-label">Playwright timeout (s)</label>
+        <input type="number" class="cfg-input" id="cfg-playwright-timeout" min="5" max="120">
+        <span class="info-icon" data-tip="Seconds Playwright waits for page.goto() to complete before giving up.">ⓘ</span>
+      </div>
+      <div class="cfg-row">
+        <label class="cfg-label">JS settle time (s)</label>
+        <input type="number" class="cfg-input" id="cfg-js-settle" min="0" max="15" step="0.5">
+        <span class="info-icon" data-tip="Extra seconds to wait after the page loads for JavaScript-rendered content to appear in the DOM.">ⓘ</span>
+      </div>
+    </div>
+
+    <div class="cfg-section">
+      <div class="cfg-section-title">Email Extraction</div>
+
+      <div class="cfg-row">
+        <label class="cfg-label">Enabled</label>
+        <label class="cfg-toggle">
+          <input type="checkbox" id="cfg-email-enabled">
+          <div class="cfg-toggle-track"></div>
+        </label>
+        <span class="info-icon" data-tip="Extract email addresses from crawled pages. Disable only for testing — this is the main output.">ⓘ</span>
+      </div>
+      <div class="cfg-row">
+        <label class="cfg-label">Context window (chars)</label>
+        <input type="number" class="cfg-input cfg-input-wide" id="cfg-email-context" min="50" max="1000">
+        <span class="info-icon" data-tip="Characters captured around each found email — used to identify the person's name and designation nearby.">ⓘ</span>
+      </div>
+    </div>
+
+    <div class="cfg-section">
+      <div class="cfg-section-title">Person Extraction</div>
+
+      <div class="cfg-row">
+        <label class="cfg-label">Enabled</label>
+        <label class="cfg-toggle">
+          <input type="checkbox" id="cfg-person-enabled">
+          <div class="cfg-toggle-track"></div>
+        </label>
+        <span class="info-icon" data-tip="Try to extract person name and designation from content near each email address.">ⓘ</span>
+      </div>
+      <div class="cfg-row">
+        <label class="cfg-label">Proximity (chars)</label>
+        <input type="number" class="cfg-input cfg-input-wide" id="cfg-person-proximity" min="50" max="1000">
+        <span class="info-icon" data-tip="How many characters around an email to search for name/designation. Larger = more context but slower.">ⓘ</span>
+      </div>
+    </div>
+
+  </div>
+  <div class="cfg-footer">
+    <button class="btn-primary btn-save-big" onclick="saveConfig()">Save Settings</button>
+    <div class="cfg-footer-btns">
+      <div id="cfg-save-msg" style="flex:1">✓ Saved — takes effect on next crawl job</div>
+      <button class="btn-secondary btn-sm" onclick="closeConfig()">Close</button>
     </div>
   </div>
 </div>
 
 <script>
+// ── Defaults (shown in config panel even before server restart) ───────────────
+const CFG_DEFAULTS = {
+  workers: 5, max_depth: 3, recrawl_days: 30,
+  request_delay: 1.5, per_url_timeout: 100,
+  httpx_first: true, playwright_fallback: true,
+  playwright_timeout: 45, js_settle_time: 3.0,
+  email_enabled: true, email_context_chars: 200,
+  person_enabled: true, person_proximity_chars: 300,
+};
+
 // ── State ─────────────────────────────────────────────────────────────────────
 let selectedIds   = new Set();
 let currentPage   = 1;
 let totalPages    = 1;
+let totalMatching = 0;
 let activeJobId   = null;
 let pollTimer     = null;
 let impPollTimer  = null;
@@ -312,39 +575,92 @@ document.addEventListener('DOMContentLoaded', () => {
   checkImportStatus();
 });
 
+// ── Domain label (shows URL-derived name when title is empty) ─────────────────
+function domainLabel(d) {
+  if (d.title && d.title.trim()) return d.title.trim();
+  try {
+    let host = new URL(d.main_url || d.contact_url || 'https://unknown.gov.in').hostname.toLowerCase();
+    host = host.replace(/\.(gov|nic|res|ac|edu)\.in$/, '');
+    return host.replace(/\./g, ' · ').replace(/-/g, ' ');
+  } catch { return d.main_url || '—'; }
+}
+
+function domainShortUrl(d) {
+  const url = d.contact_url || d.main_url || '';
+  try { return new URL(url).hostname; } catch { return url.substring(0, 40); }
+}
+
 // ── Filters ───────────────────────────────────────────────────────────────────
 async function loadFilters() {
   try {
-    const [cats, states, orgTypes] = await Promise.all([
-      apiFetch('/api/categories'),
-      apiFetch('/api/states'),
-      apiFetch('/api/org-types'),
-    ]);
-
+    const cats = await apiFetch('/api/categories');
     const catSel = document.getElementById('cat-select');
     cats.forEach(c => {
       const o = document.createElement('option');
       o.value = c.code;
-      o.textContent = `[${c.code.toUpperCase()}] ${c.title} (${c.count.toLocaleString()})`;
+      o.textContent = `${c.title} (${c.count.toLocaleString()})`;
       catSel.appendChild(o);
     });
+    await reloadStateOptions('');
+    await reloadOrgTypeOptions('', '');
+  } catch (e) { console.error('loadFilters', e); }
+}
 
-    const stateSel = document.getElementById('state-select');
+async function reloadStateOptions(cat) {
+  const stateSel = document.getElementById('state-select');
+  const prev = stateSel.value;
+  stateSel.innerHTML = '<option value="">All States</option>';
+  try {
+    const params = cat ? `?category=${encodeURIComponent(cat)}` : '';
+    const states = await apiFetch(`/api/states${params}`);
     states.forEach(s => {
       const o = document.createElement('option');
-      o.value = s;
-      o.textContent = s;
+      o.value = s; o.textContent = s;
+      if (s === prev) o.selected = true;
       stateSel.appendChild(o);
     });
+  } catch (e) {}
+}
 
-    const orgSel = document.getElementById('orgtype-select');
+async function reloadOrgTypeOptions(cat, state) {
+  const orgSel = document.getElementById('orgtype-select');
+  const prev = orgSel.value;
+  orgSel.innerHTML = '<option value="">All Types</option>';
+  try {
+    const p = new URLSearchParams();
+    if (cat)   p.set('category', cat);
+    if (state) p.set('state', state);
+    const orgTypes = await apiFetch(`/api/org-types${p.toString() ? '?' + p : ''}`);
     orgTypes.forEach(t => {
       const o = document.createElement('option');
       o.value = t.code;
       o.textContent = `${t.title} (${t.count.toLocaleString()})`;
+      if (t.code === prev) o.selected = true;
       orgSel.appendChild(o);
     });
-  } catch (e) { console.error('loadFilters', e); }
+  } catch (e) {}
+}
+
+async function onCategoryChange() {
+  currentPage = 1;
+  const cat = document.getElementById('cat-select').value;
+  await reloadStateOptions(cat);
+  await reloadOrgTypeOptions(cat, '');
+  loadDomains();
+}
+
+async function onStateChange() {
+  currentPage = 1;
+  const cat   = document.getElementById('cat-select').value;
+  const state = document.getElementById('state-select').value;
+  await reloadOrgTypeOptions(cat, state);
+  loadDomains();
+}
+
+function onFilterChange() { currentPage = 1; loadDomains(); }
+function debounceSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { currentPage = 1; loadDomains(); }, 380);
 }
 
 // ── Domains ───────────────────────────────────────────────────────────────────
@@ -358,48 +674,58 @@ async function loadDomains() {
   if (state)   params.set('state', state);
   if (orgType) params.set('org_type', orgType);
   if (search)  params.set('search', search);
-
   try {
     const data = await apiFetch(`/api/domains?${params}`);
-    totalPages = data.pages;
+    totalPages    = data.pages;
+    totalMatching = data.total;
     renderDomains(data.domains, data.total);
   } catch (e) { console.error('loadDomains', e); }
 }
 
 function renderDomains(domains, total) {
   document.getElementById('page-info').textContent =
-    `Page ${currentPage} of ${totalPages}`;
+    total > 0 ? `Page ${currentPage} of ${totalPages}` : '—';
   document.getElementById('total-label').textContent =
-    `${total.toLocaleString()} domains`;
+    total > 0 ? `${total.toLocaleString()} domains` : '';
   document.getElementById('domain-count-label').textContent =
-    `${total.toLocaleString()} domains match`;
+    total > 0 ? `${total.toLocaleString()} matching domains` : 'No domains match filters';
   document.getElementById('btn-prev').disabled = currentPage <= 1;
   document.getElementById('btn-next').disabled = currentPage >= totalPages;
 
+  // Update "select all N" in toolbar and action bar
+  const selAllLink = document.getElementById('sel-all-link');
+  const selAllN    = document.getElementById('sel-all-n');
+  selAllN.textContent = total.toLocaleString();
+  const btnSelectAll = document.getElementById('btn-select-all-results');
+  document.getElementById('sel-all-toolbar-n').textContent = total.toLocaleString();
+  btnSelectAll.style.display = total > 0 ? '' : 'none';
+
   const tbody = document.getElementById('domain-tbody');
   if (!domains.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No domains. Try importing or changing filters.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No domains found. Try changing your filters.</td></tr>';
     return;
   }
 
   tbody.innerHTML = '';
   domains.forEach(d => {
-    const catCode    = (d.category_code || '').toLowerCase();
-    const contactUrl = d.contact_url || d.main_url || '';
-    const shortUrl   = contactUrl.replace(/^https?:\/\/(www\.)?/, '').substring(0, 40);
-    const orgLabel   = d.org_type_title || d.org_type || '—';
-    const checked    = selectedIds.has(d.id);
-    const tr         = document.createElement('tr');
+    const label    = domainLabel(d);
+    const shortUrl = domainShortUrl(d);
+    const url      = d.contact_url || d.main_url || '';
+    const catCode  = (d.category_code || 'default').toLowerCase();
+    const orgLabel = d.org_type_title || d.org_type || '—';
+    const checked  = selectedIds.has(d.id);
+
+    const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td><input type="checkbox" ${checked ? 'checked' : ''} onchange="toggleDomain(${d.id}, this.checked)"></td>
+      <td style="width:40px"><input type="checkbox" ${checked ? 'checked' : ''} onchange="toggleDomain(${d.id}, this.checked)"></td>
       <td>
-        <div class="domain-title">${esc(d.title || '—')}</div>
-        ${d.state ? `<div class="domain-sub">${esc(d.state)}</div>` : ''}
+        <div class="d-name">${esc(label)}</div>
+        ${d.state ? `<div class="d-state">${esc(d.state)}</div>` : ''}
       </td>
       <td><span class="tag tag-${catCode}">${(d.category_code || '').toUpperCase()}</span></td>
       <td style="font-size:12px;color:var(--muted)">${esc(orgLabel)}</td>
-      <td style="font-size:12px;color:var(--muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-        ${contactUrl ? `<a href="${esc(contactUrl)}" target="_blank" title="${esc(contactUrl)}">↗ ${esc(shortUrl)}</a>` : '—'}
+      <td style="max-width:180px">
+        ${url ? `<a href="${esc(url)}" target="_blank" style="font-size:11px;font-family:monospace;color:var(--muted)" title="${esc(url)}">↗ ${esc(shortUrl)}</a>` : '<span style="color:var(--small)">—</span>'}
       </td>`;
     tbody.appendChild(tr);
   });
@@ -415,26 +741,54 @@ function toggleDomain(id, checked) {
 
 function toggleSelectAll(checked) {
   document.querySelectorAll('#domain-tbody input[type=checkbox]').forEach(cb => {
-    const match = cb.getAttribute('onchange').match(/\d+/);
-    if (!match) return;
-    const id = parseInt(match[0]);
+    const m = cb.getAttribute('onchange').match(/\d+/);
+    if (!m) return;
+    const id = parseInt(m[0]);
     if (checked) selectedIds.add(id); else selectedIds.delete(id);
     cb.checked = checked;
   });
   updateSelCount();
 }
 
+async function selectAllResults() {
+  const cat     = document.getElementById('cat-select').value;
+  const state   = document.getElementById('state-select').value;
+  const orgType = document.getElementById('orgtype-select').value;
+  const search  = document.getElementById('search-input').value.trim();
+  const params  = new URLSearchParams();
+  if (cat)     params.set('category', cat);
+  if (state)   params.set('state', state);
+  if (orgType) params.set('org_type', orgType);
+  if (search)  params.set('search', search);
+  try {
+    const data = await apiFetch(`/api/domains/ids?${params}`);
+    data.ids.forEach(id => selectedIds.add(id));
+    document.querySelectorAll('#domain-tbody input[type=checkbox]').forEach(cb => cb.checked = true);
+    updateSelectAll();
+    updateSelCount();
+  } catch (e) {
+    // Endpoint not available yet — restart server
+    alert(`Select-all requires a server restart.\n\nAfter restarting, this will select all ${totalMatching.toLocaleString()} domains.`);
+  }
+}
+
 function clearSelection() {
   selectedIds.clear();
   document.querySelectorAll('#domain-tbody input[type=checkbox]').forEach(cb => cb.checked = false);
   document.getElementById('select-all').checked = false;
+  document.getElementById('select-all').indeterminate = false;
   updateSelCount();
 }
 
 function updateSelCount() {
   const n = selectedIds.size;
+  const bar = document.getElementById('action-bar');
   document.getElementById('sel-count').textContent = n.toLocaleString();
-  document.getElementById('crawl-btn').disabled = n === 0;
+  bar.style.display = n > 0 ? 'flex' : 'none';
+
+  // Show "Select all N" in action bar when there are unselected results
+  const selAllLink = document.getElementById('sel-all-link');
+  selAllLink.style.display = (totalMatching > 0 && selectedIds.size < totalMatching) ? '' : 'none';
 }
 
 function updateSelectAll() {
@@ -444,32 +798,27 @@ function updateSelectAll() {
   document.getElementById('select-all').indeterminate = n > 0 && n < all.length;
 }
 
-function onFilterChange() { currentPage = 1; loadDomains(); }
-function debounceSearch() {
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => { currentPage = 1; loadDomains(); }, 400);
-}
 function prevPage() { if (currentPage > 1) { currentPage--; loadDomains(); } }
 function nextPage() { if (currentPage < totalPages) { currentPage++; loadDomains(); } }
 
 // ── Import ────────────────────────────────────────────────────────────────────
 async function triggerJsonImport() {
-  if (!confirm('Import from gov_domains.json?\n\nMake sure the file is in the project root.\nThis clears existing domains and replaces them — no API calls.')) return;
+  if (!confirm('Import from gov_domains.json?\n\nPlace the file in the project root. This clears all existing domains.')) return;
   try {
     await apiFetch('/api/import/json', { method: 'POST' });
-    startImportPoll('json');
-  } catch (e) { alert('JSON import failed to start: ' + e.message); }
-}
-
-async function triggerImport() {
-  if (!confirm('Re-import from india.gov.in API?\n\nThis makes many API calls and takes 2–5 minutes.\nUse only to refresh data — prefer JSON import for first-time setup.')) return;
-  try {
-    await apiFetch('/api/import', { method: 'POST' });
-    startImportPoll('api');
+    startImportPoll();
   } catch (e) { alert('Import failed to start: ' + e.message); }
 }
 
-function startImportPoll(source) {
+async function triggerImport() {
+  if (!confirm('Refresh from india.gov.in API?\n\nThis makes many network requests and takes 2–5 minutes.')) return;
+  try {
+    await apiFetch('/api/import', { method: 'POST' });
+    startImportPoll();
+  } catch (e) { alert('Import failed: ' + e.message); }
+}
+
+function startImportPoll() {
   document.getElementById('import-progress').style.display = 'block';
   document.getElementById('import-json-btn').disabled = true;
   document.getElementById('import-btn').disabled = true;
@@ -481,30 +830,31 @@ async function checkImportStatus() {
   try {
     const s   = await apiFetch('/api/import/status');
     const bar = document.getElementById('import-bar');
-    const msg = document.getElementById('import-msg');
+    const msg = document.getElementById('import-msg-text');
     const dot = document.getElementById('import-dot');
     const prg = document.getElementById('import-progress');
 
     if (s.running) {
       prg.style.display = 'block';
-      dot.className = 'status-dot dot-yellow';
+      dot.className = 'dot dot-yellow';
       const pct = s.total_entries > 0 ? Math.round(s.inserted / s.total_entries * 100) : 0;
       bar.style.width = pct + '%';
-      const label = s.source === 'json' ? 'JSON' : 'API';
-      msg.textContent = `[${label}] ${s.done_categories}/${s.total_categories} categories — ${s.inserted.toLocaleString()} domains`;
+      const src = s.source === 'json' ? 'JSON' : 'API';
+      msg.textContent = `[${src}] ${s.done_categories}/${s.total_categories} categories · ${s.inserted.toLocaleString()} domains`;
     } else if (s.inserted > 0) {
       prg.style.display = 'block';
-      dot.className = 'status-dot dot-green';
+      dot.className = 'dot dot-green';
       bar.style.width = '100%';
       msg.textContent = `Done — ${s.inserted.toLocaleString()} domains imported`;
       document.getElementById('import-json-btn').disabled = false;
       document.getElementById('import-btn').disabled = false;
       clearInterval(impPollTimer);
-      document.getElementById('db-summary').textContent = `${s.inserted.toLocaleString()} domains in DB`;
+      document.getElementById('db-count').textContent = `${s.inserted.toLocaleString()} domains`;
       loadFilters();
       loadDomains();
     } else if (s.error) {
-      dot.className = 'status-dot dot-red';
+      prg.style.display = 'block';
+      dot.className = 'dot dot-red';
       msg.textContent = 'Error: ' + s.error;
       document.getElementById('import-json-btn').disabled = false;
       document.getElementById('import-btn').disabled = false;
@@ -514,7 +864,7 @@ async function checkImportStatus() {
       document.getElementById('import-json-btn').disabled = false;
       document.getElementById('import-btn').disabled = false;
     }
-  } catch (e) { /* server not ready */ }
+  } catch (e) { /* server starting */ }
 }
 
 // ── Crawl ─────────────────────────────────────────────────────────────────────
@@ -531,6 +881,7 @@ async function startCrawl() {
     activeJobId = resp.id;
     openJobPanel(resp.id);
     startJobPoll();
+    document.getElementById('live-badge').style.display = 'flex';
   } catch (e) { alert('Failed to start crawl: ' + e.message); }
 }
 
@@ -541,9 +892,7 @@ function openJobPanel(jobId) {
   document.getElementById('btn-export-leads').style.display = 'none';
 }
 
-function closeJobPanel() {
-  document.getElementById('job-panel').classList.remove('open');
-}
+function closeJobPanel() { document.getElementById('job-panel').classList.remove('open'); }
 
 function startJobPoll() {
   if (pollTimer) clearInterval(pollTimer);
@@ -554,6 +903,7 @@ function startJobPoll() {
       updateJobPanel(job);
       if (job.status === 'done' || job.status === 'failed') {
         clearInterval(pollTimer);
+        document.getElementById('live-badge').style.display = 'none';
         loadRecentJobs();
       }
     } catch (e) {}
@@ -564,13 +914,10 @@ function updateJobPanel(job) {
   const sv = document.getElementById('job-status-val');
   sv.textContent = job.status.charAt(0).toUpperCase() + job.status.slice(1);
   sv.style.color = job.status === 'done' ? 'var(--green)'
-                 : job.status === 'failed' ? 'var(--red)' : 'var(--text)';
-  document.getElementById('job-domains-val').textContent =
-    `${job.crawled_domains} / ${job.total_domains}`;
-  document.getElementById('job-leads-val').textContent =
-    job.leads_found.toLocaleString();
-  const pct = job.total_domains > 0
-    ? Math.round(job.crawled_domains / job.total_domains * 100) : 0;
+                 : job.status === 'failed' ? 'var(--red)' : 'var(--yellow)';
+  document.getElementById('job-domains-val').textContent = `${job.crawled_domains} / ${job.total_domains}`;
+  document.getElementById('job-leads-val').textContent   = job.leads_found.toLocaleString();
+  const pct = job.total_domains > 0 ? Math.round(job.crawled_domains / job.total_domains * 100) : 0;
   document.getElementById('job-bar').style.width = pct + '%';
   if (job.status === 'done' || job.status === 'failed') {
     const show = job.leads_found > 0 ? '' : 'none';
@@ -588,20 +935,19 @@ async function viewLeads() {
   document.getElementById('results-title').textContent = `Leads — Job #${activeJobId}`;
 }
 
-function closeResults() {
-  document.getElementById('results-panel').classList.remove('open');
-}
+function closeResults() { document.getElementById('results-panel').classList.remove('open'); }
 
 async function openResults() {
   leadsPage = 1;
   if (!activeJobId) {
     try {
       const jobs = await apiFetch('/api/jobs');
-      if (jobs.length) activeJobId = jobs[0].id;
+      if (jobs.length) { activeJobId = jobs[0].id; updateJobPanel(jobs[0]); openJobPanel(jobs[0].id); }
     } catch (e) {}
   }
   if (activeJobId) await loadLeads();
   document.getElementById('results-panel').classList.add('open');
+  if (activeJobId) document.getElementById('results-title').textContent = `Leads — Job #${activeJobId}`;
 }
 
 async function loadLeads() {
@@ -615,8 +961,7 @@ async function loadLeads() {
 
 function renderLeads(leads, total) {
   document.getElementById('leads-total-label').textContent = `${total.toLocaleString()} leads`;
-  document.getElementById('leads-page-info').textContent   =
-    `Page ${leadsPage} of ${leadsTotalPgs}`;
+  document.getElementById('leads-page-info').textContent   = `Page ${leadsPage} of ${leadsTotalPgs}`;
   const tbody = document.getElementById('leads-tbody');
   tbody.innerHTML = '';
   if (!leads.length) {
@@ -624,33 +969,29 @@ function renderLeads(leads, total) {
     return;
   }
   leads.forEach(l => {
-    const catCode = (l.category_code || '').toLowerCase();
+    const catCode = (l.category_code || 'default').toLowerCase();
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td><code style="font-size:11px;color:var(--accent)">${esc(l.email || '—')}</code></td>
+      <td><code style="color:var(--accent);font-size:11px">${esc(l.email || '—')}</code></td>
       <td>${esc(l.person_name || '—')}</td>
-      <td>${esc(l.designation || '—')}</td>
-      <td>${esc(l.department || '—')}</td>
-      <td>${esc(l.domain_state || '—')}</td>
-      <td>${esc(l.domain_title || '—')}</td>
+      <td style="font-size:12px;color:var(--muted)">${esc(l.designation || '—')}</td>
+      <td style="font-size:12px;color:var(--muted)">${esc(l.department || '—')}</td>
+      <td style="font-size:12px">${esc(l.domain_state || '—')}</td>
+      <td style="font-size:12px">${esc(l.domain_title || '—')}</td>
       <td><span class="tag tag-${catCode}">${catCode.toUpperCase()}</span></td>
-      <td><a href="${esc(l.source_url||'#')}" target="_blank" title="${esc(l.source_url||'')}">↗</a></td>`;
+      <td>${l.source_url ? `<a href="${esc(l.source_url)}" target="_blank" title="${esc(l.source_url)}">↗</a>` : '—'}</td>`;
     tbody.appendChild(tr);
   });
 }
 
 async function leadsPrev() { if (leadsPage > 1) { leadsPage--; await loadLeads(); } }
 async function leadsNext() { if (leadsPage < leadsTotalPgs) { leadsPage++; await loadLeads(); } }
-
-function exportLeads() {
-  if (!activeJobId) return;
-  window.open(`/api/leads/export?job_id=${activeJobId}`, '_blank');
-}
+function exportLeads() { if (activeJobId) window.open(`/api/leads/export?job_id=${activeJobId}`, '_blank'); }
 
 // ── Recent jobs sidebar ───────────────────────────────────────────────────────
 async function loadRecentJobs() {
   try {
-    const jobs = await apiFetch('/api/jobs?limit=5');
+    const jobs = await apiFetch('/api/jobs?limit=6');
     const el = document.getElementById('jobs-list');
     if (!jobs.length) {
       el.innerHTML = '<span style="font-size:12px;color:var(--small)">No jobs yet.</span>';
@@ -665,31 +1006,83 @@ async function loadRecentJobs() {
       div.innerHTML = `
         <div class="job-item-top">
           <strong>Job #${j.id}</strong>
-          <span style="font-size:11px;color:${color}">${j.status}</span>
+          <span style="font-size:11px;color:${color};font-weight:500">${j.status}</span>
         </div>
         <div class="job-item-meta">${j.total_domains} domains · ${j.leads_found} leads</div>`;
-      div.onclick = () => {
-        activeJobId = j.id;
-        updateJobPanel(j);
-        openJobPanel(j.id);
-      };
+      div.onclick = () => { activeJobId = j.id; openJobPanel(j.id); updateJobPanel(j); };
       el.appendChild(div);
     });
   } catch (e) {}
 }
 
+// ── Config panel ──────────────────────────────────────────────────────────────
+async function openConfig() {
+  document.getElementById('config-panel').classList.add('open');
+  await loadConfig();
+}
+
+function closeConfig() {
+  document.getElementById('config-panel').classList.remove('open');
+}
+
+async function loadConfig() {
+  let c = { ...CFG_DEFAULTS };
+  try { Object.assign(c, await apiFetch('/api/config')); } catch {}
+  document.getElementById('cfg-workers').value               = c.workers;
+  document.getElementById('cfg-max-depth').value             = c.max_depth;
+  document.getElementById('cfg-recrawl-days').value          = c.recrawl_days;
+  document.getElementById('cfg-request-delay').value         = c.request_delay;
+  document.getElementById('cfg-per-url-timeout').value       = c.per_url_timeout;
+  document.getElementById('cfg-httpx-first').checked         = c.httpx_first;
+  document.getElementById('cfg-playwright-fallback').checked = c.playwright_fallback;
+  document.getElementById('cfg-playwright-timeout').value    = c.playwright_timeout;
+  document.getElementById('cfg-js-settle').value             = c.js_settle_time;
+  document.getElementById('cfg-email-enabled').checked       = c.email_enabled;
+  document.getElementById('cfg-email-context').value         = c.email_context_chars;
+  document.getElementById('cfg-person-enabled').checked      = c.person_enabled;
+  document.getElementById('cfg-person-proximity').value      = c.person_proximity_chars;
+}
+
+async function saveConfig() {
+  const body = {
+    workers:               parseInt(document.getElementById('cfg-workers').value),
+    max_depth:             parseInt(document.getElementById('cfg-max-depth').value),
+    recrawl_days:          parseInt(document.getElementById('cfg-recrawl-days').value),
+    request_delay:         parseFloat(document.getElementById('cfg-request-delay').value),
+    per_url_timeout:       parseInt(document.getElementById('cfg-per-url-timeout').value),
+    httpx_first:           document.getElementById('cfg-httpx-first').checked,
+    playwright_fallback:   document.getElementById('cfg-playwright-fallback').checked,
+    playwright_timeout:    parseInt(document.getElementById('cfg-playwright-timeout').value),
+    js_settle_time:        parseFloat(document.getElementById('cfg-js-settle').value),
+    email_enabled:         document.getElementById('cfg-email-enabled').checked,
+    email_context_chars:   parseInt(document.getElementById('cfg-email-context').value),
+    person_enabled:        document.getElementById('cfg-person-enabled').checked,
+    person_proximity_chars: parseInt(document.getElementById('cfg-person-proximity').value),
+  };
+  try {
+    await apiFetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const msg = document.getElementById('cfg-save-msg');
+    msg.style.display = 'flex';
+    setTimeout(() => msg.style.display = 'none', 4000);
+  } catch (e) {
+    alert('Could not save: ' + e.message + '\n\nRestart the server first.');
+  }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 async function apiFetch(url, opts = {}) {
   const r = await fetch(url, opts);
-  if (!r.ok) { const b = await r.text(); throw new Error(`${r.status} ${b}`); }
+  if (!r.ok) { const b = await r.text(); throw new Error(`${r.status}: ${b}`); }
   return r.json();
 }
 
 function esc(str) {
   if (!str) return '';
-  return String(str)
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 </script>
 </body>

@@ -1,173 +1,140 @@
-# MishaCrawler Portal — master config
-# Nothing in any Python file is hardcoded. Every tunable value lives here.
-
-# ── Database ──────────────────────────────────────────────────────────────────
 database:
-  # SQLite for local dev. Switch to PostgreSQL on server — zero code change:
-  #   postgresql://user:password@host:5432/mishacrawler
-  uri: "sqlite:///portal/data/mishacrawler.db"
-
-# ── API server ────────────────────────────────────────────────────────────────
+  uri: sqlite:///portal/data/mishacrawler.db
 api:
   host: 0.0.0.0
   port: 8000
-
-# ── india.gov.in directory scraper (GovScraper) ───────────────────────────────
 scraper:
-  # Optional: limit import to a single category code (e.g. "ug", "sg", "dist")
-  # Leave blank to import everything.
-  category_filter: ""
-  # Optional: limit import to a single org_type code (e.g. "E051")
-  # Leave blank to import all org types within the selected category.
-  org_type_filter: ""
-
-# ── Crawler ───────────────────────────────────────────────────────────────────
+  category_filter: ''
+  org_type_filter: ''
 crawler:
-  workers: 5          # keep low — gov sites have rate limits; 5 is safe
-  max_depth: 3        # 0=seed only, 3 covers contact→officer→detail pages
-
-  # Skip URLs visited in ANY previous job within this many days.
-  # Gov sites don't change daily — avoids re-crawling the same pages.
+  workers: 20
+  max_depth: 3
   recrawl_days: 30
-
-  # Try plain HTTP before launching Playwright
   httpx_first: true
-  # If httpx gets a JS-shell page, escalate to Playwright
   playwright_fallback: true
-
   httpx_timeout:
-    connect: 10   # seconds
+    connect: 10
     read: 30
-
-  playwright_timeout: 45      # seconds for page.goto()
-  js_settle_time: 3.0         # seconds to wait after domcontentloaded
-
-  # Hard outer kill per URL — prevents stalled workers (must be > playwright_timeout)
+  playwright_timeout: 45
+  js_settle_time: 3.0
   per_url_timeout: 100
-
-  # Seconds between requests to the SAME domain
   request_delay: 1.5
-
-  # Max outbound links queued per page, tapered by depth
   max_links_per_page:
-    0: 30     # seed pages (already contact pages)
+    0: 30
     1: 15
     2: 8
     default: 5
-
   target_suffixes:
-    - ".gov.in"
-    - ".nic.in"
-
-  # Links whose URL or anchor text contain any keyword are always queued.
-  # From a non-priority page, only these links are followed.
+  - .gov.in
+  - .nic.in
   priority_keywords:
-    - contact
-    - officer
-    - directory
-    - whos-who
-    - who-is-who
-    - staff
-    - personnel
-    - secretariat
-    - about-us
-    - division
-    - minister
-    - committee
-    - administration
-    - team
-    - tender
-    - procurement
-    - telephone
-    - tele-directory
-    - phone-directory
-    - email
-
+  - contact
+  - officer
+  - directory
+  - whos-who
+  - who-is-who
+  - staff
+  - personnel
+  - secretariat
+  - about-us
+  - division
+  - minister
+  - committee
+  - administration
+  - team
+  - tender
+  - procurement
+  - telephone
+  - tele-directory
+  - phone-directory
+  - email
   skip_extensions:
-    - .pdf
-    - .doc
-    - .docx
-    - .xls
-    - .xlsx
-    - .ppt
-    - .pptx
-    - .zip
-    - .rar
-    - .7z
-    - .tar
-    - .gz
-    - .jpg
-    - .jpeg
-    - .png
-    - .gif
-    - .svg
-    - .ico
-    - .mp4
-    - .mp3
-    - .avi
-    - .mov
-
+  - .pdf
+  - .doc
+  - .docx
+  - .xls
+  - .xlsx
+  - .ppt
+  - .pptx
+  - .zip
+  - .rar
+  - .7z
+  - .tar
+  - .gz
+  - .jpg
+  - .jpeg
+  - .png
+  - .gif
+  - .svg
+  - .ico
+  - .mp4
+  - .mp3
+  - .avi
+  - .mov
   js_indicators:
-    - '<div id="__next"'
-    - '<div id="root"'
-    - 'Please enable JavaScript'
-    - 'You need to enable JavaScript'
-    - 'This page requires JavaScript'
-
-  user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-
-# ── Data extraction ───────────────────────────────────────────────────────────
+  - <div id="__next"
+  - <div id="root"
+  - Please enable JavaScript
+  - You need to enable JavaScript
+  - This page requires JavaScript
+  user_agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)
+    Chrome/124.0.0.0 Safari/537.36
 extraction:
   email:
     enabled: true
     regex: '[a-zA-Z0-9._%+\-]+@(?:[a-zA-Z0-9\-]+\.)+[a-zA-Z]{2,6}'
     valid_suffixes:
-      - ".gov.in"
-      - ".nic.in"
-      - ".res.in"
-      - ".ac.in"
+    - .gov.in
+    - .nic.in
+    - .res.in
+    - .ac.in
     obfuscation:
-      - ['\s*\[at\]\s*',  "@"]
-      - ['\s*\(at\)\s*',  "@"]
-      - ['\s+at\s+',      "@"]
-      - ['\s*\[dot\]\s*', "."]
-      - ['\s*\(dot\)\s*', "."]
-      - ['\s+dot\s+',     "."]
+    - - \s*\[at\]\s*
+      - '@'
+    - - \s*\(at\)\s*
+      - '@'
+    - - \s+at\s+
+      - '@'
+    - - \s*\[dot\]\s*
+      - .
+    - - \s*\(dot\)\s*
+      - .
+    - - \s+dot\s+
+      - .
     context_chars: 200
-
   person:
     enabled: true
     title_prefixes:
-      - Shri
-      - Smt
-      - Dr
-      - Mr
-      - Mrs
-      - Ms
-      - Prof
-      - Sh
-      - Shrimati
-      - Km
+    - Shri
+    - Smt
+    - Dr
+    - Mr
+    - Mrs
+    - Ms
+    - Prof
+    - Sh
+    - Shrimati
+    - Km
     designation_keywords:
-      - Secretary
-      - Director
-      - Commissioner
-      - Collector
-      - Superintendent
-      - Inspector
-      - Officer
-      - Manager
-      - Chairman
-      - President
-      - Minister
-      - Deputy
-      - Additional
-      - Principal
-      - Chief
-      - Joint
-      - Under Secretary
-      - IAS
-      - IPS
-      - IFS
-      - IRS
+    - Secretary
+    - Director
+    - Commissioner
+    - Collector
+    - Superintendent
+    - Inspector
+    - Officer
+    - Manager
+    - Chairman
+    - President
+    - Minister
+    - Deputy
+    - Additional
+    - Principal
+    - Chief
+    - Joint
+    - Under Secretary
+    - IAS
+    - IPS
+    - IFS
+    - IRS
     proximity_chars: 300

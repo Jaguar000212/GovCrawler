@@ -1,5 +1,5 @@
 """
-MishaCrawler Portal — entry point.
+GovCrawler Portal — entry point.
 
 Usage:
     python -m portal                          # start the server (default)
