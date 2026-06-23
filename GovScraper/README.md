@@ -25,28 +25,19 @@ pip install httpx
 
 ## Usage
 
-Run the scraper directly:
+GovScraper is now integrated directly into GovCrawler as a module. It uses `runner.py` to programmatically retrieve domains and pass them to the crawler's seeder.
 
-```bash
-python main.py
+To fetch domains within another Python script:
+
+```python
+from GovScraper.runner import run_all_domains
+
+domains = run_all_domains()
+print(domains)
 ```
 
 ## Outputs
 
-The script will generate a single file in the current directory upon successful execution:
-
-- `gov_domains.json`: A nested JSON object of the root domains grouped by category, state, and organization type.
-
-```json
-{
-  "State / UT Government": {
-    "Gujarat": {
-      "Statutory / Autonomous Bodies": [
-        "https://example.gov.in"
-      ]
-    }
-  }
-}
-```
+The module returns a set of unique root domains (`.gov.in`, `.nic.in`) extracted from all categories.
 
 These outputs are perfect for use as seed lists for broader crawling or enumeration tasks.

@@ -1,4 +1,4 @@
-# MishaCrawler
+# GovCrawler
 
 An async web crawler for extracting email leads from Indian government websites (`.gov.in` / `.nic.in`). Built on
 Playwright with concurrent workers, per-domain rate limiting, and a post-crawl classification pipeline.
@@ -7,8 +7,7 @@ Playwright with concurrent workers, per-domain rate limiting, and a post-crawl c
 
 - **Concurrent async crawling** — configurable worker pool with per-domain rate limiting (one request at a time per
   domain)
-- **Three-tier seed generation** — Google CSE / Bing API → india.gov.in directory (httpx + playwright-stealth) →
-  hardcoded seed list of 98 targeted contact pages
+- **Dynamic seed generation** — completely automates discovering `.gov.in` domains by fetching the entire india.gov.in web directory programmatically via `GovScraper`
 - **Smart link filtering** — from non-contact pages, only follows links matching contact / officer / tender keywords;
   prevents data and stats pages from flooding the queue
 - **Depth-tapered link budget** — depth-0 seeds get 80 links, depth-1 gets 26, depth-2+ gets 15; avoids crawl sprawl
@@ -17,23 +16,24 @@ Playwright with concurrent workers, per-domain rate limiting, and a post-crawl c
   domains without manual seeding
 - **Email extraction** — normalises obfuscated addresses (`[at]`, `[dot]`, Unicode variants) before applying regex;
   filters to government suffixes only
-- **SQLite persistence** — visited URLs and leads survive restarts; deduplication enforced at DB level
+- **Centralized database support** — uses SQLAlchemy (supports SQLite, Postgres, MySQL); enforces deduplication and intelligent recrawl intervals based on a `last_hit` threshold
 - **Post-crawl classification** — `classify.py` tags every lead with ministry name, tier (central / state / district /
   statutory / psu), state, and confidence level
 
 ## Project Structure
 
 ```text
-MishaCrawler/
+GovCrawler/
 ├── main.py          # Entry point — arg parsing, Playwright lifecycle, CSV export
-├── classify.py      # Post-crawl classifier — reads DB, writes classified_leads.csv
 ├── config.yaml      # All tunable parameters
 ├── requirements.txt
+├── GovScraper/      # Directory API scraper module
+│   └── runner.py    # Fetches all gov domains directly from india.gov.in
 └── src/
     ├── crawler.py   # Worker pool, link queuing, smart filtering, depth taper
-    ├── seeder.py    # Three-tier seed generation, sitemap parsing
+    ├── seeder.py    # Dynamic seed generation via GovScraper
     ├── parser.py    # Email extraction and normalisation
-    └── storage.py   # SQLite wrapper — visited URLs, leads, CSV export
+    └── storage.py   # SQLAlchemy DB wrapper — visited URLs, recrawl tracking, leads, CSV export
 ```
 
 ## Setup
@@ -42,8 +42,8 @@ MishaCrawler/
 
 ```bash
 # 1. Clone and enter the repo
-git clone https://github.com/Jaguar000212/MishaCrawler.git
-cd MishaCrawler
+git clone https://github.com/Jaguar000212/GovCrawler.git
+cd GovCrawler
 
 # 2. Create and activate a virtual environment
 python3 -m venv .venv
@@ -66,11 +66,8 @@ All parameters live in `config.yaml`. Key settings:
 | `max_links_per_page`  | `80`    | Link budget at depth 0; tapered automatically at deeper levels               |
 | `num_workers`         | `55`    | Concurrent Playwright workers. Per-domain semaphore keeps rate limiting safe |
 | `page_timeout`        | `30`    | Seconds before a page navigation is retried once, then abandoned             |
-| `url_process_timeout` | `75`    | Hard outer timeout per URL — must exceed `page_timeout × 2 + 5`              |
-| `request_delay`       | `1.5`   | Seconds between requests to the same domain                                  |
-
-To enable Google CSE or Bing search seeding, add your API keys and set `enabled: true` under the relevant section in
-`config.yaml`.
+| `database.uri`        | `sqlite:///central_crawler.db` | SQLAlchemy connection string (e.g. `postgresql://user:pass@host/db`) |
+| `crawler.recrawl_days`| `30`    | Skips URLs if they were already crawled within this many days |
 
 ## Running
 
@@ -100,8 +97,7 @@ to `leads.csv`.
 | `Context/Surrounding Text` | ~100 chars around the email for manual verification |
 | `Scraped At`               | ISO timestamp                                       |
 
-**`crawler_session.db`** — SQLite database. Leads accumulate across runs; visited URLs are deduplicated so the same page
-is never crawled twice in the same session.
+**Centralized Database (e.g., `central_crawler.db`)** — managed via SQLAlchemy. Leads accumulate across runs; visited URLs are deduplicated and evaluated against the `recrawl_days` threshold so the same page isn't needlessly crawled.
 
 ## Post-crawl Classification
 
