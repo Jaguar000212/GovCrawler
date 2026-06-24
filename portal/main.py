@@ -8,50 +8,116 @@ Usage:
     python -m portal import-json path/to.json # seed from a specific file
     python -m portal import                   # refresh from live india.gov.in API
     python -m portal crawl <job_id>           # manually run a specific job (debug)
-
-Always run import-json first to populate the domain list before starting the server.
-All configuration is in portal/config.yaml.
 """
-
+import os
+import sys
+import shutil
 import asyncio
 import logging
-import sys
 from pathlib import Path
+import threading
+import webbrowser
+import time
 
+# ==========================================
+# 1. PATH MANAGER
+# ==========================================
+def get_app_dir() -> Path:
+    """The root directory (Writeable)."""
+    if getattr(sys, 'frozen', False):
+        # Compiled: Returns the folder where the .exe physically lives
+        return Path(sys.executable).parent
+    # Native: Steps up from /project_root/portal/main.py -> /project_root
+    return Path(__file__).resolve().parent.parent
+
+def get_bundle_dir() -> Path:
+    """The temporary PyInstaller extraction folder (Read-Only)."""
+    if getattr(sys, 'frozen', False):
+        return Path(sys._MEIPASS)
+    # Native: Steps up to project root
+    return Path(__file__).resolve().parent.parent
+
+APP_DIR = get_app_dir()
+BUNDLE_DIR = get_bundle_dir()
+
+# --- WRITEABLE PATHS (Next to the .exe) ---
+PORTAL_LIVE_DIR = APP_DIR / "portal"
+DATA_DIR = PORTAL_LIVE_DIR / "data"
+
+LOG_FILE_PATH = DATA_DIR / "portal.log"
+LIVE_CONFIG_PATH = PORTAL_LIVE_DIR / "config.yaml"
+
+# --- READ-ONLY PATHS (Inside the bundle) ---
+BROWSER_PATH = BUNDLE_DIR / "playwright_browsers"
+DEFAULT_CONFIG_PATH = BUNDLE_DIR / "portal" / "default_config.yaml"
+
+# ==========================================
+# 2. FIRST-RUN SETUP & ENVIRONMENT
+# ==========================================
+# Only execute the copy logic if running as an executable
+if getattr(sys, 'frozen', False) and not LIVE_CONFIG_PATH.exists():
+    PORTAL_LIVE_DIR.mkdir(parents=True, exist_ok=True)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    if DEFAULT_CONFIG_PATH.exists():
+        shutil.copy(DEFAULT_CONFIG_PATH, LIVE_CONFIG_PATH)
+else:
+    # Safe to create in development mode too
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+# Force Playwright to use the bundled browser path BEFORE importing Playwright
+os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(BROWSER_PATH)
+
+# ==========================================
+# 3. LATE IMPORTS (Safe now that env is set)
+# ==========================================
 import yaml
 import uvicorn
-
 from .db.models import Database
 from .api.server import create_app
 
-Path("portal/data").mkdir(parents=True, exist_ok=True)
-
+# ==========================================
+# 4. LOGGING SETUP (Using Absolute Path)
+# ==========================================
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler("portal/data/portal.log", encoding="utf-8"),
+        logging.FileHandler(LOG_FILE_PATH, encoding="utf-8"), # Safely points to APP_DIR
     ],
 )
 log = logging.getLogger(__name__)
 
 
 def load_config() -> dict:
-    config_path = Path(__file__).parent / "config.yaml"
-    if not config_path.exists():
-        log.error(f"Config not found: {config_path}")
+    # Always read from the LIVE config next to the .exe
+    target_config = LIVE_CONFIG_PATH if LIVE_CONFIG_PATH.exists() else (Path(__file__).parent / "config.yaml")
+    
+    if not target_config.exists():
+        log.error(f"Config not found at: {target_config}")
         sys.exit(1)
-    with open(config_path) as f:
+    with open(target_config) as f:
         return yaml.safe_load(f)
 
+def open_browser(url: str):
+    """Waits 2 seconds for Uvicorn to boot, then opens the default browser."""
+    time.sleep(2)
+    webbrowser.open(url)
 
 def cmd_serve(config: dict):
     db  = Database(config)
     app = create_app(config, db)
     host = config["api"]["host"]
     port = config["api"]["port"]
-    log.info(f"Portal starting at http://{host}:{port}")
+    # Windows browsers cannot route to 0.0.0.0. If your config uses 0.0.0.0 
+    # to allow local network traffic, we must open the browser at 127.0.0.1.
+    display_host = "127.0.0.1" if host == "0.0.0.0" else host
+    url = f"http://{display_host}:{port}"
+    
+    log.info(f"Portal starting at {url}")
+    
+    # Launch the delayed browser trigger on a background thread
+    threading.Thread(target=open_browser, args=(url,), daemon=True).start()
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 
@@ -113,7 +179,6 @@ async def cmd_crawl(config: dict, job_id: int):
 
 
 def main():
-    Path("portal/data").mkdir(parents=True, exist_ok=True)
     config = load_config()
 
     args = sys.argv[1:]
@@ -139,3 +204,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
