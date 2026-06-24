@@ -19,5 +19,3 @@ HEADERS = {
     "Referer": "https://www.india.gov.in/directory/web-directory",
     "Origin": "https://www.india.gov.in",
 }
-
-OUT_JSON = "gov_domains.json"

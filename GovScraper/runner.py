@@ -19,7 +19,7 @@ def run_all_domains(config: dict = None) -> dict[str, dict[str, str]]:
     """
     if config is None:
         config = {}
-    
+
     scraper_conf = config.get("scraper", {})
     cat_filter = scraper_conf.get("category_filter", "")
     org_filter = scraper_conf.get("org_type_filter", "")
@@ -45,7 +45,7 @@ def run_all_domains(config: dict = None) -> dict[str, dict[str, str]]:
             # Apply category filter
             if cat_filter and code != cat_filter:
                 continue
-                
+
             # Fetch Org Types to resolve names
             try:
                 org_types = get_organization_types(client, code)
@@ -55,12 +55,12 @@ def run_all_domains(config: dict = None) -> dict[str, dict[str, str]]:
                 org_mapping = {}
 
             log.info(f"Fetching directory entries for {title}...")
-            
+
             try:
                 # Apply org_type_filter if present
                 entries = get_entries_for_category(client, code, org_filter if org_filter else None)
                 grouped_roots = extract_from_entries(entries)
-                
+
                 for state_name, org_groups in grouped_roots.items():
                     for o_code, urls in org_groups.items():
                         org_title = org_mapping.get(o_code, o_code)

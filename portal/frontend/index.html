@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+
+{% block header_actions %}
+<div id="live-badge" style="display:none;">
+    <div class="pulse"></div>
+    Job running
+</div>
+<span id="db-count"></span>
+<button class="btn-secondary btn-sm" onclick="openLogs()">View Logs</button>
+<button class="btn-secondary btn-sm" onclick="openConfig()">⚙ Settings</button>
+<button class="btn-secondary btn-sm" onclick="openResults()">View Leads</button>
+{% endblock %}
+
+{% block content %}
+<div class="layout">
+
+    <!-- Sidebar -->
+    <aside>
+
+        <!-- Import -->
+        <div class="sidebar-section">
+            <div class="section-label">Data Import</div>
+            <div class="import-box">
+                <div class="import-row">
+                    <div>
+                        <div class="import-row-label">gov_domains.json</div>
+                        <div class="import-row-sub">Zero API calls · instant</div>
+                    </div>
+                    <button class="btn-primary btn-sm" id="import-json-btn" onclick="triggerJsonImport()">Import
+                    </button>
+                </div>
+                <div class="import-row">
+                    <div>
+                        <div class="import-row-label" style="color:var(--muted)">Live API refresh</div>
+                        <div class="import-row-sub">Fetches from india.gov.in</div>
+                    </div>
+                    <button class="btn-secondary btn-sm" id="import-btn" onclick="triggerImport()">Refresh</button>
+                </div>
+                <div class="import-progress" id="import-progress" style="display:none;">
+                    <div class="import-msg">
+                        <div class="dot dot-yellow" id="import-dot"></div>
+                        <span id="import-msg-text">Starting…</span>
+                    </div>
+                    <div class="progress-bar-wrap">
+                        <div class="progress-bar-fill" id="import-bar" style="width:0%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="sidebar-section">
+            <div class="section-label">Filters</div>
+            <div class="form-group">
+                <label>Category</label>
+                <select id="cat-select" onchange="onCategoryChange()">
+                    <option value="">All Categories</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>State</label>
+                <select id="state-select" onchange="onStateChange()">
+                    <option value="">All States</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Org Type</label>
+                <select id="orgtype-select" onchange="onFilterChange()">
+                    <option value="">All Types</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Search</label>
+                <input id="search-input" oninput="debounceSearch()" placeholder="haryana, judiciary, district…"
+                       type="text">
+            </div>
+            <div id="domain-count-label" style="font-size:12px;color:var(--muted)"></div>
+        </div>
+
+        <!-- Recent Jobs -->
+        <div class="sidebar-section" style="flex:1">
+            <div class="section-label" style="display:flex; justify-content:space-between; align-items:center;">
+                <span>Recent Jobs</span>
+                <a href="javascript:void(0)" id="view-all-jobs-btn" onclick="viewAllJobs()"
+                   style="text-transform:none; font-size:11px; cursor:pointer;">View All</a>
+            </div>
+            <div id="jobs-list"></div>
+        </div>
+
+    </aside>
+
+    <!-- Main table -->
+    <main>
+        <div class="table-toolbar">
+            <input id="select-all" onchange="toggleSelectAll(this.checked)" title="Select this page" type="checkbox">
+            <span style="font-size:12px;color:var(--muted)">Select page</span>
+            <div class="toolbar-sep"></div>
+            <button class="btn-secondary btn-sm" id="btn-select-all-results" onclick="selectAllResults()"
+                    style="display:none">
+                Select all <span id="sel-all-toolbar-n"></span>
+            </button>
+            <button class="btn-secondary btn-sm" onclick="clearSelection()">Clear</button>
+            <span id="total-label" style="margin-left:auto;font-size:12px;color:var(--muted)"></span>
+            <div style="margin-left:16px; display:flex; align-items:center; gap: 12px;">
+                <span id="sel-count-label" style="font-size:12px; font-weight:bold; display:none;"><span id="sel-count">0</span> selected</span>
+                <button class="btn-primary btn-sm" id="crawl-btn" onclick="startCrawl()" style="display:none;">▶ Crawl
+                    Selected
+                </button>
+            </div>
+        </div>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th style="width:40px"></th>
+                    <th>Domain / Ministry</th>
+                    <th style="width:70px">Cat</th>
+                    <th>Org Type</th>
+                    <th>URL</th>
+                </tr>
+                </thead>
+                <tbody id="domain-tbody">
+                <tr>
+                    <td class="empty-state" colspan="5">Import domains first, then select and crawl.</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="pagination">
+            <button class="btn-secondary btn-sm" id="btn-prev" onclick="prevPage()">← Prev</button>
+            <span id="page-info">—</span>
+            <button class="btn-secondary btn-sm" id="btn-next" onclick="nextPage()">Next →</button>
+        </div>
+
+    </main>
+</div>
+{% endblock %}
+
+{% block init_js %}
+document.addEventListener('DOMContentLoaded', () => {
+loadFilters();
+loadDomains();
+loadRecentJobs();
+checkImportStatus();
+});
+{% endblock %}

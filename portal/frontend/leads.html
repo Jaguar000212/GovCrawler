@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title %}Global Leads — GovCrawler{% endblock %}
+
+{% block extra_head %}
+<link href="/static/css/leads.css" rel="stylesheet">
+
+{% endblock %}
+
+
+{% block header_actions %}
+<button class="btn-primary" onclick="exportLeads()">⬇ Export CSV</button>
+<button class="btn-secondary" onclick="window.location.href='/'">Back to Dashboard</button>
+{% endblock %}
+
+{% block content %}
+<div class="layout">
+    <aside>
+        <!-- Filters -->
+        <div class="sidebar-section">
+            <div class="section-label">Filters</div>
+            <div class="form-group">
+                <label>Category</label>
+                <select id="leads-cat-select" onchange="onLeadsFilterChange()">
+                    <option value="">All Categories</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>State</label>
+                <select id="leads-state-select" onchange="onLeadsFilterChange()">
+                    <option value="">All States</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Search</label>
+                <input id="leads-search-input" oninput="debounceLeadsSearch()" placeholder="name, email, designation…"
+                       type="text">
+            </div>
+            <div id="leads-count-label" style="font-size:12px;color:var(--muted)"></div>
+        </div>
+    </aside>
+
+    <main>
+        <div class="table-toolbar">
+            <input id="leads-select-all" onchange="toggleSelectAllLeads(this.checked)" title="Select this page"
+                   type="checkbox">
+            <span style="font-size:12px;color:var(--muted)">Select page</span>
+            <div class="toolbar-sep"></div>
+            <button class="btn-secondary btn-sm" id="btn-select-all-leads" onclick="selectAllLeads()"
+                    style="display:none">
+                Select all <span id="sel-all-leads-toolbar-n"></span>
+            </button>
+            <button class="btn-secondary btn-sm" onclick="clearLeadsSelection()">Clear</button>
+            <span id="leads-total-label" style="margin-left:auto;font-size:12px;color:var(--muted)"></span>
+            <div style="margin-left:16px; display:flex; align-items:center; gap: 12px;">
+                <span id="sel-leads-count-label" style="font-size:12px; font-weight:bold; display:none;"><span
+                        id="sel-leads-count">0</span> selected</span>
+            </div>
+        </div>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th style="width:40px"></th>
+                    <th>Email</th>
+                    <th>Name</th>
+                    <th>Designation</th>
+                    <th>Department</th>
+                    <th>State</th>
+                    <th>Domain</th>
+                    <th>Cat</th>
+                    <th>Page Title</th>
+                    <th>Source</th>
+                </tr>
+                </thead>
+                <tbody id="leads-tbody"></tbody>
+            </table>
+        </div>
+        <div class="pagination">
+            <button class="btn-secondary btn-sm" id="btn-leads-prev" onclick="leadsPrev()">← Prev</button>
+            <span id="leads-page-info" style="font-size:12px;color:var(--muted)">—</span>
+            <button class="btn-secondary btn-sm" id="btn-leads-next" onclick="leadsNext()">Next →</button>
+        </div>
+    </main>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="/static/js/leads.js"></script>
+{% endblock %}

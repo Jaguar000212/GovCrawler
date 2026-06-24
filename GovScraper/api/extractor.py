@@ -38,12 +38,12 @@ def extract_from_entries(entries: list[dict]) -> dict[str, dict[str, set[str]]]:
             state = entry.get("stateName")
             state_name = state if state else "National / Unknown"
             org_code = entry.get("organization_type") or "UNKNOWN"
-            
+
             if state_name not in grouped_domains:
                 grouped_domains[state_name] = {}
             if org_code not in grouped_domains[state_name]:
                 grouped_domains[state_name][org_code] = set()
-                
+
             grouped_domains[state_name][org_code].add(_root_domain(url))
 
     return grouped_domains

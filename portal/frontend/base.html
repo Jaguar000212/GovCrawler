@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <title>{% block title %}GovCrawler Portal{% endblock %}</title>
+    <link href="/static/css/base.css" rel="stylesheet">
+
+    {% block extra_head %}{% endblock %}
+</head>
+
+<body>
+
+<header>
+    <div class="logo" onclick="window.location.href='/'" style="cursor:pointer">
+        <div class="logo-icon">⚡</div>
+        <div style="display:flex;">Gov<span>Crawler</span></div>
+    </div>
+    <div class="header-right">
+        {% block header_actions %}{% endblock %}
+    </div>
+</header>
+
+{% block content %}{% endblock %}
+
+<!-- Bottom Dock -->
+<div id="bottom-dock" style="display:none;">
+    <div id="dock-resizer"></div>
+    <div class="dock-tabs">
+        <div class="dock-tab active" id="tab-job" onclick="switchDockTab('job')">Job Details</div>
+        <div class="dock-tab" id="tab-seeds" onclick="switchDockTab('seeds')">Seeds</div>
+        <div class="dock-tab" id="tab-leads" onclick="switchDockTab('leads')">Found Leads</div>
+        <div class="dock-tab" id="tab-logs" onclick="switchDockTab('logs')">Server Logs</div>
+        <div style="flex:1"></div>
+        <button class="btn-icon" onclick="closeDock()"
+                style="padding: 0 16px; border-left: 1px solid var(--border); border-radius: 0;">✕
+        </button>
+    </div>
+
+    <!-- Job details content -->
+    <div class="dock-content" id="dock-job">
+        <div class="jp-header">
+            <h2 id="job-title">Crawl Job</h2>
+        </div>
+        <div class="jp-stats">
+            <div class="jp-stat">
+                <div class="jp-stat-label">Status</div>
+                <div class="jp-stat-value" id="job-status-val">—</div>
+            </div>
+            <div class="jp-stat">
+                <div class="jp-stat-label">Time</div>
+                <div class="jp-stat-value" id="job-elapsed-val">—</div>
+            </div>
+            <div class="jp-stat">
+                <div class="jp-stat-label">Seed</div>
+                <div class="jp-stat-value" id="job-seed-val">0</div>
+            </div>
+            <div class="jp-stat">
+                <div class="jp-stat-label">Queued</div>
+                <div class="jp-stat-value" id="job-queued-val">0</div>
+            </div>
+            <div class="jp-stat">
+                <div class="jp-stat-label">Visited</div>
+                <div class="jp-stat-value" id="job-visited-val">0</div>
+            </div>
+            <div class="jp-stat">
+                <div class="jp-stat-label">Skipped</div>
+                <div class="jp-stat-value" id="job-skipped-val">0</div>
+            </div>
+            <div class="jp-stat">
+                <div class="jp-stat-label">Leads found</div>
+                <div class="jp-stat-value" id="job-leads-val" style="color:var(--green)">0</div>
+            </div>
+        </div>
+        <div class="progress-bar-wrap" style="height:6px">
+            <div class="progress-bar-fill" id="job-progress-bar" style="width:0%"></div>
+        </div>
+        <div class="jp-actions">
+            <button class="btn-secondary btn-sm" disabled id="btn-export-leads" onclick="exportLeads()">Export Leads
+                (CSV)
+            </button>
+            <button class="btn-danger btn-sm" id="btn-cancel-job" onclick="cancelJob()" style="display:none">Cancel
+                Job
+            </button>
+        </div>
+    </div>
+
+    <!-- Seeds content -->
+    <div class="dock-content" id="dock-seeds" style="display:none; padding: 0;">
+        <div style="padding: 12px 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h2 style="font-size: 14px; font-weight: 600;">Job Seeds</h2>
+                <button class="btn-primary btn-sm" onclick="useSameSeeds()">▶ Use Same Seeds</button>
+            </div>
+            <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 12px;">
+                <thead>
+                <tr style="border-bottom: 1px solid var(--border); color: var(--small);">
+                    <th style="padding-bottom: 8px;">DOMAIN / MINISTRY</th>
+                    <th style="padding-bottom: 8px;">STATE</th>
+                    <th style="padding-bottom: 8px;">CATEGORY</th>
+                    <th style="padding-bottom: 8px;">URL</th>
+                </tr>
+                </thead>
+                <tbody id="seeds-tbody">
+                <tr>
+                    <td class="empty-state" colspan="4">Loading seeds...</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Leads content -->
+    <div class="dock-content" id="dock-leads" style="display:none; padding: 0;">
+        <div style="padding: 12px 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h2 style="font-size: 14px; font-weight: 600;">Found Leads</h2>
+                <button class="btn-secondary btn-sm" disabled id="btn-export-leads-tab" onclick="exportLeads()">Export
+                    CSV
+                </button>
+            </div>
+            <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 12px;">
+                <thead>
+                <tr style="border-bottom: 1px solid var(--border); color: var(--small);">
+                    <th style="padding-bottom: 8px;">EMAIL</th>
+                    <th style="padding-bottom: 8px;">PERSON / DEPT</th>
+                    <th style="padding-bottom: 8px;">SOURCE</th>
+                    <th style="padding-bottom: 8px;">DOMAIN</th>
+                </tr>
+                </thead>
+                <tbody id="dock-leads-tbody">
+                <tr>
+                    <td class="empty-state" colspan="4">Loading leads...</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Logs content -->
+    <div class="dock-content" id="dock-logs" style="display:none; padding: 0;">
+      <pre id="logs-content"
+           style="margin:0; font-family:monospace; font-size:12px; color:#c9d1d9; background:#0d1117; padding: 12px; white-space:pre-wrap; overflow-y:auto; height:100%;"></pre>
+    </div>
+</div>
+
+<!-- Config panel (right drawer) -->
+<div id="config-panel">
+    <div class="cfg-header">
+        <h2>⚙ Crawler Settings</h2>
+        <button class="btn-icon" onclick="closeConfig()" style="font-size:14px">✕</button>
+    </div>
+    <div class="cfg-body">
+        <button class="btn-secondary btn-sm" id="btn-toggle-adv" onclick="toggleAdvancedConfigs()"
+                style="margin: 0 16px 16px; width: calc(100% - 32px);">Show Advanced Settings
+        </button>
+
+        <div class="cfg-section">
+            <div class="cfg-section-title">Crawler</div>
+
+            <div class="cfg-row">
+                <label class="cfg-label">Workers</label>
+                <input class="cfg-input" id="cfg-workers" min="1" type="number">
+                <span class="info-icon"
+                      data-tip="Parallel workers crawling at once. Keep at 5 for gov sites — higher risks IP blocks.">ⓘ</span>
+            </div>
+            <div class="cfg-row">
+                <label class="cfg-label">Max Depth</label>
+                <input class="cfg-input" id="cfg-max-depth" min="0" type="number">
+                <span class="info-icon"
+                      data-tip="How deep to follow links from seed pages. 3 = seed → contact → officer → detail. Beyond 4 rarely yields new contacts.">ⓘ</span>
+            </div>
+            <div class="cfg-row">
+                <label class="cfg-label">Recrawl Days</label>
+                <input class="cfg-input" id="cfg-recrawl-days" min="0" type="number">
+                <span class="info-icon"
+                      data-tip="Skip URLs visited in any previous job within this many days. Prevents repeatedly hitting the same gov pages.">ⓘ</span>
+            </div>
+            <div class="cfg-row">
+                <label class="cfg-label">Request Delay (s)</label>
+                <input class="cfg-input" id="cfg-request-delay" min="0" step="0.1" type="number">
+                <span class="info-icon"
+                      data-tip="Seconds to wait between requests to the same domain. Increase this if sites start blocking or rate-limiting you.">ⓘ</span>
+            </div>
+            <div class="cfg-row">
+                <label class="cfg-label">Per-URL Timeout (s)</label>
+                <input class="cfg-input" id="cfg-per-url-timeout" min="10" type="number">
+                <span class="info-icon"
+                      data-tip="Hard time limit per page. If a page takes longer, the worker moves on. Must be higher than playwright_timeout.">ⓘ</span>
+            </div>
+            <div class="cfg-row adv-setting" style="display:none;">
+                <label class="cfg-label">Max Links (Depth 0)</label>
+                <input class="cfg-input" id="cfg-max-links-0" min="1" type="number">
+            </div>
+            <div class="cfg-row adv-setting" style="display:none;">
+                <label class="cfg-label">Max Links (Depth 1)</label>
+                <input class="cfg-input" id="cfg-max-links-1" min="1" type="number">
+            </div>
+            <div class="cfg-row adv-setting" style="display:none;">
+                <label class="cfg-label">Max Links (Depth 2)</label>
+                <input class="cfg-input" id="cfg-max-links-2" min="1" type="number">
+            </div>
+            <div class="cfg-row adv-setting" style="display:none;">
+                <label class="cfg-label">Max Links (Default)</label>
+                <input class="cfg-input" id="cfg-max-links-default" min="1" type="number">
+                <span class="info-icon"
+                      data-tip="Maximum number of links to extract and queue from a single page at a given depth.">ⓘ</span>
+            </div>
+        </div>
+
+        <div class="cfg-section adv-setting" style="display:none;">
+            <div class="cfg-section-title">Advanced & Filtering</div>
+            <div class="cfg-row" style="flex-direction:column; align-items:flex-start;">
+                <label class="cfg-label" style="margin-bottom:4px">Target Suffixes (one per line)</label>
+                <textarea class="cfg-input cfg-input-full" id="cfg-target-suffixes" rows="4"
+                          style="resize:vertical"></textarea>
+            </div>
+            <div class="cfg-row" style="flex-direction:column; align-items:flex-start;">
+                <label class="cfg-label" style="margin-bottom:4px">Priority Keywords (one per line)</label>
+                <textarea class="cfg-input cfg-input-full" id="cfg-priority-keywords" rows="4"
+                          style="resize:vertical"></textarea>
+            </div>
+            <div class="cfg-row" style="flex-direction:column; align-items:flex-start;">
+                <label class="cfg-label" style="margin-bottom:4px">Skip Extensions (one per line)</label>
+                <textarea class="cfg-input cfg-input-full" id="cfg-skip-extensions" rows="4"
+                          style="resize:vertical"></textarea>
+            </div>
+        </div>
+
+        <div class="cfg-section">
+            <div class="cfg-section-title">HTTP / JavaScript</div>
+
+            <div class="cfg-row">
+                <label class="cfg-label">Try HTTP first</label>
+                <label class="cfg-toggle">
+                    <input id="cfg-httpx-first" type="checkbox">
+                    <div class="cfg-toggle-track"></div>
+                </label>
+                <span class="info-icon"
+                      data-tip="Attempt a fast plain HTTP request before launching Playwright. Saves resources — most gov sites don't need JS.">ⓘ</span>
+            </div>
+            <div class="cfg-row">
+                <label class="cfg-label">Playwright fallback</label>
+                <label class="cfg-toggle">
+                    <input id="cfg-playwright-fallback" type="checkbox">
+                    <div class="cfg-toggle-track"></div>
+                </label>
+                <span class="info-icon"
+                      data-tip="If a page appears to require JavaScript, escalate to Playwright (full browser). Disable to skip JS-heavy pages entirely.">ⓘ</span>
+            </div>
+            <div class="cfg-row">
+                <label class="cfg-label">Playwright timeout (s)</label>
+                <input class="cfg-input" id="cfg-playwright-timeout" min="5" type="number">
+                <span class="info-icon"
+                      data-tip="Seconds Playwright waits for page.goto() to complete before giving up.">ⓘ</span>
+            </div>
+            <div class="cfg-row">
+                <label class="cfg-label">JS settle time (s)</label>
+                <input class="cfg-input" id="cfg-js-settle" min="0" step="0.5" type="number">
+                <span class="info-icon"
+                      data-tip="Extra seconds to wait after the page loads for JavaScript-rendered content to appear in the DOM.">ⓘ</span>
+            </div>
+        </div>
+
+        <div class="cfg-section">
+            <div class="cfg-section-title">Email Extraction</div>
+
+            <div class="cfg-row">
+                <label class="cfg-label">Enabled</label>
+                <label class="cfg-toggle">
+                    <input id="cfg-email-enabled" type="checkbox">
+                    <div class="cfg-toggle-track"></div>
+                </label>
+                <span class="info-icon"
+                      data-tip="Extract email addresses from crawled pages. Disable only for testing — this is the main output.">ⓘ</span>
+            </div>
+            <div class="cfg-row">
+                <label class="cfg-label">Context window (chars)</label>
+                <input class="cfg-input cfg-input-wide" id="cfg-email-context" max="1000" min="50" type="number">
+                <span class="info-icon"
+                      data-tip="Characters captured around each found email — used to identify the person's name and designation nearby.">ⓘ</span>
+            </div>
+            <div class="cfg-row adv-setting" style="display:none; flex-direction:column; align-items:flex-start;">
+                <label class="cfg-label" style="margin-bottom:4px">Valid Suffixes (one per line)</label>
+                <textarea class="cfg-input cfg-input-full" id="cfg-email-valid-suffixes" rows="3"
+                          style="resize:vertical"></textarea>
+            </div>
+        </div>
+
+        <div class="cfg-section">
+            <div class="cfg-section-title">Person Extraction</div>
+
+            <div class="cfg-row">
+                <label class="cfg-label">Enabled</label>
+                <label class="cfg-toggle">
+                    <input id="cfg-person-enabled" type="checkbox">
+                    <div class="cfg-toggle-track"></div>
+                </label>
+                <span class="info-icon"
+                      data-tip="Try to extract person name and designation from content near each email address.">ⓘ</span>
+            </div>
+            <div class="cfg-row">
+                <label class="cfg-label">Proximity (chars)</label>
+                <input class="cfg-input cfg-input-wide" id="cfg-person-proximity" max="1000" min="50" type="number">
+                <span class="info-icon"
+                      data-tip="How many characters around an email to search for name/designation. Larger = more context but slower.">ⓘ</span>
+            </div>
+            <div class="cfg-row adv-setting" style="display:none; flex-direction:column; align-items:flex-start;">
+                <label class="cfg-label" style="margin-bottom:4px">Title Prefixes (one per line)</label>
+                <textarea class="cfg-input cfg-input-full" id="cfg-person-title-prefixes" rows="3"
+                          style="resize:vertical"></textarea>
+            </div>
+            <div class="cfg-row adv-setting" style="display:none; flex-direction:column; align-items:flex-start;">
+                <label class="cfg-label" style="margin-bottom:4px">Designation Keywords (one per line)</label>
+                <textarea class="cfg-input cfg-input-full" id="cfg-person-designation-keywords" rows="4"
+                          style="resize:vertical"></textarea>
+            </div>
+        </div>
+
+        <div class="cfg-section">
+            <div class="cfg-section-title">Maintenance</div>
+            <div class="cfg-row">
+                <label class="cfg-label">Visited URLs Cache</label>
+                <button class="btn-secondary btn-sm" onclick="clearVisitedUrls()">Clear Cache</button>
+            </div>
+        </div>
+
+        <div class="cfg-section adv-setting" style="display:none;">
+            <div class="cfg-section-title">Read-Only System Configs</div>
+            <div class="cfg-row" style="flex-direction:column; align-items:flex-start;">
+                <label class="cfg-label" style="margin-bottom:4px">User Agent</label>
+                <textarea class="cfg-input cfg-input-full" id="cfg-user-agent" readonly rows="2"
+                          style="background:#0d1117; color:#8b949e"></textarea>
+            </div>
+            <div class="cfg-row" style="flex-direction:column; align-items:flex-start;">
+                <label class="cfg-label" style="margin-bottom:4px">Email Regex</label>
+                <input class="cfg-input cfg-input-full" id="cfg-email-regex" readonly style="background:#0d1117; color:#8b949e"
+                       type="text">
+            </div>
+            <div class="cfg-row" style="flex-direction:column; align-items:flex-start;">
+                <label class="cfg-label" style="margin-bottom:4px">JS Indicators</label>
+                <textarea class="cfg-input cfg-input-full" id="cfg-js-indicators" readonly rows="4"
+                          style="background:#0d1117; color:#8b949e"></textarea>
+            </div>
+            <div class="cfg-row" style="flex-direction:column; align-items:flex-start;">
+                <label class="cfg-label" style="margin-bottom:4px">Email Obfuscation Rules (YAML)</label>
+                <textarea class="cfg-input cfg-input-full" id="cfg-email-obfuscation" readonly rows="6"
+                          style="background:#0d1117; color:#8b949e; font-family:monospace"></textarea>
+            </div>
+        </div>
+
+    </div>
+    <div class="cfg-footer">
+        <div id="cfg-warn-msg"
+             style="display:none; color:var(--orange); font-size:11px; margin-bottom:8px; line-height:1.4">Warning:
+            Settings
+            exceed advised range and may cause instability or IP bans.
+        </div>
+        <button class="btn-primary btn-save-big" onclick="saveConfig()">Save Settings</button>
+        <div class="cfg-footer-btns">
+            <div id="cfg-save-msg" style="flex:1; display:none;">✓ Saved — takes effect on next crawl job</div>
+            <button class="btn-secondary btn-sm" onclick="closeConfig()">Close</button>
+        </div>
+    </div>
+</div>
+
+<script src="/static/js/base.js"></script>
+{% block extra_scripts %}{% endblock %}
+<script>
+    {% block init_js %}{% endblock %}
+    {% block extra_js %}{% endblock %}
+</script>
+</body>
+
+</html>
