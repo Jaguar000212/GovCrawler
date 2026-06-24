@@ -4,8 +4,8 @@ Fully config-driven — no regexes or keyword lists hardcoded here.
 Phone extraction is intentionally excluded.
 """
 
-import re
 import logging
+import re
 from dataclasses import dataclass
 
 from bs4 import BeautifulSoup
@@ -20,6 +20,7 @@ class Lead:
     designation: str | None = None
     department: str | None = None
     source_url: str = ""
+    source_title: str = ""
     context_snippet: str = ""
 
 
@@ -39,16 +40,20 @@ def parse_page(html: str, source_url: str, config: dict) -> list[Lead]:
 
     leads: list[Lead] = []
 
+    page_title = ""
+    if soup.title and soup.title.string:
+        page_title = soup.title.string.strip()
+
     # Pass 1: table rows (highest confidence — structured data)
     if config.get("person", {}).get("enabled"):
-        leads.extend(_extract_from_tables(soup, source_url, config))
+        leads.extend(_extract_from_tables(soup, source_url, page_title, config))
 
     # Pass 2: proximity text scan — email as anchor, look for name/designation nearby
     text = _normalise_obfuscation(raw_text, config.get("email", {}))
     email_spans = _find_email_spans(text, config.get("email", {}))
 
     seen_emails = {l.email for l in leads if l.email}
-    ctx_chars  = config.get("email", {}).get("context_chars", 200)
+    ctx_chars = config.get("email", {}).get("context_chars", 200)
     prox_chars = config.get("person", {}).get("proximity_chars", 300)
 
     for email, start, end in email_spans:
@@ -57,7 +62,7 @@ def parse_page(html: str, source_url: str, config: dict) -> list[Lead]:
         seen_emails.add(email)
 
         context = " ".join(text[max(0, start - ctx_chars): end + ctx_chars].split())
-        window  = text[max(0, start - prox_chars): end + prox_chars]
+        window = text[max(0, start - prox_chars): end + prox_chars]
         name, desig = _extract_person_from_text(window, config.get("person", {}))
 
         leads.append(Lead(
@@ -65,6 +70,7 @@ def parse_page(html: str, source_url: str, config: dict) -> list[Lead]:
             person_name=name,
             designation=desig,
             source_url=source_url,
+            source_title=page_title,
             context_snippet=context,
         ))
 
@@ -99,10 +105,10 @@ def _find_email_spans(text: str, ecfg: dict) -> list[tuple[str, int, int]]:
 # ── Person / designation extraction ──────────────────────────────────────────
 
 def _extract_person_from_text(window: str,
-                               pcfg: dict) -> tuple[str | None, str | None]:
-    prefixes       = pcfg.get("title_prefixes", [])
+                              pcfg: dict) -> tuple[str | None, str | None]:
+    prefixes = pcfg.get("title_prefixes", [])
     desig_keywords = pcfg.get("designation_keywords", [])
-    name, desig    = None, None
+    name, desig = None, None
 
     if prefixes:
         pat = (r"\b(" + "|".join(re.escape(p) for p in prefixes) +
@@ -123,10 +129,9 @@ def _extract_person_from_text(window: str,
 
 # ── Table-based extraction (highest confidence) ───────────────────────────────
 
-def _extract_from_tables(soup: BeautifulSoup, source_url: str,
-                          config: dict) -> list[Lead]:
-    ecfg  = config.get("email", {})
-    pcfg  = config.get("person", {})
+def _extract_from_tables(soup: BeautifulSoup, source_url: str, page_title: str, config: dict) -> list[Lead]:
+    ecfg = config.get("email", {})
+    pcfg = config.get("person", {})
     leads: list[Lead] = []
 
     valid_suffixes = tuple(ecfg.get("valid_suffixes", [".gov.in", ".nic.in"]))
@@ -145,10 +150,10 @@ def _extract_from_tables(soup: BeautifulSoup, source_url: str,
                    for c in rows[0].find_all(["th", "td"])]
 
         col = {
-            "name":        _find_col(headers, ["name", "officer", "official", "contact person"]),
+            "name": _find_col(headers, ["name", "officer", "official", "contact person"]),
             "designation": _find_col(headers, ["designation", "post", "rank", "position"]),
-            "department":  _find_col(headers, ["department", "division", "ministry", "section"]),
-            "email":       _find_col(headers, ["email", "e-mail", "mail"]),
+            "department": _find_col(headers, ["department", "division", "ministry", "section"]),
+            "email": _find_col(headers, ["email", "e-mail", "mail"]),
         }
 
         for row in rows[1:]:
@@ -156,16 +161,16 @@ def _extract_from_tables(soup: BeautifulSoup, source_url: str,
             if not cells:
                 continue
             cell_texts = [c.get_text(separator=" ", strip=True) for c in cells]
-            row_text   = " ".join(cell_texts)
+            row_text = " ".join(cell_texts)
 
             for m in email_re.finditer(row_text):
                 email = m.group(0).lower().strip(".")
                 if not email.endswith(valid_suffixes):
                     continue
 
-                name  = _cell_value(cell_texts, col["name"])
+                name = _cell_value(cell_texts, col["name"])
                 desig = _cell_value(cell_texts, col["designation"])
-                dept  = _cell_value(cell_texts, col["department"])
+                dept = _cell_value(cell_texts, col["department"])
 
                 if not name and pcfg.get("title_prefixes"):
                     pm = re.search(
@@ -193,6 +198,7 @@ def _extract_from_tables(soup: BeautifulSoup, source_url: str,
                     designation=desig or None,
                     department=dept or None,
                     source_url=source_url,
+                    source_title=page_title,
                     context_snippet=row_text[:300],
                 ))
 

@@ -29,14 +29,15 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import yaml
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.templating import Jinja2Templates
 from playwright.async_api import async_playwright
 from pydantic import BaseModel
 
+from ..crawler.engine import CrawlerEngine
 from ..db.models import Database
 from ..scraper.importer import import_all, import_from_json, import_status
-from ..crawler.engine import CrawlerEngine
 
 log = logging.getLogger(__name__)
 
@@ -64,6 +65,9 @@ async def lifespan(app: FastAPI):
         pass
 
 
+from fastapi.staticfiles import StaticFiles
+
+
 def create_app(config: dict, db: Database) -> FastAPI:
     global _db, _config, _config_path
     _db = db
@@ -73,21 +77,24 @@ def create_app(config: dict, db: Database) -> FastAPI:
     app = FastAPI(title="GovCrawler Portal", lifespan=lifespan)
     frontend_dir = Path(__file__).parent.parent / "frontend"
 
+    # Mount static files
+    static_dir = frontend_dir / "static"
+    static_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+    templates = Jinja2Templates(directory=str(frontend_dir))
+
     # ── Frontend ──────────────────────────────────────────────────────────────
 
     @app.get("/", response_class=HTMLResponse)
-    async def index():
-        html_file = frontend_dir / "index.html"
-        if not html_file.exists():
-            return HTMLResponse("<h1>Frontend not found</h1>", status_code=404)
-        return HTMLResponse(html_file.read_text(encoding="utf-8"))
+    async def index(request: Request):
+        template = templates.get_template("index.html")
+        return HTMLResponse(template.render({"request": request}))
 
     @app.get("/leads", response_class=HTMLResponse)
-    async def leads_page():
-        html_file = frontend_dir / "leads.html"
-        if not html_file.exists():
-            return HTMLResponse("<h1>Frontend not found</h1>", status_code=404)
-        return HTMLResponse(html_file.read_text(encoding="utf-8"))
+    async def leads_page(request: Request):
+        template = templates.get_template("leads.html")
+        return HTMLResponse(template.render({"request": request}))
 
     @app.get("/api/logs")
     async def get_logs():
@@ -124,12 +131,12 @@ def create_app(config: dict, db: Database) -> FastAPI:
 
     @app.get("/api/domains")
     async def get_domains(
-        category: str = Query(None),
-        state:    str = Query(None),
-        org_type: str = Query(None),
-        search:   str = Query(None),
-        page:     int = Query(1, ge=1),
-        limit:    int = Query(50, ge=1, le=200),
+            category: str = Query(None),
+            state: str = Query(None),
+            org_type: str = Query(None),
+            search: str = Query(None),
+            page: int = Query(1, ge=1),
+            limit: int = Query(50, ge=1, le=200),
     ):
         domains, total = _db.get_domains(
             category=category or None,
@@ -149,10 +156,10 @@ def create_app(config: dict, db: Database) -> FastAPI:
 
     @app.get("/api/domains/ids")
     async def get_domain_ids(
-        category: str = Query(None),
-        state:    str = Query(None),
-        org_type: str = Query(None),
-        search:   str = Query(None),
+            category: str = Query(None),
+            state: str = Query(None),
+            org_type: str = Query(None),
+            search: str = Query(None),
     ):
         ids = _db.get_domain_ids(
             category=category or None,
@@ -168,28 +175,48 @@ def create_app(config: dict, db: Database) -> FastAPI:
     async def get_config():
         c = _config
         return {
-            "workers":              c["crawler"]["workers"],
-            "max_depth":            c["crawler"]["max_depth"],
-            "recrawl_days":         c["crawler"]["recrawl_days"],
-            "request_delay":        c["crawler"]["request_delay"],
-            "per_url_timeout":      c["crawler"]["per_url_timeout"],
-            "httpx_first":          c["crawler"].get("httpx_first", True),
-            "playwright_fallback":  c["crawler"].get("playwright_fallback", True),
-            "playwright_timeout":   c["crawler"]["playwright_timeout"],
-            "js_settle_time":       c["crawler"]["js_settle_time"],
-            "email_enabled":        c["extraction"]["email"]["enabled"],
-            "email_context_chars":  c["extraction"]["email"]["context_chars"],
-            "person_enabled":       c["extraction"]["person"]["enabled"],
+            "workers": c["crawler"]["workers"],
+            "max_depth": c["crawler"]["max_depth"],
+            "recrawl_days": c["crawler"]["recrawl_days"],
+            "request_delay": c["crawler"]["request_delay"],
+            "per_url_timeout": c["crawler"]["per_url_timeout"],
+            "httpx_first": c["crawler"].get("httpx_first", True),
+            "playwright_fallback": c["crawler"].get("playwright_fallback", True),
+            "playwright_timeout": c["crawler"]["playwright_timeout"],
+            "js_settle_time": c["crawler"]["js_settle_time"],
+            "email_enabled": c["extraction"]["email"]["enabled"],
+            "email_context_chars": c["extraction"]["email"]["context_chars"],
+            "person_enabled": c["extraction"]["person"]["enabled"],
             "person_proximity_chars": c["extraction"]["person"]["proximity_chars"],
+
+            # Arrays
+            "target_suffixes": "\n".join(c["crawler"].get("target_suffixes", [])),
+            "priority_keywords": "\n".join(c["crawler"].get("priority_keywords", [])),
+            "skip_extensions": "\n".join(c["crawler"].get("skip_extensions", [])),
+            "valid_suffixes": "\n".join(c["extraction"]["email"].get("valid_suffixes", [])),
+            "title_prefixes": "\n".join(c["extraction"]["person"].get("title_prefixes", [])),
+            "designation_keywords": "\n".join(c["extraction"]["person"].get("designation_keywords", [])),
+
+            # Dictionary
+            "max_links_per_page_0": c["crawler"].get("max_links_per_page", {}).get(0, 30),
+            "max_links_per_page_1": c["crawler"].get("max_links_per_page", {}).get(1, 15),
+            "max_links_per_page_2": c["crawler"].get("max_links_per_page", {}).get(2, 8),
+            "max_links_per_page_default": c["crawler"].get("max_links_per_page", {}).get("default", 5),
+
+            # Read-only
+            "user_agent": c["crawler"].get("user_agent", ""),
+            "js_indicators": "\n".join(c["crawler"].get("js_indicators", [])),
+            "email_regex": c["extraction"]["email"].get("regex", ""),
+            "email_obfuscation": yaml.dump(c["extraction"]["email"].get("obfuscation", []), default_flow_style=False),
         }
 
     @app.post("/api/config")
     async def save_config(body: dict):
         cfg = copy.deepcopy(_config)
 
-        int_keys   = {"workers", "max_depth", "recrawl_days", "per_url_timeout", "playwright_timeout"}
+        int_keys = {"workers", "max_depth", "recrawl_days", "per_url_timeout", "playwright_timeout"}
         float_keys = {"request_delay", "js_settle_time"}
-        bool_keys  = {"httpx_first", "playwright_fallback"}
+        bool_keys = {"httpx_first", "playwright_fallback"}
 
         for k in int_keys:
             if k in body:
@@ -209,6 +236,33 @@ def create_app(config: dict, db: Database) -> FastAPI:
             cfg["extraction"]["person"]["enabled"] = bool(body["person_enabled"])
         if "person_proximity_chars" in body:
             cfg["extraction"]["person"]["proximity_chars"] = int(body["person_proximity_chars"])
+
+        def parse_list(s: str) -> list[str]:
+            return [x.strip() for x in s.replace(",", "\n").split("\n") if x.strip()]
+
+        if "target_suffixes" in body:
+            cfg["crawler"]["target_suffixes"] = parse_list(body["target_suffixes"])
+        if "priority_keywords" in body:
+            cfg["crawler"]["priority_keywords"] = parse_list(body["priority_keywords"])
+        if "skip_extensions" in body:
+            cfg["crawler"]["skip_extensions"] = parse_list(body["skip_extensions"])
+        if "valid_suffixes" in body:
+            cfg["extraction"]["email"]["valid_suffixes"] = parse_list(body["valid_suffixes"])
+        if "title_prefixes" in body:
+            cfg["extraction"]["person"]["title_prefixes"] = parse_list(body["title_prefixes"])
+        if "designation_keywords" in body:
+            cfg["extraction"]["person"]["designation_keywords"] = parse_list(body["designation_keywords"])
+
+        # dict updates
+        max_links = cfg["crawler"].setdefault("max_links_per_page", {})
+        if "max_links_per_page_0" in body:
+            max_links[0] = int(body["max_links_per_page_0"])
+        if "max_links_per_page_1" in body:
+            max_links[1] = int(body["max_links_per_page_1"])
+        if "max_links_per_page_2" in body:
+            max_links[2] = int(body["max_links_per_page_2"])
+        if "max_links_per_page_default" in body:
+            max_links["default"] = int(body["max_links_per_page_default"])
 
         _config.update(cfg)
 
@@ -294,6 +348,25 @@ def create_app(config: dict, db: Database) -> FastAPI:
             job["status"] = "running"
         return job
 
+    @app.get("/api/jobs/{job_id}/seeds")
+    async def get_job_seeds(job_id: int):
+        import json
+        job = _db.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        # In CrawlJob, domain_ids is stored as JSON list[int].
+        # Since _db.get_job doesn't include it in _job_dict, we can fetch it directly from the DB here
+        with _db._Session() as s:
+            from ..db.models import CrawlJob
+            j = s.query(CrawlJob).filter_by(id=job_id).first()
+            if not j or not j.domain_ids:
+                return []
+            try:
+                ids = json.loads(j.domain_ids)
+                return _db.get_domains_by_ids(ids)
+            except Exception:
+                return []
+
     @app.post("/api/jobs/{job_id}/cancel")
     async def cancel_job(job_id: int):
         task = _active_tasks.get(job_id)
@@ -307,11 +380,15 @@ def create_app(config: dict, db: Database) -> FastAPI:
 
     @app.get("/api/leads")
     async def get_leads(
-        job_id: int = Query(None),
-        page:   int = Query(1, ge=1),
-        limit:  int = Query(100, ge=1, le=500),
+            job_id: int = Query(None),
+            category: str = Query(None),
+            state: str = Query(None),
+            search: str = Query(None),
+            page: int = Query(1, ge=1),
+            limit: int = Query(100, ge=1, le=500),
     ):
-        leads, total = _db.get_leads(job_id=job_id, page=page, limit=limit)
+        leads, total = _db.get_leads(job_id=job_id, category=category, state=state, search=search, page=page,
+                                     limit=limit)
         return {
             "leads": leads,
             "total": total,
@@ -319,9 +396,40 @@ def create_app(config: dict, db: Database) -> FastAPI:
             "pages": max(1, (total + limit - 1) // limit),
         }
 
-    @app.get("/api/leads/export")
-    async def export_leads(job_id: int = Query(None)):
-        rows = _db.get_all_leads_for_export(job_id)
+    @app.get("/api/leads/ids")
+    async def get_lead_ids(
+            job_id: int = Query(None),
+            category: str = Query(None),
+            state: str = Query(None),
+            search: str = Query(None),
+    ):
+        ids = _db.get_lead_ids(job_id=job_id, category=category, state=state, search=search)
+        return {"ids": ids, "total": len(ids)}
+
+    @app.get("/api/leads/categories")
+    async def get_lead_categories(job_id: int = Query(None)):
+        return _db.get_lead_categories(job_id=job_id)
+
+    @app.get("/api/leads/states")
+    async def get_lead_states(job_id: int = Query(None), category: str = Query(None)):
+        return _db.get_lead_states(job_id=job_id, category=category)
+
+    class ExportLeadsRequest(BaseModel):
+        job_id: int | None = None
+        category: str | None = None
+        state: str | None = None
+        search: str | None = None
+        lead_ids: list[int] | None = None
+
+    @app.post("/api/leads/export")
+    async def export_leads(req: ExportLeadsRequest):
+        rows = _db.get_all_leads_for_export(
+            job_id=req.job_id,
+            category=req.category,
+            state=req.state,
+            search=req.search,
+            lead_ids=req.lead_ids
+        )
         if not rows:
             raise HTTPException(status_code=404, detail="No leads for this job")
 
@@ -329,7 +437,7 @@ def create_app(config: dict, db: Database) -> FastAPI:
         fieldnames = [
             "email", "person_name", "designation", "department",
             "domain_title", "domain_state", "domain_org_type",
-            "category_title", "source_url", "context_snippet", "captured_at",
+            "category_title", "source_url", "source_title", "context_snippet", "captured_at",
         ]
         writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
@@ -340,7 +448,7 @@ def create_app(config: dict, db: Database) -> FastAPI:
             iter([output.getvalue()]),
             media_type="text/csv",
             headers={"Content-Disposition":
-                     f'attachment; filename="leads_job_{job_id}.csv"'},
+                         f'attachment; filename="leads_export.csv"'},
         )
 
     return app
@@ -369,6 +477,9 @@ async def _run_crawl(job_id: int, seeds: list[tuple[str, int | None]]):
         _db.finish_job(job_id, status="done")
         job = _db.get_job(job_id)
         log.info(f"Crawl job {job_id} done. Leads: {job['leads_found']}")
+    except asyncio.CancelledError:
+        log.info(f"Crawl job {job_id} cancelled by user.")
+        raise
     except Exception as e:
         log.error(f"Crawl job {job_id} failed: {e}", exc_info=True)
         _db.finish_job(job_id, status="failed", error=str(e))

@@ -98,7 +98,7 @@ def get_entries_for_category(
 
         all_entries.extend(results)
         fetched = len(all_entries)
-        
+
         log.debug(
             f"[{category_code}] page {page} -> {len(results)} entries ({fetched}/{total})"
         )

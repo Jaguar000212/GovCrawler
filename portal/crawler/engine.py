@@ -17,8 +17,8 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
-from ..db.models import Database
 from .parser import parse_page
+from ..db.models import Database
 
 log = logging.getLogger(__name__)
 
@@ -26,18 +26,18 @@ log = logging.getLogger(__name__)
 @dataclass(order=True)
 class _QueueItem:
     priority: int
-    counter:  int
-    url:      str       = field(compare=False)
-    depth:    int       = field(compare=False)
+    counter: int
+    url: str = field(compare=False)
+    depth: int = field(compare=False)
     domain_id: int | None = field(compare=False, default=None)
-    is_seed:  bool      = field(compare=False, default=False)
+    is_seed: bool = field(compare=False, default=False)
 
 
 class CrawlerEngine:
     def __init__(self, config: dict, db: Database, job_id: int, browser=None):
-        self._cfg   = config["crawler"]
+        self._cfg = config["crawler"]
         self._excfg = config["extraction"]
-        self._db    = db
+        self._db = db
         self._job_id = job_id
         self._browser = browser
 
@@ -123,7 +123,7 @@ class CrawlerEngine:
 
         # Resume: load URLs already visited in this job
         self._visited.update(self._db.get_visited_urls(self._job_id))
-        
+
         # Recrawl protection: skip URLs visited in ANY job within recrawl_days,
         # EXCEPT for the seed domains we are explicitly crawling now.
         for v in self._db.get_recently_visited_global():
@@ -174,7 +174,8 @@ class CrawlerEngine:
         try:
             while True:
                 await asyncio.sleep(2)
-                self._db.update_job_metrics(self._job_id, self._queue.qsize(), self._session_visited_count, self._skipped)
+                self._db.update_job_metrics(self._job_id, self._queue.qsize(), self._session_visited_count,
+                                            self._skipped)
         except asyncio.CancelledError:
             pass
 
@@ -204,8 +205,8 @@ class CrawlerEngine:
     # ── URL processing ────────────────────────────────────────────────────────
 
     async def _process(self, item: _QueueItem, browser_context):
-        url       = item.url
-        depth     = item.depth
+        url = item.url
+        depth = item.depth
         domain_id = item.domain_id
 
         self._session_visited_count += 1
@@ -217,11 +218,11 @@ class CrawlerEngine:
                 self._db.increment_job_progress(self._job_id, domain_done=True)
             return
 
-        leads     = parse_page(html, url, self._excfg)
+        leads = parse_page(html, url, self._excfg)
         new_leads = 0
 
         if domain_id is None:
-            netloc    = urlparse(url).netloc
+            netloc = urlparse(url).netloc
             domain_id = (self._netloc_to_domain.get(netloc) or
                          self._netloc_to_domain.get(netloc.lstrip("www.")))
 
@@ -234,6 +235,7 @@ class CrawlerEngine:
                 designation=lead.designation,
                 department=lead.department,
                 source_url=lead.source_url,
+                source_title=lead.source_title,
                 context_snippet=lead.context_snippet,
             )
             if saved:
@@ -270,7 +272,7 @@ class CrawlerEngine:
         return html
 
     async def _fetch_httpx(self, url: str) -> str | None:
-        hcfg    = self._cfg.get("httpx_timeout", {})
+        hcfg = self._cfg.get("httpx_timeout", {})
         timeout = httpx.Timeout(
             connect=hcfg.get("connect", 10),
             read=hcfg.get("read", 30),
@@ -278,9 +280,9 @@ class CrawlerEngine:
         )
         try:
             async with httpx.AsyncClient(
-                headers={"User-Agent": self._cfg.get("user_agent", "")},
-                follow_redirects=True,
-                timeout=timeout,
+                    headers={"User-Agent": self._cfg.get("user_agent", "")},
+                    follow_redirects=True,
+                    timeout=timeout,
             ) as client:
                 r = await client.get(url)
                 if r.status_code == 200:
@@ -292,9 +294,9 @@ class CrawlerEngine:
         return None
 
     async def _fetch_playwright(self, url: str, ctx) -> str | None:
-        page        = None
-        timeout_ms  = self._cfg.get("playwright_timeout", 45) * 1000
-        settle_ms   = self._cfg.get("js_settle_time", 3.0) * 1000
+        page = None
+        timeout_ms = self._cfg.get("playwright_timeout", 45) * 1000
+        settle_ms = self._cfg.get("js_settle_time", 3.0) * 1000
         try:
             page = await ctx.new_page()
             try:
@@ -337,9 +339,9 @@ class CrawlerEngine:
             return
 
         depth_limits = self._cfg.get("max_links_per_page", {})
-        max_links    = depth_limits.get(str(depth),
-                       depth_limits.get(depth,
-                       depth_limits.get("default", 5)))
+        max_links = depth_limits.get(str(depth),
+                                     depth_limits.get(depth,
+                                                      depth_limits.get("default", 5)))
 
         is_priority_page = self._is_priority_url(base_url)
         links_added = 0
@@ -348,8 +350,8 @@ class CrawlerEngine:
             if max_links > 0 and links_added >= max_links:
                 break
             try:
-                href     = a["href"].strip()
-                text     = (a.get_text() or "").strip().lower()[:100]
+                href = a["href"].strip()
+                text = (a.get_text() or "").strip().lower()[:100]
                 absolute = urljoin(base_url, href)
 
                 if self._is_skippable(absolute):
