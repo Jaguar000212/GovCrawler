@@ -15,9 +15,6 @@ import shutil
 import asyncio
 import logging
 from pathlib import Path
-import threading
-import webbrowser
-import time
 
 # ==========================================
 # 1. PATH MANAGER
@@ -48,7 +45,7 @@ LOG_FILE_PATH = DATA_DIR / "portal.log"
 LIVE_CONFIG_PATH = PORTAL_LIVE_DIR / "config.yaml"
 
 # --- READ-ONLY PATHS (Inside the bundle) ---
-BROWSER_PATH = BUNDLE_DIR / "playwright_browsers"
+BROWSER_PATH = APP_DIR / "playwright_browsers"
 DEFAULT_CONFIG_PATH = BUNDLE_DIR / "portal" / "default_config.yaml"
 
 # ==========================================
@@ -99,11 +96,6 @@ def load_config() -> dict:
     with open(target_config) as f:
         return yaml.safe_load(f)
 
-def open_browser(url: str):
-    """Waits 2 seconds for Uvicorn to boot, then opens the default browser."""
-    time.sleep(2)
-    webbrowser.open(url)
-
 def cmd_serve(config: dict):
     db  = Database(config)
     app = create_app(config, db)
@@ -115,9 +107,6 @@ def cmd_serve(config: dict):
     url = f"http://{display_host}:{port}"
     
     log.info(f"Portal starting at {url}")
-    
-    # Launch the delayed browser trigger on a background thread
-    threading.Thread(target=open_browser, args=(url,), daemon=True).start()
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 

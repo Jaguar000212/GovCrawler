@@ -54,13 +54,23 @@ GovCrawler is a comprehensive application for discovering, scraping, and crawlin
 
 ## Usage
 
-The application is run via `run.py` or the `portal` module directly.
+The application can be run via the new Graphical User Interface (GUI) or through the CLI directly.
 
-- **Start the Server:**
+### Graphical User Interface (GUI)
+Run the launcher:
+```bash
+python run.py
+```
+This opens the **GovCrawler Control Panel** (`CrawlerLauncher`), which provides an easy way to:
+1. Download Playwright Browsers (for the first time)
+2. Start the Server
+3. Open the Web Interface in your default browser
+4. Stop the Server safely
+
+### CLI Usage
+- **Start the Server directly (bypassing GUI):**
   ```bash
   python -m portal
-  # or
-  python run.py
   ```
   The server starts at `http://127.0.0.1:8000` by default.
 
@@ -75,6 +85,20 @@ The application is run via `run.py` or the `portal` module directly.
   ```bash
   python -m portal crawl <job_id>
   ```
+
+## Building an Executable
+
+You can build a standalone executable for GovCrawler using PyInstaller and the provided `GovCrawler.spec` file. 
+
+1. Install PyInstaller:
+   ```bash
+   pip install pyinstaller
+   ```
+2. Build the project:
+   ```bash
+   pyinstaller GovCrawler.spec
+   ```
+The compiled executable will be located in the `dist/GovCrawler` directory.
 
 ## Configuration
 The project uses `portal/default_config.yaml` out of the box. 
