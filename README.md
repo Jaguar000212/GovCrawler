@@ -21,11 +21,17 @@ GovCrawler is a comprehensive application for discovering, scraping, and crawlin
 - `run.py`: Main entry point to start the server or trigger manual commands.
 - `requirements.txt`: Python dependencies.
 
-## Prerequisites
+## Quick Start (Pre-compiled Release)
+The easiest way to get started is to use the standalone Windows executable:
+1. Download the latest `GovCrawler-vX.Y.Z-windows.zip` from the Releases page.
+2. Extract the `.zip` file to your computer.
+3. Double-click **`GovCrawler.exe`** to launch the Control Panel GUI.
+
+## Prerequisites (for source installation)
 - Python 3.10+
 - Playwright browsers (installed via `playwright install`)
 
-## Installation
+## Installation from Source
 
 1. **Clone the repository:**
    ```bash
