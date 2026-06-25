@@ -9,6 +9,16 @@ import os
 import uvicorn
 
 # ==========================================
+# NO-CONSOLE CRASH FIX
+# ==========================================
+# If Windows destroyed the console, redirect all print statements to the void 
+# so the application doesn't commit suicide on boot.
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w")
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w")
+
+# ==========================================
 # SECRET ROUTER: Bypass GUI for Background Tasks
 # ==========================================
 if len(sys.argv) > 1 and sys.argv[1] == "INSTALL_BROWSERS":

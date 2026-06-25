@@ -75,13 +75,17 @@ from .api.server import create_app
 # ==========================================
 # 4. LOGGING SETUP (Using Absolute Path)
 # ==========================================
+# Safely configure log handlers
+log_handlers = [logging.FileHandler(LOG_FILE_PATH, encoding="utf-8")]
+
+# Only attach the terminal output if the terminal actually exists
+if sys.stdout is not None:
+    log_handlers.append(logging.StreamHandler(sys.stdout))
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(LOG_FILE_PATH, encoding="utf-8"), # Safely points to APP_DIR
-    ],
+    handlers=log_handlers,
 )
 log = logging.getLogger(__name__)
 
