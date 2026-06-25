@@ -551,3 +551,58 @@ class Database:
     def close(self):
         self.engine.dispose()
         log.info("Database connection closed.")
+# ---- Outreach & Campaign Management Models ----
+import enum
+from sqlalchemy import Boolean, Enum as SqlEnum
+
+class CampaignStatus(enum.Enum):
+    RUNNING = "RUNNING"
+    PAUSED = "PAUSED"
+    CANCELLED = "CANCELLED"
+    COMPLETED = "COMPLETED"
+
+class EmailStatus(enum.Enum):
+    DRAFT = "DRAFT"
+    QUEUED = "QUEUED"
+    SENT = "SENT"
+    FAILED = "FAILED"
+
+class Campaign(Base):
+    __tablename__ = "campaigns"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=False)
+    status = Column(SqlEnum(CampaignStatus), nullable=False)
+
+class EmailTemplate(Base):
+    __tablename__ = "email_templates"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=False)
+    subject = Column(String, nullable=False)
+    raw_body = Column(Text, nullable=False)
+
+class SMTPCredential(Base):
+    __tablename__ = "smtp_credentials"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    host = Column(String, nullable=False)
+    port = Column(Integer, nullable=False)
+    username = Column(String, nullable=False)
+    password = Column(String, nullable=False)  # plain‑text password
+    is_active = Column(Boolean, default=True, nullable=False)
+    cooldown_until = Column(DateTime, nullable=True)
+
+class CampaignEmail(Base):
+    __tablename__ = "campaign_emails"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=False)
+    lead_id = Column(Integer, ForeignKey("leads.id"), nullable=False)
+    recipient_email = Column(String, nullable=False)
+    subject = Column(String, nullable=False)
+    body = Column(Text, nullable=False)
+    status = Column(SqlEnum(EmailStatus), nullable=False, default=EmailStatus.DRAFT)
+
+class Blacklist(Base):
+    __tablename__ = "blacklist"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    email = Column(String, nullable=False, unique=True, index=True)
+    domain = Column(String, nullable=False, index=True)
+    reason = Column(String, nullable=True)

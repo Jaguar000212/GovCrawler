@@ -176,6 +176,8 @@ cython_debug/
 .idea/**/dictionaries
 .idea/**/shelf
 
+.vscode/
+
 # AWS User-specific
 .idea/**/aws.xml
 
@@ -256,7 +258,7 @@ classified_leads.csv
 */gov_domains.json
 portal/data/
 playwright_browsers/
-portal/config.yaml
+*/config.yaml
 
 # IDE files not covered by the JetBrains pattern above
 .idea/dataSources.xml
