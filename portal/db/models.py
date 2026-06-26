@@ -738,6 +738,123 @@ class Database:
                 stats["total"] += count
             return stats
 
+    # ── Dispatcher operations ─────────────────────────────────────────────────
+
+    def queue_campaign_emails(self, campaign_id: int) -> int:
+        """Bulk flip DRAFT → QUEUED. Returns count updated."""
+        with self._Session() as s:
+            updated = s.query(CampaignEmail).filter_by(
+                campaign_id=campaign_id, status=EmailStatus.DRAFT
+            ).update({"status": EmailStatus.QUEUED})
+            s.commit()
+            return updated
+
+    def get_next_queued_email(self, campaign_id: int) -> dict | None:
+        """Fetch one QUEUED email for processing. Returns None when done."""
+        with self._Session() as s:
+            e = s.query(CampaignEmail).filter_by(
+                campaign_id=campaign_id, status=EmailStatus.QUEUED
+            ).order_by(CampaignEmail.id).first()
+            if not e:
+                return None
+            return {"id": e.id, "campaign_id": e.campaign_id,
+                    "recipient_email": e.recipient_email, "subject": e.subject,
+                    "body": e.body}
+
+    def mark_email_sent(self, email_id: int) -> None:
+        """Mark as SENT with current timestamp."""
+        with self._Session() as s:
+            s.query(CampaignEmail).filter_by(id=email_id).update({
+                "status": EmailStatus.SENT,
+                "sent_at": datetime.datetime.utcnow()
+            })
+            s.commit()
+
+    def mark_email_failed(self, email_id: int, error_message: str) -> None:
+        """Mark as FAILED with the error reason."""
+        with self._Session() as s:
+            s.query(CampaignEmail).filter_by(id=email_id).update({
+                "status": EmailStatus.FAILED,
+                "error_message": error_message
+            })
+            s.commit()
+
+    def cancel_remaining_queued(self, campaign_id: int) -> int:
+        """Bulk cancel remaining QUEUED emails. Returns count."""
+        with self._Session() as s:
+            updated = s.query(CampaignEmail).filter_by(
+                campaign_id=campaign_id, status=EmailStatus.QUEUED
+            ).update({
+                "status": EmailStatus.FAILED,
+                "error_message": "Campaign cancelled"
+            })
+            s.commit()
+            return updated
+
+    # ── SMTP Credential operations ────────────────────────────────────────────
+
+    def create_credential(self, host: str, port: int, username: str, password: str) -> int:
+        with self._Session() as s:
+            c = SMTPCredential(host=host, port=port, username=username, password=password)
+            s.add(c)
+            s.commit()
+            return c.id
+
+    def get_credential(self, credential_id: int) -> dict | None:
+        with self._Session() as s:
+            c = s.query(SMTPCredential).filter_by(id=credential_id).first()
+            if not c:
+                return None
+            return {"id": c.id, "host": c.host, "port": c.port,
+                    "username": c.username, "password": c.password,
+                    "is_active": c.is_active,
+                    "cooldown_until": c.cooldown_until.isoformat() if c.cooldown_until else None}
+
+    def list_credentials(self) -> list[dict]:
+        with self._Session() as s:
+            rows = s.query(SMTPCredential).order_by(SMTPCredential.id).all()
+            return [{"id": c.id, "host": c.host, "port": c.port,
+                     "username": c.username, "is_active": c.is_active,
+                     "cooldown_until": c.cooldown_until.isoformat() if c.cooldown_until else None}
+                    for c in rows]
+
+    def update_credential(self, credential_id: int, **kwargs) -> bool:
+        with self._Session() as s:
+            updated = s.query(SMTPCredential).filter_by(id=credential_id).update(
+                {k: v for k, v in kwargs.items() if v is not None}
+            )
+            s.commit()
+            return updated > 0
+
+    def delete_credential(self, credential_id: int) -> bool:
+        with self._Session() as s:
+            deleted = s.query(SMTPCredential).filter_by(id=credential_id).delete()
+            s.commit()
+            return deleted > 0
+
+    def get_active_credentials(self) -> list[dict]:
+        """Load credentials where is_active=True AND cooldown expired."""
+        now = datetime.datetime.utcnow()
+        with self._Session() as s:
+            rows = s.query(SMTPCredential).filter(
+                SMTPCredential.is_active == True,
+                or_(SMTPCredential.cooldown_until == None, SMTPCredential.cooldown_until < now)
+            ).all()
+            return [{"id": c.id, "host": c.host, "port": c.port,
+                     "username": c.username, "password": c.password} for c in rows]
+
+    def disable_credential(self, credential_id: int) -> None:
+        """Permanently disable (auth failure)."""
+        with self._Session() as s:
+            s.query(SMTPCredential).filter_by(id=credential_id).update({"is_active": False})
+            s.commit()
+
+    def set_credential_cooldown(self, credential_id: int, until: datetime.datetime) -> None:
+        """Temporarily pause (rate limited)."""
+        with self._Session() as s:
+            s.query(SMTPCredential).filter_by(id=credential_id).update({"cooldown_until": until})
+            s.commit()
+
 # ---- Outreach & Campaign Management Models ----
 import enum
 from sqlalchemy import Boolean, Enum as SqlEnum

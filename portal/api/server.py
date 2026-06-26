@@ -455,10 +455,12 @@ def create_app(config: dict, db: Database) -> FastAPI:
     from .templates import register_template_routes
     from .blacklist import register_blacklist_routes
     from .campaigns import register_campaign_routes
+    from .credentials import register_credential_routes
 
     register_template_routes(app, db)
     register_blacklist_routes(app, db)
     register_campaign_routes(app, db)
+    register_credential_routes(app, db)
 
     return app
 

@@ -11,6 +11,7 @@ Registers routes:
   GET    /api/campaigns/{id}/stats            → live stats for polling
 """
 
+import asyncio
 import logging
 
 from fastapi import FastAPI, HTTPException, Query
@@ -18,8 +19,11 @@ from jinja2 import Template, TemplateSyntaxError
 from pydantic import BaseModel
 
 from ..db.models import Database, CampaignStatus
+from .dispatcher import run_campaign_dispatch
 
 log = logging.getLogger(__name__)
+
+_active_campaign_tasks: dict[int, asyncio.Task] = {}
 
 
 # ── Pydantic schemas ──────────────────────────────────────────────────────────
@@ -141,6 +145,45 @@ def register_campaign_routes(app: FastAPI, db: Database):
             "blacklisted_count": blacklisted_count,
             "message": f"Campaign '{req.name}' created with {staged_count} draft emails",
         }
+
+    @app.post("/api/campaigns/{campaign_id}/dispatch")
+    async def dispatch_campaign(campaign_id: int):
+        """Start the background dispatch worker for a campaign."""
+        # 1. Verify campaign exists and has DRAFT emails
+        campaign = db.get_campaign(campaign_id)
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+            
+        stats = db.get_campaign_stats(campaign_id)
+        if stats.get("draft", 0) == 0:
+            raise HTTPException(status_code=400, detail="No DRAFT emails to send")
+            
+        # 2. Reject if already running
+        if campaign["status"] == CampaignStatus.RUNNING.value and campaign_id in _active_campaign_tasks:
+            task = _active_campaign_tasks[campaign_id]
+            if not task.done():
+                raise HTTPException(status_code=409, detail="Campaign is already running")
+                
+        # 3. Verify at least 1 active SMTP credential
+        active_creds = db.get_active_credentials()
+        if not active_creds:
+            raise HTTPException(status_code=400, detail="No active SMTP credentials available")
+            
+        # 4. Start background task
+        # Make sure campaign status is RUNNING
+        if campaign["status"] != CampaignStatus.RUNNING.value:
+            db.update_campaign_status(campaign_id, CampaignStatus.RUNNING)
+            
+        async def _run_and_clean():
+            try:
+                await run_campaign_dispatch(campaign_id, db)
+            finally:
+                _active_campaign_tasks.pop(campaign_id, None)
+                
+        task = asyncio.create_task(_run_and_clean())
+        _active_campaign_tasks[campaign_id] = task
+        
+        return {"message": "Dispatch started"}
 
     @app.get("/api/campaigns")
     async def list_campaigns(
