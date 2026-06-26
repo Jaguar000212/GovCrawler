@@ -551,6 +551,193 @@ class Database:
     def close(self):
         self.engine.dispose()
         log.info("Database connection closed.")
+
+    # ── EmailTemplate ─────────────────────────────────────────────────────────
+
+    def create_template(self, name: str, subject: str, raw_body: str) -> int:
+        with self._Session() as s:
+            t = EmailTemplate(name=name, subject=subject, raw_body=raw_body)
+            s.add(t)
+            s.commit()
+            return t.id
+
+    def get_template(self, template_id: int) -> dict | None:
+        with self._Session() as s:
+            t = s.query(EmailTemplate).filter_by(id=template_id).first()
+            if not t:
+                return None
+            return {"id": t.id, "name": t.name, "subject": t.subject,
+                    "raw_body": t.raw_body}
+
+    def list_templates(self) -> list[dict]:
+        with self._Session() as s:
+            rows = s.query(EmailTemplate).order_by(EmailTemplate.id.desc()).all()
+            return [{"id": t.id, "name": t.name, "subject": t.subject,
+                      "raw_body": t.raw_body} for t in rows]
+
+    def update_template(self, template_id: int, **kwargs) -> bool:
+        with self._Session() as s:
+            updated = s.query(EmailTemplate).filter_by(id=template_id).update(
+                {k: v for k, v in kwargs.items() if v is not None}
+            )
+            s.commit()
+            return updated > 0
+
+    def delete_template(self, template_id: int) -> bool:
+        with self._Session() as s:
+            deleted = s.query(EmailTemplate).filter_by(id=template_id).delete()
+            s.commit()
+            return deleted > 0
+
+    # ── Blacklist ─────────────────────────────────────────────────────────────
+
+    def add_to_blacklist(self, email: str, domain: str, reason: str = None) -> bool:
+        with self._Session() as s:
+            try:
+                s.add(Blacklist(email=email.lower(), domain=domain.lower(),
+                                reason=reason))
+                s.commit()
+                return True
+            except IntegrityError:
+                s.rollback()
+                return False
+
+    def remove_from_blacklist(self, blacklist_id: int) -> bool:
+        with self._Session() as s:
+            deleted = s.query(Blacklist).filter_by(id=blacklist_id).delete()
+            s.commit()
+            return deleted > 0
+
+    def list_blacklist(self, page: int = 1, limit: int = 50) -> tuple[list[dict], int]:
+        with self._Session() as s:
+            total = s.query(Blacklist).count()
+            offset = (page - 1) * limit
+            rows = (s.query(Blacklist)
+                    .order_by(Blacklist.id.desc())
+                    .offset(offset).limit(limit).all())
+            return (
+                [{"id": b.id, "email": b.email, "domain": b.domain,
+                  "reason": b.reason} for b in rows],
+                total,
+            )
+
+    def get_blacklisted_emails_set(self) -> set[str]:
+        """Load all blacklisted emails into a set for O(1) lookup during draft generation."""
+        with self._Session() as s:
+            rows = s.query(Blacklist.email).all()
+            return {r[0] for r in rows}
+
+    # ── Campaign ──────────────────────────────────────────────────────────────
+
+    def create_campaign(self, name: str, template_id: int,
+                        status: "CampaignStatus" = None) -> int:
+        if status is None:
+            status = CampaignStatus.RUNNING
+        with self._Session() as s:
+            c = Campaign(name=name, template_id=template_id, status=status)
+            s.add(c)
+            s.commit()
+            return c.id
+
+    def get_campaign(self, campaign_id: int) -> dict | None:
+        with self._Session() as s:
+            c = s.query(Campaign).filter_by(id=campaign_id).first()
+            if not c:
+                return None
+            return {"id": c.id, "name": c.name, "template_id": c.template_id,
+                    "status": c.status.value,
+                    "created_at": c.created_at.isoformat() if c.created_at else None}
+
+    def list_campaigns(self, page: int = 1, limit: int = 20) -> tuple[list[dict], int]:
+        with self._Session() as s:
+            total = s.query(Campaign).count()
+            offset = (page - 1) * limit
+            rows = (s.query(Campaign)
+                    .order_by(Campaign.created_at.desc())
+                    .offset(offset).limit(limit).all())
+            return (
+                [{"id": c.id, "name": c.name, "template_id": c.template_id,
+                  "status": c.status.value,
+                  "created_at": c.created_at.isoformat() if c.created_at else None}
+                 for c in rows],
+                total,
+            )
+
+    def update_campaign_status(self, campaign_id: int,
+                               new_status: "CampaignStatus") -> bool:
+        with self._Session() as s:
+            updated = s.query(Campaign).filter_by(id=campaign_id).update(
+                {"status": new_status}
+            )
+            s.commit()
+            return updated > 0
+
+    # ── CampaignEmail ─────────────────────────────────────────────────────────
+
+    def bulk_create_campaign_emails(self, campaign_id: int,
+                                     emails: list[dict]) -> int:
+        """Bulk insert rendered draft emails. Each dict must have:
+        lead_id, recipient_email, subject, body."""
+        with self._Session() as s:
+            objects = [
+                CampaignEmail(
+                    campaign_id=campaign_id,
+                    lead_id=e["lead_id"],
+                    recipient_email=e["recipient_email"],
+                    subject=e["subject"],
+                    body=e["body"],
+                    status=EmailStatus.DRAFT,
+                )
+                for e in emails
+            ]
+            s.add_all(objects)
+            s.commit()
+            return len(objects)
+
+    def get_campaign_emails(self, campaign_id: int, status: str = None,
+                            page: int = 1, limit: int = 50) -> tuple[list[dict], int]:
+        with self._Session() as s:
+            q = s.query(CampaignEmail).filter_by(campaign_id=campaign_id)
+            if status:
+                q = q.filter(CampaignEmail.status == EmailStatus(status))
+            total = q.count()
+            offset = (page - 1) * limit
+            rows = q.order_by(CampaignEmail.id).offset(offset).limit(limit).all()
+            return (
+                [{"id": e.id, "campaign_id": e.campaign_id,
+                  "lead_id": e.lead_id, "recipient_email": e.recipient_email,
+                  "subject": e.subject, "body": e.body,
+                  "status": e.status.value,
+                  "error_message": e.error_message,
+                  "sent_at": e.sent_at.isoformat() if e.sent_at else None}
+                 for e in rows],
+                total,
+            )
+
+    def update_email_body(self, email_id: int, new_body: str) -> bool:
+        """Manual override for a staged email's body text."""
+        with self._Session() as s:
+            updated = s.query(CampaignEmail).filter_by(id=email_id).update(
+                {"body": new_body}
+            )
+            s.commit()
+            return updated > 0
+
+    def get_campaign_stats(self, campaign_id: int) -> dict:
+        """Aggregate counts by status for a campaign's emails."""
+        with self._Session() as s:
+            rows = (
+                s.query(CampaignEmail.status, func.count(CampaignEmail.id))
+                .filter_by(campaign_id=campaign_id)
+                .group_by(CampaignEmail.status)
+                .all()
+            )
+            stats = {"draft": 0, "queued": 0, "sent": 0, "failed": 0, "total": 0}
+            for status_val, count in rows:
+                stats[status_val.value.lower()] = count
+                stats["total"] += count
+            return stats
+
 # ---- Outreach & Campaign Management Models ----
 import enum
 from sqlalchemy import Boolean, Enum as SqlEnum
@@ -571,7 +758,9 @@ class Campaign(Base):
     __tablename__ = "campaigns"
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String, nullable=False)
+    template_id = Column(Integer, ForeignKey("email_templates.id"), nullable=True)
     status = Column(SqlEnum(CampaignStatus), nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 class EmailTemplate(Base):
     __tablename__ = "email_templates"
@@ -599,6 +788,8 @@ class CampaignEmail(Base):
     subject = Column(String, nullable=False)
     body = Column(Text, nullable=False)
     status = Column(SqlEnum(EmailStatus), nullable=False, default=EmailStatus.DRAFT)
+    error_message = Column(String, nullable=True)
+    sent_at = Column(DateTime, nullable=True)
 
 class Blacklist(Base):
     __tablename__ = "blacklist"

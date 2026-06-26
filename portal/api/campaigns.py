@@ -1,0 +1,234 @@
+"""
+Campaign generation, listing, and staging endpoints.
+
+Registers routes:
+  POST   /api/campaigns                       → generate drafts from leads + template
+  GET    /api/campaigns                       → paginated campaign list
+  GET    /api/campaigns/{id}                  → campaign detail + stats
+  PATCH  /api/campaigns/{id}                  → update campaign status (pause/cancel)
+  GET    /api/campaigns/{id}/emails           → paginated staged emails
+  PUT    /api/campaigns/{id}/emails/{eid}     → manual body override
+  GET    /api/campaigns/{id}/stats            → live stats for polling
+"""
+
+import logging
+
+from fastapi import FastAPI, HTTPException, Query
+from jinja2 import Template, TemplateSyntaxError
+from pydantic import BaseModel
+
+from ..db.models import Database, CampaignStatus
+
+log = logging.getLogger(__name__)
+
+
+# ── Pydantic schemas ──────────────────────────────────────────────────────────
+
+class CampaignCreate(BaseModel):
+    name: str
+    template_id: int
+    lead_ids: list[int]
+
+
+class CampaignStatusUpdate(BaseModel):
+    status: str  # One of: RUNNING, PAUSED, CANCELLED, COMPLETED
+
+
+class CampaignEmailUpdate(BaseModel):
+    body: str
+
+
+# ── Jinja2 rendering helper ──────────────────────────────────────────────────
+
+def render_template_string(template_str: str, **kwargs) -> str:
+    """Render a Jinja2 template string with the given variables.
+    Pre-validated templates should never fail here, but we handle it gracefully."""
+    try:
+        return Template(template_str).render(**kwargs)
+    except Exception as e:
+        log.warning(f"Template render failed: {e}")
+        return template_str  # Fallback to raw string
+
+
+# ── Route registration ────────────────────────────────────────────────────────
+
+def register_campaign_routes(app: FastAPI, db: Database):
+
+    @app.post("/api/campaigns", status_code=201)
+    async def create_campaign(req: CampaignCreate):
+        """The core draft generation endpoint.
+        Loads leads, filters blacklist, renders templates, stages drafts."""
+
+        # 1. Validate template exists
+        template = db.get_template(req.template_id)
+        if not template:
+            raise HTTPException(status_code=404, detail="Template not found")
+
+        # 2. Validate lead_ids
+        if not req.lead_ids:
+            raise HTTPException(status_code=400, detail="lead_ids is empty")
+
+        # 3. Load leads from DB
+        # Re-use the existing get_all_leads_for_export which accepts lead_ids
+        leads = db.get_all_leads_for_export(lead_ids=req.lead_ids)
+        if not leads:
+            raise HTTPException(status_code=404, detail="No matching leads found")
+
+        # 4. Blacklist filter
+        blacklisted = db.get_blacklisted_emails_set()
+        filtered_leads = [l for l in leads if l["email"] not in blacklisted]
+        blacklisted_count = len(leads) - len(filtered_leads)
+
+        if not filtered_leads:
+            raise HTTPException(
+                status_code=422,
+                detail=f"All {len(leads)} leads are blacklisted. "
+                       f"No emails to stage.",
+            )
+
+        # 5. Create campaign record
+        campaign_id = db.create_campaign(
+            name=req.name,
+            template_id=req.template_id,
+            status=CampaignStatus.RUNNING,
+        )
+
+        # 6. Jinja2 render loop + build email dicts
+        # We need lead IDs for the FK — get_all_leads_for_export doesn't return them,
+        # so we build a lookup from the original lead_ids query
+        lead_id_by_email = {}
+        with db._Session() as s:
+            from ..db.models import Lead
+            rows = s.query(Lead.id, Lead.email).filter(
+                Lead.id.in_(req.lead_ids)
+            ).all()
+            lead_id_by_email = {r.email: r.id for r in rows}
+
+        email_dicts = []
+        for lead in filtered_leads:
+            render_vars = {
+                "name": lead.get("person_name") or "Official",
+                "designation": lead.get("designation") or "",
+            }
+            rendered_subject = render_template_string(
+                template["subject"], **render_vars
+            )
+            rendered_body = render_template_string(
+                template["raw_body"], **render_vars
+            )
+            lead_id = lead_id_by_email.get(lead["email"])
+            if lead_id is None:
+                continue  # Safety: skip if we can't resolve the FK
+
+            email_dicts.append({
+                "lead_id": lead_id,
+                "recipient_email": lead["email"],
+                "subject": rendered_subject,
+                "body": rendered_body,
+            })
+
+        # 7. Bulk insert staged drafts
+        staged_count = db.bulk_create_campaign_emails(campaign_id, email_dicts)
+
+        log.info(
+            f"Campaign {campaign_id} created: {staged_count} drafts staged, "
+            f"{blacklisted_count} blacklisted"
+        )
+
+        return {
+            "campaign_id": campaign_id,
+            "total_staged": staged_count,
+            "blacklisted_count": blacklisted_count,
+            "message": f"Campaign '{req.name}' created with {staged_count} draft emails",
+        }
+
+    @app.get("/api/campaigns")
+    async def list_campaigns(
+        page: int = Query(1, ge=1),
+        limit: int = Query(20, ge=1, le=100),
+    ):
+        campaigns, total = db.list_campaigns(page=page, limit=limit)
+
+        # Enrich each campaign with email stats
+        for c in campaigns:
+            c["stats"] = db.get_campaign_stats(c["id"])
+
+        return {
+            "campaigns": campaigns,
+            "total": total,
+            "page": page,
+            "pages": max(1, (total + limit - 1) // limit),
+        }
+
+    @app.get("/api/campaigns/{campaign_id}")
+    async def get_campaign(campaign_id: int):
+        campaign = db.get_campaign(campaign_id)
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+        campaign["stats"] = db.get_campaign_stats(campaign_id)
+        return campaign
+
+    @app.patch("/api/campaigns/{campaign_id}")
+    async def update_campaign_status(campaign_id: int, req: CampaignStatusUpdate):
+        """Update campaign status. Used by the kill switch (PAUSED/CANCELLED)."""
+        campaign = db.get_campaign(campaign_id)
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+
+        try:
+            new_status = CampaignStatus(req.status)
+        except ValueError:
+            valid = [s.value for s in CampaignStatus]
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid status '{req.status}'. Must be one of: {valid}",
+            )
+
+        db.update_campaign_status(campaign_id, new_status)
+        return {"message": f"Campaign status updated to {new_status.value}"}
+
+    @app.get("/api/campaigns/{campaign_id}/stats")
+    async def get_campaign_stats(campaign_id: int):
+        """Lightweight stats endpoint for 3-second polling from the dashboard."""
+        campaign = db.get_campaign(campaign_id)
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+        stats = db.get_campaign_stats(campaign_id)
+        stats["campaign_status"] = campaign["status"]
+        return stats
+
+    @app.get("/api/campaigns/{campaign_id}/emails")
+    async def get_campaign_emails(
+        campaign_id: int,
+        status: str = Query(None),
+        page: int = Query(1, ge=1),
+        limit: int = Query(50, ge=1, le=200),
+    ):
+        campaign = db.get_campaign(campaign_id)
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+
+        emails, total = db.get_campaign_emails(
+            campaign_id=campaign_id, status=status, page=page, limit=limit
+        )
+        return {
+            "emails": emails,
+            "total": total,
+            "page": page,
+            "pages": max(1, (total + limit - 1) // limit),
+        }
+
+    @app.put("/api/campaigns/{campaign_id}/emails/{email_id}")
+    async def update_campaign_email(campaign_id: int, email_id: int,
+                                     req: CampaignEmailUpdate):
+        """Manual body override for a specific staged email."""
+        campaign = db.get_campaign(campaign_id)
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+
+        if not req.body.strip():
+            raise HTTPException(status_code=400, detail="Body cannot be empty")
+
+        if not db.update_email_body(email_id, req.body):
+            raise HTTPException(status_code=404, detail="Email not found")
+        return {"message": "Email body updated"}
