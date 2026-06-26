@@ -39,8 +39,21 @@ class CampaignStatusUpdate(BaseModel):
 
 
 class CampaignEmailUpdate(BaseModel):
+    subject: str
     body: str
 
+
+class DummyDetails(BaseModel):
+    name: str
+    designation: str
+    email: str
+    department: str
+
+class TestCampaignCreate(BaseModel):
+    name: str
+    template_id: int
+    dummy_details: list[DummyDetails]
+    test_credential_id: int | None = None
 
 # ── Jinja2 rendering helper ──────────────────────────────────────────────────
 
@@ -94,7 +107,7 @@ def register_campaign_routes(app: FastAPI, db: Database):
         campaign_id = db.create_campaign(
             name=req.name,
             template_id=req.template_id,
-            status=CampaignStatus.RUNNING,
+            status=CampaignStatus.PAUSED,
         )
 
         # 6. Jinja2 render loop + build email dicts
@@ -194,7 +207,10 @@ def register_campaign_routes(app: FastAPI, db: Database):
 
         # Enrich each campaign with email stats
         for c in campaigns:
-            c["stats"] = db.get_campaign_stats(c["id"])
+            if c.get("is_test"):
+                c["stats"] = db.get_test_campaign_stats(c["id"])
+            else:
+                c["stats"] = db.get_campaign_stats(c["id"])
 
         return {
             "campaigns": campaigns,
@@ -269,9 +285,136 @@ def register_campaign_routes(app: FastAPI, db: Database):
         if not campaign:
             raise HTTPException(status_code=404, detail="Campaign not found")
 
-        if not req.body.strip():
-            raise HTTPException(status_code=400, detail="Body cannot be empty")
+        if not req.body.strip() or not req.subject.strip():
+            raise HTTPException(status_code=400, detail="Subject and Body cannot be empty")
 
-        if not db.update_email_body(email_id, req.body):
+        if not db.update_email(email_id, req.subject, req.body):
             raise HTTPException(status_code=404, detail="Email not found")
         return {"message": "Email body updated"}
+
+    # ── Test Campaign routes ──────────────────────────────────────────────────
+
+    @app.post("/api/test-campaigns", status_code=201)
+    async def create_test_campaign(req: TestCampaignCreate):
+        template = db.get_template(req.template_id)
+        if not template:
+            raise HTTPException(status_code=404, detail="Template not found")
+
+        # Create test campaign record
+        campaign_id = db.create_test_campaign(
+            name=req.name,
+            template_id=req.template_id,
+            test_credential_id=req.test_credential_id,
+            status=CampaignStatus.PAUSED
+        )
+
+        for details in req.dummy_details:
+            render_vars = {
+                "name": details.name or "Official",
+                "designation": details.designation or "",
+                "department": details.department or "",
+            }
+            
+            rendered_subject = render_template_string(template["subject"], **render_vars)
+            rendered_body = render_template_string(template["raw_body"], **render_vars)
+
+            db.create_test_campaign_email(
+                test_campaign_id=campaign_id,
+                recipient_email=details.email,
+                subject=rendered_subject,
+                body=rendered_body
+            )
+
+        return {
+            "campaign_id": campaign_id,
+            "message": f"Test campaign '{req.name}' created"
+        }
+
+    @app.post("/api/test-campaigns/{campaign_id}/dispatch")
+    async def dispatch_test_campaign(campaign_id: int):
+        campaign = db.get_test_campaign(campaign_id)
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Test Campaign not found")
+            
+        if campaign["status"] != CampaignStatus.RUNNING.value:
+            db.update_test_campaign_status(campaign_id, CampaignStatus.RUNNING)
+
+        from .dispatcher import run_test_campaign_dispatch
+            
+        async def _run_and_clean():
+            try:
+                await run_test_campaign_dispatch(campaign_id, db)
+            except Exception as e:
+                log.error(f"Test campaign dispatch failed: {e}")
+                
+        asyncio.create_task(_run_and_clean())
+        return {"message": "Test Dispatch started"}
+
+    @app.get("/api/test-campaigns/{campaign_id}")
+    async def get_test_campaign(campaign_id: int):
+        campaign = db.get_test_campaign(campaign_id)
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Test Campaign not found")
+        campaign["stats"] = db.get_test_campaign_stats(campaign_id)
+        return campaign
+
+    @app.get("/api/test-campaigns/{campaign_id}/stats")
+    async def get_test_campaign_stats(campaign_id: int):
+        campaign = db.get_test_campaign(campaign_id)
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Test Campaign not found")
+        stats = db.get_test_campaign_stats(campaign_id)
+        stats["campaign_status"] = campaign["status"]
+        return stats
+
+    @app.get("/api/test-campaigns/{campaign_id}/emails")
+    async def get_test_campaign_emails(
+        campaign_id: int,
+        status: str = Query(None),
+        page: int = Query(1, ge=1),
+        limit: int = Query(50, ge=1, le=200),
+    ):
+        campaign = db.get_test_campaign(campaign_id)
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Test Campaign not found")
+
+        emails, total = db.get_test_campaign_emails(
+            campaign_id=campaign_id, status=status, page=page, limit=limit
+        )
+        return {
+            "emails": emails,
+            "total": total,
+            "page": page,
+            "pages": max(1, (total + limit - 1) // limit),
+        }
+
+    @app.put("/api/test-campaigns/{campaign_id}/emails/{email_id}")
+    async def update_test_campaign_email(campaign_id: int, email_id: int, req: CampaignEmailUpdate):
+        campaign = db.get_test_campaign(campaign_id)
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Test Campaign not found")
+
+        if not req.body.strip() or not req.subject.strip():
+            raise HTTPException(status_code=400, detail="Subject and Body cannot be empty")
+
+        if not db.update_test_email(email_id, req.subject, req.body):
+            raise HTTPException(status_code=404, detail="Email not found or not in DRAFT status")
+        return {"message": "Email body updated"}
+
+    @app.patch("/api/test-campaigns/{campaign_id}")
+    async def update_test_campaign_status(campaign_id: int, req: CampaignStatusUpdate):
+        campaign = db.get_test_campaign(campaign_id)
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+
+        try:
+            new_status = CampaignStatus(req.status)
+        except ValueError:
+            valid = [s.value for s in CampaignStatus]
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid status '{req.status}'. Must be one of: {valid}",
+            )
+
+        db.update_test_campaign_status(campaign_id, new_status)
+        return {"message": f"Campaign status updated to {new_status.value}"}

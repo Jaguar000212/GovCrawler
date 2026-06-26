@@ -13,7 +13,7 @@ import sqlite3
 
 from sqlalchemy import (
     Column, DateTime, ForeignKey, Integer, String, Text,
-    UniqueConstraint, create_engine, event, func, or_,
+    UniqueConstraint, create_engine, event, func, or_, literal, desc, text
 )
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
@@ -650,16 +650,33 @@ class Database:
 
     def list_campaigns(self, page: int = 1, limit: int = 20) -> tuple[list[dict], int]:
         with self._Session() as s:
-            total = s.query(Campaign).count()
+            q1 = s.query(
+                Campaign.id.label('id'),
+                Campaign.name.label('name'),
+                Campaign.template_id.label('template_id'),
+                Campaign.status.label('status'),
+                Campaign.created_at.label('created_at'),
+                literal(False).label('is_test')
+            )
+            q2 = s.query(
+                TestCampaign.id.label('id'),
+                TestCampaign.name.label('name'),
+                TestCampaign.template_id.label('template_id'),
+                TestCampaign.status.label('status'),
+                TestCampaign.created_at.label('created_at'),
+                literal(True).label('is_test')
+            )
+            
+            subq = q1.union_all(q2).subquery()
+            total = s.query(subq).count()
             offset = (page - 1) * limit
-            rows = (s.query(Campaign)
-                    .order_by(Campaign.created_at.desc())
-                    .offset(offset).limit(limit).all())
+            rows = s.query(subq).order_by(subq.c.created_at.desc()).offset(offset).limit(limit).all()
+            
             return (
-                [{"id": c.id, "name": c.name, "template_id": c.template_id,
-                  "status": c.status.value,
-                  "created_at": c.created_at.isoformat() if c.created_at else None}
-                 for c in rows],
+                [{"id": r.id, "name": r.name, "template_id": r.template_id,
+                  "status": r.status.value if hasattr(r.status, 'value') else r.status, "is_test": r.is_test,
+                  "created_at": r.created_at.isoformat() if r.created_at and hasattr(r.created_at, 'isoformat') else (r.created_at if isinstance(r.created_at, str) else None)}
+                 for r in rows],
                 total,
             )
 
@@ -714,12 +731,13 @@ class Database:
                 total,
             )
 
-    def update_email_body(self, email_id: int, new_body: str) -> bool:
-        """Manual override for a staged email's body text."""
+    def update_email(self, email_id: int, new_subject: str, new_body: str) -> bool:
+        """Manual override for a staged email's subject and body text."""
         with self._Session() as s:
-            updated = s.query(CampaignEmail).filter_by(id=email_id).update(
-                {"body": new_body}
-            )
+            updated = s.query(CampaignEmail).filter_by(id=email_id).update({
+                "subject": new_subject,
+                "body": new_body
+            })
             s.commit()
             return updated > 0
 
@@ -788,6 +806,91 @@ class Database:
                 "status": EmailStatus.FAILED,
                 "error_message": "Campaign cancelled"
             })
+            s.commit()
+            return updated
+
+    # ── TestCampaign ──────────────────────────────────────────────────────────
+
+    def create_test_campaign(self, name: str, template_id: int, test_credential_id: int | None = None, status: "CampaignStatus" = None) -> int:
+        if status is None:
+            status = CampaignStatus.RUNNING
+        with self._Session() as s:
+            c = TestCampaign(name=name, template_id=template_id, test_credential_id=test_credential_id, status=status)
+            s.add(c)
+            s.commit()
+            return c.id
+
+    def create_test_campaign_email(self, test_campaign_id: int, recipient_email: str, subject: str, body: str) -> int:
+        with self._Session() as s:
+            e = TestCampaignEmail(test_campaign_id=test_campaign_id, recipient_email=recipient_email, subject=subject, body=body)
+            s.add(e)
+            s.commit()
+            return e.id
+
+    def get_test_campaign(self, campaign_id: int) -> dict | None:
+        with self._Session() as s:
+            c = s.query(TestCampaign).filter_by(id=campaign_id).first()
+            if not c: return None
+            return {"id": c.id, "name": c.name, "template_id": c.template_id, "test_credential_id": c.test_credential_id, "status": c.status.value, "is_test": True, "created_at": c.created_at.isoformat() if c.created_at else None}
+
+    def update_test_campaign_status(self, campaign_id: int, new_status: "CampaignStatus") -> bool:
+        with self._Session() as s:
+            updated = s.query(TestCampaign).filter_by(id=campaign_id).update({"status": new_status})
+            s.commit()
+            return updated > 0
+
+    def get_test_campaign_stats(self, campaign_id: int) -> dict:
+        with self._Session() as s:
+            rows = s.query(TestCampaignEmail.status, func.count(TestCampaignEmail.id)).filter_by(test_campaign_id=campaign_id).group_by(TestCampaignEmail.status).all()
+            stats = {"draft": 0, "queued": 0, "sent": 0, "failed": 0, "total": 0}
+            for status_val, count in rows:
+                stats[status_val.value.lower()] = count
+                stats["total"] += count
+            return stats
+
+    def get_test_campaign_emails(self, campaign_id: int, status: str = None, page: int = 1, limit: int = 50) -> tuple[list[dict], int]:
+        with self._Session() as s:
+            q = s.query(TestCampaignEmail).filter_by(test_campaign_id=campaign_id)
+            if status: q = q.filter(TestCampaignEmail.status == EmailStatus(status))
+            total = q.count()
+            offset = (page - 1) * limit
+            rows = q.order_by(TestCampaignEmail.id).offset(offset).limit(limit).all()
+            return ([{"id": e.id, "campaign_id": e.test_campaign_id, "lead_id": None, "recipient_email": e.recipient_email, "subject": e.subject, "body": e.body, "status": e.status.value, "error_message": e.error_message, "sent_at": e.sent_at.isoformat() if e.sent_at else None} for e in rows], total)
+
+    def queue_test_campaign_emails(self, campaign_id: int) -> int:
+        with self._Session() as s:
+            updated = s.query(TestCampaignEmail).filter_by(test_campaign_id=campaign_id, status=EmailStatus.DRAFT).update({"status": EmailStatus.QUEUED})
+            s.commit()
+            return updated
+
+    def get_next_queued_test_email(self, campaign_id: int) -> dict | None:
+        with self._Session() as s:
+            e = s.query(TestCampaignEmail).filter_by(test_campaign_id=campaign_id, status=EmailStatus.QUEUED).order_by(TestCampaignEmail.id).first()
+            if not e: return None
+            return {"id": e.id, "campaign_id": e.test_campaign_id, "recipient_email": e.recipient_email, "subject": e.subject, "body": e.body}
+
+    def update_test_email(self, email_id: int, new_subject: str, new_body: str) -> bool:
+        with self._Session() as s:
+            updated = s.query(TestCampaignEmail).filter_by(id=email_id, status=EmailStatus.DRAFT).update({
+                "subject": new_subject,
+                "body": new_body
+            })
+            s.commit()
+            return updated > 0
+
+    def mark_test_email_sent(self, email_id: int) -> None:
+        with self._Session() as s:
+            s.query(TestCampaignEmail).filter_by(id=email_id).update({"status": EmailStatus.SENT, "sent_at": datetime.datetime.utcnow()})
+            s.commit()
+
+    def mark_test_email_failed(self, email_id: int, error_message: str) -> None:
+        with self._Session() as s:
+            s.query(TestCampaignEmail).filter_by(id=email_id).update({"status": EmailStatus.FAILED, "error_message": error_message})
+            s.commit()
+
+    def cancel_remaining_queued_test(self, campaign_id: int) -> int:
+        with self._Session() as s:
+            updated = s.query(TestCampaignEmail).filter_by(test_campaign_id=campaign_id, status=EmailStatus.QUEUED).update({"status": EmailStatus.FAILED, "error_message": "Campaign cancelled"})
             s.commit()
             return updated
 
@@ -914,3 +1017,23 @@ class Blacklist(Base):
     email = Column(String, nullable=False, unique=True, index=True)
     domain = Column(String, nullable=False, index=True)
     reason = Column(String, nullable=True)
+
+class TestCampaign(Base):
+    __tablename__ = "test_campaigns"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=False)
+    template_id = Column(Integer, ForeignKey("email_templates.id"), nullable=True)
+    test_credential_id = Column(Integer, ForeignKey("smtp_credentials.id"), nullable=True)
+    status = Column(SqlEnum(CampaignStatus), nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+class TestCampaignEmail(Base):
+    __tablename__ = "test_campaign_emails"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    test_campaign_id = Column(Integer, ForeignKey("test_campaigns.id"), nullable=False)
+    recipient_email = Column(String, nullable=False)
+    subject = Column(String, nullable=False)
+    body = Column(Text, nullable=False)
+    status = Column(SqlEnum(EmailStatus), nullable=False, default=EmailStatus.DRAFT)
+    error_message = Column(String, nullable=True)
+    sent_at = Column(DateTime, nullable=True)

@@ -101,6 +101,11 @@ def create_app(config: dict, db: Database) -> FastAPI:
         template = templates.get_template("settings.html")
         return HTMLResponse(template.render({"request": request}))
 
+    @app.get("/test-campaign", response_class=HTMLResponse)
+    async def test_campaign_page(request: Request):
+        template = templates.get_template("test-campaign.html")
+        return HTMLResponse(template.render({"request": request}))
+
     @app.get("/campaigns", response_class=HTMLResponse)
     async def campaigns_page(request: Request):
         template = templates.get_template("campaigns.html")

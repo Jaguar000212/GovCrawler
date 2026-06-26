@@ -5,6 +5,8 @@ let cPage = 1;
 let ePage = 1;
 let pollInterval = null;
 let currentDraftEditId = null;
+let loadedCampaigns = [];
+let currentCampaignIsTest = false;
 
 async function loadCampaigns() {
     try {
@@ -20,22 +22,26 @@ async function loadCampaigns() {
             return;
         }
         
+        loadedCampaigns = data.campaigns;
+        
         data.campaigns.forEach(c => {
+            const liId = c.is_test ? `test-${c.id}` : `camp-${c.id}`;
             const li = document.createElement('li');
-            li.id = `camp-item-${c.id}`;
-            if (c.id === currentCampaignId) li.classList.add('active');
+            li.id = `camp-item-${liId}`;
+            if (c.id === currentCampaignId && c.is_test === currentCampaignIsTest) li.classList.add('active');
             
-            li.onclick = () => selectCampaign(c.id);
+            li.onclick = () => selectCampaign(c.id, c.is_test);
             
             const total = c.stats.total || 0;
             const sent = c.stats.sent || 0;
             const pct = total > 0 ? Math.round((sent / total) * 100) : 0;
             
             const sBadge = `<span class="status-badge status-${c.status}" style="font-size:10px; padding:2px 4px;">${c.status}</span>`;
+            const tBadge = c.is_test ? `<span class="status-badge" style="background:#e0f2fe;color:#0369a1;font-size:10px;padding:2px 4px;margin-right:4px;">Test</span>` : '';
             
             li.innerHTML = `
                 <div style="display:flex; justify-content:space-between;">
-                    <div class="campaign-title">${c.name}</div>
+                    <div class="campaign-title">${tBadge}${c.name}</div>
                     ${sBadge}
                 </div>
                 <div class="campaign-stats-mini">
@@ -58,12 +64,14 @@ async function loadCampaigns() {
 function prevCampaignPage() { if (cPage > 1) { cPage--; loadCampaigns(); } }
 function nextCampaignPage() { cPage++; loadCampaigns(); }
 
-function selectCampaign(id) {
+function selectCampaign(id, isTest) {
     currentCampaignId = id;
+    currentCampaignIsTest = isTest;
     ePage = 1;
     
     document.querySelectorAll('.campaign-list li').forEach(li => li.classList.remove('active'));
-    const sel = document.getElementById(`camp-item-${id}`);
+    const liId = isTest ? `test-${id}` : `camp-${id}`;
+    const sel = document.getElementById(`camp-item-${liId}`);
     if (sel) sel.classList.add('active');
     
     document.getElementById('campaign-empty').style.display = 'none';
@@ -77,11 +85,14 @@ function selectCampaign(id) {
 async function loadCampaignDetail() {
     if (!currentCampaignId) return;
     
+    const apiPath = currentCampaignIsTest ? 'test-campaigns' : 'campaigns';
+    
     try {
-        const res = await fetch(`/api/campaigns/${currentCampaignId}`);
+        const res = await fetch(`/api/${apiPath}/${currentCampaignId}`);
         const c = await res.json();
         
-        document.getElementById('cd-title').textContent = c.name;
+        const tBadge = currentCampaignIsTest ? `<span class="status-badge" style="background:#e0f2fe;color:#0369a1;font-size:12px;padding:2px 6px;margin-right:8px;vertical-align:middle;">Test</span>` : '';
+        document.getElementById('cd-title').innerHTML = tBadge + c.name;
         document.getElementById('cd-status').textContent = c.status;
         document.getElementById('cd-status').className = `status-badge status-${c.status}`;
         document.getElementById('cd-created').textContent = new Date(c.created_at + 'Z').toLocaleString();
@@ -97,13 +108,23 @@ async function loadCampaignDetail() {
 
 async function pollCampaignStats() {
     if (!currentCampaignId) return;
+    const apiPath = currentCampaignIsTest ? 'test-campaigns' : 'campaigns';
     try {
-        const res = await fetch(`/api/campaigns/${currentCampaignId}/stats`);
+        const res = await fetch(`/api/${apiPath}/${currentCampaignId}/stats`);
         if (res.ok) {
             const stats = await res.json();
             updateStatsUI(stats);
-            // Optionally, we could fetch full detail to check status changes (RUNNING -> COMPLETED)
-            // But doing it every 3s is a bit much. We'll do a full refresh every 15s or just rely on manual refresh for status.
+            if (stats.campaign_status) {
+                document.getElementById('cd-status').textContent = stats.campaign_status;
+                document.getElementById('cd-status').className = `status-badge status-${stats.campaign_status}`;
+                updateButtonsUI({status: stats.campaign_status, stats: stats});
+                
+                // If the campaign is actively running, or we just need to keep the table fresh, reload emails
+                // We do it only if the modal is not open to avoid any focus issues if we were to add inputs later
+                if (document.getElementById('modal-edit-email').style.display === 'none') {
+                    loadEmails();
+                }
+            }
         }
     } catch(e) {}
 }
@@ -153,8 +174,10 @@ function updateButtonsUI(c) {
 async function loadEmails() {
     if (!currentCampaignId) return;
     
+    const apiPath = currentCampaignIsTest ? 'test-campaigns' : 'campaigns';
+    
     try {
-        const res = await fetch(`/api/campaigns/${currentCampaignId}/emails?page=${ePage}&limit=50`);
+        const res = await fetch(`/api/${apiPath}/${currentCampaignId}/emails?page=${ePage}&limit=50`);
         const data = await res.json();
         
         const tbody = document.getElementById('emails-tbody');
@@ -215,8 +238,10 @@ async function confirmDispatch() {
     btn.disabled = true;
     btn.textContent = 'Dispatching...';
     
+    const apiPath = currentCampaignIsTest ? 'test-campaigns' : 'campaigns';
+    
     try {
-        const res = await fetch(`/api/campaigns/${currentCampaignId}/dispatch`, { method: 'POST' });
+        const res = await fetch(`/api/${apiPath}/${currentCampaignId}/dispatch`, { method: 'POST' });
         if (res.ok) {
             closeDispatchModal();
             loadCampaignDetail();
@@ -234,7 +259,8 @@ async function confirmDispatch() {
 }
 
 async function pauseCampaign() {
-    await fetch(`/api/campaigns/${currentCampaignId}`, {
+    const apiPath = currentCampaignIsTest ? 'test-campaigns' : 'campaigns';
+    await fetch(`/api/${apiPath}/${currentCampaignId}`, {
         method: 'PATCH',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({status: 'PAUSED'})
@@ -245,7 +271,8 @@ async function pauseCampaign() {
 
 async function cancelCampaign() {
     if (!confirm("Cancel campaign? Remaining drafts and queued emails will not be sent.")) return;
-    await fetch(`/api/campaigns/${currentCampaignId}`, {
+    const apiPath = currentCampaignIsTest ? 'test-campaigns' : 'campaigns';
+    await fetch(`/api/${apiPath}/${currentCampaignId}`, {
         method: 'PATCH',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({status: 'CANCELLED'})
@@ -268,13 +295,17 @@ async function openEditEmailModal(emailId, recipient) {
     // Let's add GET /api/campaigns/{id}/emails/{eid} if it doesn't exist, or just use the current page's data.
     // Easiest is using current page data.
     
+    const apiPath = currentCampaignIsTest ? 'test-campaigns' : 'campaigns';
+    
     try {
-        const res = await fetch(`/api/campaigns/${currentCampaignId}/emails?page=${ePage}&limit=50`);
+        const res = await fetch(`/api/${apiPath}/${currentCampaignId}/emails?page=${ePage}&limit=50`);
         const data = await res.json();
         const draft = data.emails.find(e => e.id === emailId);
         if (draft) {
+            document.getElementById('ee-subject').value = draft.subject || "";
             document.getElementById('ee-body').value = draft.body;
         } else {
+            document.getElementById('ee-subject').value = "";
             document.getElementById('ee-body').value = "Could not load body text.";
         }
     } catch (e) {
@@ -287,14 +318,19 @@ function closeEditEmailModal() {
 }
 
 async function saveEmailEdit() {
-    if (!currentDraftEditId) return;
+    const btn = document.querySelector('#modal-edit-email .btn-primary');
+    btn.disabled = true;
+    btn.textContent = "Saving...";
     
+    const newSubject = document.getElementById('ee-subject').value;
     const newBody = document.getElementById('ee-body').value;
+    const apiPath = currentCampaignIsTest ? 'test-campaigns' : 'campaigns';
+    
     try {
-        const res = await fetch(`/api/campaigns/${currentCampaignId}/emails/${currentDraftEditId}`, {
+        const res = await fetch(`/api/${apiPath}/${currentCampaignId}/emails/${currentDraftEditId}`, {
             method: 'PUT',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({body: newBody})
+            body: JSON.stringify({subject: newSubject, body: newBody})
         });
         
         if (res.ok) {
