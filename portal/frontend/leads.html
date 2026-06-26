@@ -55,6 +55,7 @@
             <div style="margin-left:16px; display:flex; align-items:center; gap: 12px;">
                 <span id="sel-leads-count-label" style="font-size:12px; font-weight:bold; display:none;"><span
                         id="sel-leads-count">0</span> selected</span>
+                <button class="btn-primary btn-sm" id="btn-create-campaign" onclick="openCampaignModal()" style="display:none;">+ Create Campaign</button>
             </div>
         </div>
 
@@ -83,6 +84,33 @@
             <button class="btn-secondary btn-sm" id="btn-leads-next" onclick="leadsNext()">Next →</button>
         </div>
     </main>
+</div>
+
+<!-- Create Campaign Modal -->
+<div class="modal-overlay" id="modal-create-campaign" style="display:none;">
+    <div class="modal">
+        <h3>Create Outreach Campaign</h3>
+        <p style="font-size: 13px; color: var(--muted); margin-bottom: 16px;">
+            Creating a campaign will generate email drafts for <strong id="camp-leads-count">0</strong> selected leads.
+        </p>
+        
+        <div class="form-group">
+            <label>Campaign Name</label>
+            <input type="text" id="camp-name" placeholder="e.g. Follow-up Batch 1">
+        </div>
+        
+        <div class="form-group">
+            <label>Select Template</label>
+            <select id="camp-template">
+                <option value="">Loading templates...</option>
+            </select>
+        </div>
+        
+        <div class="modal-actions">
+            <button class="btn-secondary" onclick="closeCampaignModal()">Cancel</button>
+            <button class="btn-primary" id="btn-camp-submit" onclick="submitCampaign()">Generate Drafts</button>
+        </div>
+    </div>
 </div>
 {% endblock %}
 

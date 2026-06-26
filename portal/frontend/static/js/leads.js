@@ -176,6 +176,7 @@ function updateSelLeadsCount() {
     document.getElementById('sel-leads-count').textContent = n.toLocaleString();
     const show = n > 0 ? 'inline-block' : 'none';
     document.getElementById('sel-leads-count-label').style.display = show;
+    document.getElementById('btn-create-campaign').style.display = show;
 }
 
 function updateSelectAllLeads() {
@@ -247,6 +248,84 @@ async function exportLeads() {
         });
     }
 }
+
+// ── Campaign Creation ────────────────────────────────────────────────────────
+
+async function openCampaignModal() {
+    document.getElementById('camp-leads-count').textContent = selectedLeadIds.size;
+    document.getElementById('camp-name').value = '';
+    
+    // Load templates
+    try {
+        const res = await fetch('/api/templates');
+        const templates = await res.json();
+        
+        const select = document.getElementById('camp-template');
+        select.innerHTML = '<option value="">-- Choose Template --</option>';
+        templates.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t.id;
+            opt.textContent = t.name;
+            select.appendChild(opt);
+        });
+    } catch (e) {
+        console.error("Failed to load templates", e);
+    }
+    
+    document.getElementById('modal-create-campaign').style.display = 'flex';
+}
+
+function closeCampaignModal() {
+    document.getElementById('modal-create-campaign').style.display = 'none';
+}
+
+async function submitCampaign() {
+    const name = document.getElementById('camp-name').value.trim();
+    const templateId = parseInt(document.getElementById('camp-template').value);
+    
+    if (!name || !templateId) {
+        alert("Please provide a name and select a template.");
+        return;
+    }
+    
+    if (selectedLeadIds.size === 0) {
+        alert("No leads selected.");
+        return;
+    }
+    
+    const btn = document.getElementById('btn-camp-submit');
+    btn.disabled = true;
+    btn.textContent = "Creating...";
+    
+    try {
+        const payload = {
+            name: name,
+            template_id: templateId,
+            lead_ids: Array.from(selectedLeadIds)
+        };
+        
+        const res = await fetch('/api/campaigns', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        
+        if (res.ok) {
+            const data = await res.json();
+            // Redirect to campaigns page
+            window.location.href = `/campaigns?id=${data.campaign_id}`;
+        } else {
+            const err = await res.json();
+            alert("Failed to create campaign: " + err.detail);
+        }
+    } catch (e) {
+        alert("Network error.");
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Generate Drafts";
+    }
+}
+
 
 async function leadsPrev() {
     if (leadsPage > 1) {

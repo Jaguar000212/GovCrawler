@@ -1,0 +1,66 @@
+/* settings.css */
+
+.settings-nav {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.settings-nav li {
+    padding: 10px 16px;
+    cursor: pointer;
+    border-radius: 6px;
+    margin-bottom: 4px;
+    font-size: 14px;
+    color: var(--text-muted);
+    transition: background 0.2s, color 0.2s;
+}
+
+.settings-nav li:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+}
+
+.settings-nav li.active {
+    background: var(--primary-alpha);
+    color: var(--primary);
+    font-weight: 500;
+}
+
+.settings-tab {
+    padding: 0 16px;
+}
+
+.tab-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+}
+
+.tab-header h2 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 500;
+}
+
+.modal-lg {
+    max-width: 600px !important;
+}
+
+textarea {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-input);
+    color: var(--text);
+    font-family: monospace;
+    font-size: 13px;
+    resize: vertical;
+}
+
+textarea:focus {
+    outline: none;
+    border-color: var(--primary);
+}

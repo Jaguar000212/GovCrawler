@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+
+{% block title %}Outreach Settings — GovCrawler{% endblock %}
+
+{% block extra_head %}
+<link href="/static/css/settings.css" rel="stylesheet">
+{% endblock %}
+
+{% block header_actions %}
+<button class="btn-secondary" onclick="window.location.href='/'">Back to Dashboard</button>
+{% endblock %}
+
+{% block content %}
+<div class="layout">
+    <aside>
+        <div class="sidebar-section">
+            <div class="section-label">Settings</div>
+            <ul class="settings-nav">
+                <li class="active" onclick="switchTab('credentials')" id="nav-credentials">SMTP Credentials</li>
+                <li onclick="switchTab('templates')" id="nav-templates">Email Templates</li>
+                <li onclick="switchTab('blacklist')" id="nav-blacklist">Blacklist</li>
+            </ul>
+        </div>
+    </aside>
+
+    <main>
+        <!-- Credentials Tab -->
+        <div id="tab-credentials" class="settings-tab">
+            <div class="tab-header">
+                <h2>SMTP Credentials</h2>
+                <button class="btn-primary btn-sm" onclick="openCredentialModal()">+ Add Credential</button>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Host</th>
+                            <th>Port</th>
+                            <th>Username</th>
+                            <th>Status</th>
+                            <th>Cooldown</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="credentials-tbody">
+                        <tr><td colspan="6" class="empty-state">Loading credentials...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Templates Tab -->
+        <div id="tab-templates" class="settings-tab" style="display:none;">
+            <div class="tab-header">
+                <h2>Email Templates</h2>
+                <button class="btn-primary btn-sm" onclick="openTemplateModal()">+ Create Template</button>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Subject</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="templates-tbody">
+                        <tr><td colspan="3" class="empty-state">Loading templates...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Blacklist Tab -->
+        <div id="tab-blacklist" class="settings-tab" style="display:none;">
+            <div class="tab-header">
+                <h2>Blacklist</h2>
+                <button class="btn-primary btn-sm" onclick="openBlacklistModal()">+ Block Email</button>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Email</th>
+                            <th>Domain</th>
+                            <th>Reason</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="blacklist-tbody">
+                        <tr><td colspan="4" class="empty-state">Loading blacklist...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- Credential Modal -->
+<div class="modal-overlay" id="modal-credential" style="display:none;">
+    <div class="modal">
+        <h3 id="cred-modal-title">Add SMTP Credential</h3>
+        <div class="form-group">
+            <label>Host</label>
+            <input type="text" id="cred-host" placeholder="smtp.gmail.com">
+        </div>
+        <div class="form-group">
+            <label>Port</label>
+            <input type="number" id="cred-port" placeholder="465">
+        </div>
+        <div class="form-group">
+            <label>Username</label>
+            <input type="text" id="cred-user" placeholder="you@gmail.com">
+        </div>
+        <div class="form-group">
+            <label>Password</label>
+            <input type="password" id="cred-pass" placeholder="App Password">
+        </div>
+        <div class="modal-actions">
+            <button class="btn-secondary" onclick="closeCredentialModal()">Cancel</button>
+            <button class="btn-primary" onclick="saveCredential()">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Template Modal -->
+<div class="modal-overlay" id="modal-template" style="display:none;">
+    <div class="modal modal-lg">
+        <h3 id="tpl-modal-title">Create Template</h3>
+        <div id="tpl-error" class="error-msg" style="display:none; color: var(--danger); margin-bottom: 12px; font-weight: bold;"></div>
+        <div class="form-group">
+            <label>Name</label>
+            <input type="text" id="tpl-name" placeholder="Internal name (e.g. Follow-up 1)">
+        </div>
+        <div class="form-group">
+            <label>Subject</label>
+            <input type="text" id="tpl-subject" placeholder="Jinja2 supported: Hello {{ name }}">
+        </div>
+        <div class="form-group">
+            <label>Body (HTML or Text)</label>
+            <textarea id="tpl-body" rows="12" placeholder="Hi {{ name }}, ..."></textarea>
+            <div style="font-size:12px; color:var(--muted); margin-top:4px;">Available vars: {{ name }}, {{ designation }}</div>
+        </div>
+        <div class="modal-actions">
+            <button class="btn-secondary" onclick="closeTemplateModal()">Cancel</button>
+            <button class="btn-primary" onclick="saveTemplate()">Save Template</button>
+        </div>
+    </div>
+</div>
+
+<!-- Blacklist Modal -->
+<div class="modal-overlay" id="modal-blacklist" style="display:none;">
+    <div class="modal">
+        <h3>Block Email</h3>
+        <div id="blk-error" class="error-msg" style="display:none; color: var(--danger); margin-bottom: 12px; font-weight: bold;"></div>
+        <div class="form-group">
+            <label>Email Address</label>
+            <input type="email" id="blk-email" placeholder="bad@example.com">
+        </div>
+        <div class="form-group">
+            <label>Reason (Optional)</label>
+            <input type="text" id="blk-reason" placeholder="Hard bounce 550">
+        </div>
+        <div class="modal-actions">
+            <button class="btn-secondary" onclick="closeBlacklistModal()">Cancel</button>
+            <button class="btn-primary" onclick="saveBlacklist()">Block</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="/static/js/settings.js"></script>
+{% endblock %}
+
+{% block init_js %}
+document.addEventListener('DOMContentLoaded', () => {
+    loadCredentials();
+    loadTemplates();
+    loadBlacklist();
+});
+{% endblock %}

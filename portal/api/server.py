@@ -96,6 +96,16 @@ def create_app(config: dict, db: Database) -> FastAPI:
         template = templates.get_template("leads.html")
         return HTMLResponse(template.render({"request": request}))
 
+    @app.get("/settings", response_class=HTMLResponse)
+    async def settings_page(request: Request):
+        template = templates.get_template("settings.html")
+        return HTMLResponse(template.render({"request": request}))
+
+    @app.get("/campaigns", response_class=HTMLResponse)
+    async def campaigns_page(request: Request):
+        template = templates.get_template("campaigns.html")
+        return HTMLResponse(template.render({"request": request}))
+
     @app.get("/api/logs")
     async def get_logs():
         log_file = Path("portal/data/portal.log")
