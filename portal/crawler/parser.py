@@ -28,14 +28,34 @@ def parse_page(html: str, source_url: str, config: dict) -> list[Lead]:
     """
     Returns Lead objects extracted from the page.
     config = extraction section of portal/config.yaml
+
+    Thin wrapper that builds the soup, then delegates to extract_leads.
+    Callers that already hold a BeautifulSoup tree (e.g. CrawlerEngine, which
+    also needs the tree for link discovery) should call extract_leads directly
+    to avoid parsing the same HTML twice.
     """
     try:
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
+    except Exception as e:
+        log.debug(f"parse_page HTML parse error for {source_url}: {e}")
+        return []
+    return extract_leads(soup, source_url, config)
+
+
+def extract_leads(soup: BeautifulSoup, source_url: str, config: dict) -> list[Lead]:
+    """
+    Returns Lead objects from an already-parsed BeautifulSoup tree.
+
+    NOTE: this mutates `soup` (it strips <script>/<style>/<noscript> before the
+    text scan). Extract anything you need from the tree that lives inside those
+    tags BEFORE calling this. Anchor/link discovery is unaffected.
+    """
+    try:
         for tag in soup(["script", "style", "noscript"]):
             tag.decompose()
         raw_text = soup.get_text(separator=" ")
     except Exception as e:
-        log.debug(f"parse_page HTML parse error for {source_url}: {e}")
+        log.warning(f"extract_leads HTML error for {source_url}: {e}")
         return []
 
     leads: list[Lead] = []
