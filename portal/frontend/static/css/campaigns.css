@@ -1,5 +1,6 @@
 /* campaigns.css */
 
+/* ── Campaign sidebar list ── */
 .campaign-list {
     list-style: none;
     padding: 0;
@@ -10,16 +11,16 @@
     padding: 12px 16px;
     border-bottom: 1px solid var(--border);
     cursor: pointer;
-    transition: background 0.2s;
+    transition: background 0.15s;
 }
 
 .campaign-list li:hover {
-    background: var(--bg-hover);
+    background: var(--surface2);
 }
 
 .campaign-list li.active {
-    background: var(--bg-hover);
-    border-left: 3px solid var(--primary);
+    background: var(--surface2);
+    border-left: 3px solid var(--accent);
     padding-left: 13px;
 }
 
@@ -36,17 +37,20 @@
     justify-content: space-between;
 }
 
+/* ── Campaign header ── */
 .campaign-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 24px;
+    padding: 20px 24px;
     border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
 }
 
 .campaign-header h2 {
-    margin: 0 0 8px 0;
-    font-size: 22px;
+    margin: 0 0 6px 0;
+    font-size: 20px;
 }
 
 .campaign-meta {
@@ -56,46 +60,156 @@
 
 .campaign-actions {
     display: flex;
-    gap: 12px;
+    gap: 10px;
+    align-items: center;
 }
 
+/* ── Status badges ── */
 .status-badge {
+    display: inline-block;
     padding: 2px 8px;
     border-radius: 12px;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
+    letter-spacing: 0.4px;
 }
 
-.status-RUNNING { background: var(--primary-alpha); color: var(--primary); }
-.status-PAUSED { background: #333; color: #ccc; }
-.status-COMPLETED { background: #1a4d2e; color: var(--success); }
-.status-CANCELLED { background: #4d1a1a; color: var(--danger); }
+.status-RUNNING   { background: #e8e3dc; color: var(--accent); border: 1px solid var(--border); }
+.status-PAUSED    { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+.status-COMPLETED { background: #ddeee2; color: var(--green); border: 1px solid #a8cdb4; }
+.status-CANCELLED { background: #f5e5e3; color: var(--red); border: 1px solid #e0b8b4; }
 
+/* ── Email-level status badges ── */
+.email-status-badge {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.status-email-DRAFT   { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+.status-email-QUEUED  { background: #fef9e7; color: var(--yellow); border: 1px solid #d4be8c; }
+.status-email-SENT    { background: #ddeee2; color: var(--green); border: 1px solid #a8cdb4; }
+.status-email-FAILED  { background: #f5e5e3; color: var(--red); border: 1px solid #e0b8b4; }
+
+/* ── Stats row ── */
 .campaign-stats {
     display: flex;
-    padding: 24px;
-    gap: 24px;
+    padding: 20px 24px;
+    gap: 16px;
     border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+    flex-wrap: wrap;
 }
 
 .stat-box {
     flex: 1;
-    background: var(--bg-panel);
+    min-width: 72px;
+    background: var(--bg);
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 16px;
+    padding: 14px 12px;
     text-align: center;
 }
 
 .stat-val {
-    font-size: 28px;
-    font-weight: bold;
+    font-size: 26px;
+    font-weight: 700;
     margin-bottom: 4px;
+    color: var(--text);
 }
 
 .stat-label {
-    font-size: 12px;
-    color: var(--muted);
+    font-size: 10px;
+    color: var(--small);
     text-transform: uppercase;
+    letter-spacing: 0.6px;
+    font-weight: 600;
+}
+
+/* ── Progress bar ── */
+.progress-bar-wrap {
+    background: var(--border);
+    border-radius: 99px;
+    height: 4px;
+    overflow: hidden;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 99px;
+    transition: width 0.4s;
+}
+
+/* ── Email toolbar (select all / deselect all) ── */
+.email-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+}
+
+/* ── Missing-fields warning ── */
+.missing-badge {
+    display: inline-block;
+    background: #f0e8d0;
+    color: var(--yellow);
+    border: 1px solid #d4be8c;
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-weight: 600;
+}
+
+.skipped-badge {
+    display: inline-block;
+    background: var(--surface2);
+    color: var(--small);
+    border: 1px solid var(--border);
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 8px;
+    margin-left: 4px;
+}
+
+.row-missing td {
+    background: #fdf8ee !important;
+}
+
+tr.row-missing:hover td {
+    background: #f5f0e0 !important;
+}
+
+/* ── Action cell ── */
+.action-cell {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    flex-wrap: nowrap;
+}
+
+.btn-remove {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--red);
+    border-radius: var(--radius);
+    padding: 3px 7px;
+    font-size: 12px;
+    cursor: pointer;
+    line-height: 1;
+    transition: background 0.12s;
+}
+
+.btn-remove:hover {
+    background: #f5e5e3;
+    border-color: var(--red);
 }

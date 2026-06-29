@@ -91,10 +91,15 @@ async def run_campaign_dispatch(campaign_id: int, db: Database) -> None:
         # b. Get next queued email
         email = db.get_next_queued_email(campaign_id)
         
-        # c. If None -> campaign COMPLETED
+        # c. If no more QUEUED emails remain
         if not email:
-            db.update_campaign_status(campaign_id, CampaignStatus.COMPLETED)
-            log.info(f"Campaign {campaign_id} completed.")
+            # COMPLETED only when no DRAFT emails remain (all processed)
+            if db.has_remaining_drafts(campaign_id):
+                db.update_campaign_status(campaign_id, CampaignStatus.PAUSED)
+                log.info(f"Campaign {campaign_id} paused: queued batch finished, deselected drafts remain.")
+            else:
+                db.update_campaign_status(campaign_id, CampaignStatus.COMPLETED)
+                log.info(f"Campaign {campaign_id} completed.")
             break
             
         # d. Get next credential

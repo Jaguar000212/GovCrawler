@@ -111,7 +111,33 @@ class Database:
         Base.metadata.create_all(self.engine)
         self._Session = sessionmaker(bind=self.engine)
         self._recrawl_days = config.get("crawler", {}).get("recrawl_days", 30)
+        self._ensure_columns()
         log.info(f"Database ready: {uri}")
+
+    def _ensure_columns(self):
+        """Safely add new columns to existing tables without a full migration."""
+        from sqlalchemy import inspect as sa_inspect
+        inspector = sa_inspect(self.engine)
+        tables_to_patch = {
+            "campaign_emails": [
+                ("is_selected", "BOOLEAN NOT NULL DEFAULT 1"),
+                ("missing_fields", "VARCHAR"),
+            ],
+            "test_campaign_emails": [
+                ("is_selected", "BOOLEAN NOT NULL DEFAULT 1"),
+                ("missing_fields", "VARCHAR"),
+            ],
+        }
+        with self.engine.connect() as conn:
+            for table, columns in tables_to_patch.items():
+                if table not in inspector.get_table_names():
+                    continue
+                existing = {c["name"] for c in inspector.get_columns(table)}
+                for col_name, col_def in columns:
+                    if col_name not in existing:
+                        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_def}"))
+                        log.info(f"Schema: added column {table}.{col_name}")
+            conn.commit()
 
     # ── Domain ────────────────────────────────────────────────────────────────
 
@@ -695,10 +721,15 @@ class Database:
 
     # ── CampaignEmail ─────────────────────────────────────────────────────────
 
+    def get_campaign_recipient_emails(self, campaign_id: int) -> set:
+        with self._Session() as s:
+            rows = s.query(CampaignEmail.recipient_email).filter_by(campaign_id=campaign_id).all()
+            return {r.recipient_email for r in rows}
+
     def bulk_create_campaign_emails(self, campaign_id: int,
                                      emails: list[dict]) -> int:
         """Bulk insert rendered draft emails. Each dict must have:
-        lead_id, recipient_email, subject, body."""
+        lead_id, recipient_email, subject, body. Optional: is_selected, missing_fields."""
         with self._Session() as s:
             objects = [
                 CampaignEmail(
@@ -708,6 +739,8 @@ class Database:
                     subject=e["subject"],
                     body=e["body"],
                     status=EmailStatus.DRAFT,
+                    is_selected=e.get("is_selected", True),
+                    missing_fields=e.get("missing_fields"),
                 )
                 for e in emails
             ]
@@ -729,6 +762,8 @@ class Database:
                   "lead_id": e.lead_id, "recipient_email": e.recipient_email,
                   "subject": e.subject, "body": e.body,
                   "status": e.status.value,
+                  "is_selected": e.is_selected,
+                  "missing_fields": e.missing_fields,
                   "error_message": e.error_message,
                   "sent_at": e.sent_at.isoformat() if e.sent_at else None}
                  for e in rows],
@@ -754,22 +789,53 @@ class Database:
                 .group_by(CampaignEmail.status)
                 .all()
             )
-            stats = {"draft": 0, "queued": 0, "sent": 0, "failed": 0, "total": 0}
+            stats = {"draft": 0, "queued": 0, "sent": 0, "failed": 0, "skipped": 0, "total": 0}
             for status_val, count in rows:
                 stats[status_val.value.lower()] = count
                 stats["total"] += count
+            # skipped = deselected DRAFT emails (not counted in dispatch)
+            skipped = s.query(CampaignEmail).filter_by(
+                campaign_id=campaign_id, status=EmailStatus.DRAFT, is_selected=False
+            ).count()
+            stats["skipped"] = skipped
+            stats["draft"] = stats["draft"] - skipped  # selected drafts only
             return stats
+
+    def set_email_selection(self, email_id: int, is_selected: bool) -> bool:
+        """Toggle selection on a DRAFT email."""
+        with self._Session() as s:
+            updated = s.query(CampaignEmail).filter_by(
+                id=email_id, status=EmailStatus.DRAFT
+            ).update({"is_selected": is_selected})
+            s.commit()
+            return updated > 0
+
+    def delete_campaign_email(self, email_id: int) -> bool:
+        """Remove a DRAFT email from a campaign entirely."""
+        with self._Session() as s:
+            deleted = s.query(CampaignEmail).filter_by(
+                id=email_id, status=EmailStatus.DRAFT
+            ).delete()
+            s.commit()
+            return deleted > 0
 
     # ── Dispatcher operations ─────────────────────────────────────────────────
 
     def queue_campaign_emails(self, campaign_id: int) -> int:
-        """Bulk flip DRAFT → QUEUED. Returns count updated."""
+        """Bulk flip selected DRAFT → QUEUED. Returns count updated."""
         with self._Session() as s:
             updated = s.query(CampaignEmail).filter_by(
-                campaign_id=campaign_id, status=EmailStatus.DRAFT
+                campaign_id=campaign_id, status=EmailStatus.DRAFT, is_selected=True
             ).update({"status": EmailStatus.QUEUED})
             s.commit()
             return updated
+
+    def has_remaining_drafts(self, campaign_id: int) -> bool:
+        """True if any DRAFT emails (selected or not) still exist for the campaign."""
+        with self._Session() as s:
+            return s.query(CampaignEmail).filter_by(
+                campaign_id=campaign_id, status=EmailStatus.DRAFT
+            ).first() is not None
 
     def get_next_queued_email(self, campaign_id: int) -> dict | None:
         """Fetch one QUEUED email for processing. Returns None when done."""
@@ -859,7 +925,12 @@ class Database:
             total = q.count()
             offset = (page - 1) * limit
             rows = q.order_by(TestCampaignEmail.id).offset(offset).limit(limit).all()
-            return ([{"id": e.id, "campaign_id": e.test_campaign_id, "lead_id": None, "recipient_email": e.recipient_email, "subject": e.subject, "body": e.body, "status": e.status.value, "error_message": e.error_message, "sent_at": e.sent_at.isoformat() if e.sent_at else None} for e in rows], total)
+            return ([{"id": e.id, "campaign_id": e.test_campaign_id, "lead_id": None,
+                       "recipient_email": e.recipient_email, "subject": e.subject, "body": e.body,
+                       "status": e.status.value, "is_selected": e.is_selected,
+                       "missing_fields": e.missing_fields,
+                       "error_message": e.error_message,
+                       "sent_at": e.sent_at.isoformat() if e.sent_at else None} for e in rows], total)
 
     def queue_test_campaign_emails(self, campaign_id: int) -> int:
         with self._Session() as s:
@@ -881,6 +952,24 @@ class Database:
             })
             s.commit()
             return updated > 0
+
+    def set_test_email_selection(self, email_id: int, is_selected: bool) -> bool:
+        """Toggle selection on a DRAFT test email."""
+        with self._Session() as s:
+            updated = s.query(TestCampaignEmail).filter_by(
+                id=email_id, status=EmailStatus.DRAFT
+            ).update({"is_selected": is_selected})
+            s.commit()
+            return updated > 0
+
+    def delete_test_campaign_email(self, email_id: int) -> bool:
+        """Remove a DRAFT test email from a test campaign."""
+        with self._Session() as s:
+            deleted = s.query(TestCampaignEmail).filter_by(
+                id=email_id, status=EmailStatus.DRAFT
+            ).delete()
+            s.commit()
+            return deleted > 0
 
     def mark_test_email_sent(self, email_id: int) -> None:
         with self._Session() as s:
@@ -1012,6 +1101,8 @@ class CampaignEmail(Base):
     subject = Column(String, nullable=False)
     body = Column(Text, nullable=False)
     status = Column(SqlEnum(EmailStatus), nullable=False, default=EmailStatus.DRAFT)
+    is_selected = Column(Boolean, nullable=False, default=True)
+    missing_fields = Column(String, nullable=True)  # comma-separated list of missing template vars
     error_message = Column(String, nullable=True)
     sent_at = Column(DateTime, nullable=True)
 
@@ -1039,5 +1130,7 @@ class TestCampaignEmail(Base):
     subject = Column(String, nullable=False)
     body = Column(Text, nullable=False)
     status = Column(SqlEnum(EmailStatus), nullable=False, default=EmailStatus.DRAFT)
+    is_selected = Column(Boolean, nullable=False, default=True)
+    missing_fields = Column(String, nullable=True)
     error_message = Column(String, nullable=True)
     sent_at = Column(DateTime, nullable=True)

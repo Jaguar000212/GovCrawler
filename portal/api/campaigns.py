@@ -43,6 +43,14 @@ class CampaignEmailUpdate(BaseModel):
     body: str
 
 
+class EmailSelectionUpdate(BaseModel):
+    is_selected: bool
+
+
+class AddEmailsRequest(BaseModel):
+    lead_ids: list[int]
+
+
 class DummyDetails(BaseModel):
     name: str
     designation: str
@@ -123,16 +131,27 @@ def register_campaign_routes(app: FastAPI, db: Database):
 
         email_dicts = []
         for lead in filtered_leads:
-            render_vars = {
+            # Detect missing template variables before applying fallbacks
+            missing = []
+            if not lead.get("person_name"):
+                missing.append("name")
+            if not lead.get("designation"):
+                missing.append("designation")
+
+            # Subject uses clean fallbacks (no placeholder markers)
+            subject_vars = {
                 "name": lead.get("person_name") or "Official",
                 "designation": lead.get("designation") or "",
             }
-            rendered_subject = render_template_string(
-                template["subject"], **render_vars
-            )
-            rendered_body = render_template_string(
-                template["raw_body"], **render_vars
-            )
+            # Body uses visible [MISSING: field] markers so the user knows what to fix
+            body_vars = {
+                "name": lead.get("person_name") or "[MISSING: name]",
+                "designation": lead.get("designation") or "[MISSING: designation]",
+            }
+
+            rendered_subject = render_template_string(template["subject"], **subject_vars)
+            rendered_body = render_template_string(template["raw_body"], **body_vars)
+
             lead_id = lead_id_by_email.get(lead["email"])
             if lead_id is None:
                 continue  # Safety: skip if we can't resolve the FK
@@ -142,6 +161,8 @@ def register_campaign_routes(app: FastAPI, db: Database):
                 "recipient_email": lead["email"],
                 "subject": rendered_subject,
                 "body": rendered_body,
+                "is_selected": len(missing) == 0,  # deselect emails with missing data
+                "missing_fields": ",".join(missing) if missing else None,
             })
 
         # 7. Bulk insert staged drafts
@@ -168,8 +189,9 @@ def register_campaign_routes(app: FastAPI, db: Database):
             raise HTTPException(status_code=404, detail="Campaign not found")
             
         stats = db.get_campaign_stats(campaign_id)
+        # draft count is now only selected drafts; skipped are deselected
         if stats.get("draft", 0) == 0:
-            raise HTTPException(status_code=400, detail="No DRAFT emails to send")
+            raise HTTPException(status_code=400, detail="No selected DRAFT emails to dispatch. Select at least one email first.")
             
         # 2. Reject if already running
         if campaign["status"] == CampaignStatus.RUNNING.value and campaign_id in _active_campaign_tasks:
@@ -286,12 +308,110 @@ def register_campaign_routes(app: FastAPI, db: Database):
         if not campaign:
             raise HTTPException(status_code=404, detail="Campaign not found")
 
+        if campaign["status"] == CampaignStatus.CANCELLED.value:
+            raise HTTPException(status_code=400, detail="Cannot edit emails in a cancelled campaign")
+
         if not req.body.strip() or not req.subject.strip():
             raise HTTPException(status_code=400, detail="Subject and Body cannot be empty")
 
         if not db.update_email(email_id, req.subject, req.body):
-            raise HTTPException(status_code=404, detail="Email not found")
+            raise HTTPException(status_code=404, detail="Email not found or not in DRAFT status")
         return {"message": "Email body updated"}
+
+    @app.patch("/api/campaigns/{campaign_id}/emails/{email_id}/selection")
+    async def toggle_email_selection(campaign_id: int, email_id: int,
+                                     req: EmailSelectionUpdate):
+        """Select or deselect a DRAFT email for the next dispatch."""
+        campaign = db.get_campaign(campaign_id)
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+        if campaign["status"] == CampaignStatus.CANCELLED.value:
+            raise HTTPException(status_code=400, detail="Cannot modify emails in a cancelled campaign")
+        if not db.set_email_selection(email_id, req.is_selected):
+            raise HTTPException(status_code=404, detail="Email not found or not in DRAFT status")
+        return {"message": "Selection updated"}
+
+    @app.delete("/api/campaigns/{campaign_id}/emails/{email_id}", status_code=200)
+    async def delete_campaign_email(campaign_id: int, email_id: int):
+        """Permanently remove a DRAFT email from a campaign."""
+        campaign = db.get_campaign(campaign_id)
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+        if campaign["status"] == CampaignStatus.CANCELLED.value:
+            raise HTTPException(status_code=400, detail="Cannot modify emails in a cancelled campaign")
+        if not db.delete_campaign_email(email_id):
+            raise HTTPException(status_code=404, detail="Email not found or not in DRAFT status")
+        return {"message": "Email removed from campaign"}
+
+    @app.post("/api/campaigns/{campaign_id}/emails", status_code=201)
+    async def add_emails_to_campaign(campaign_id: int, req: AddEmailsRequest):
+        """Add new leads to an existing campaign by re-rendering the campaign template."""
+        campaign = db.get_campaign(campaign_id)
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+        if campaign["status"] == CampaignStatus.CANCELLED.value:
+            raise HTTPException(status_code=400, detail="Cannot add emails to a cancelled campaign")
+        if not req.lead_ids:
+            raise HTTPException(status_code=400, detail="lead_ids is empty")
+
+        template = db.get_template(campaign["template_id"])
+        if not template:
+            raise HTTPException(status_code=404, detail="Campaign template not found")
+
+        leads = db.get_all_leads_for_export(lead_ids=req.lead_ids)
+        if not leads:
+            raise HTTPException(status_code=404, detail="No matching leads found")
+
+        blacklisted = db.get_blacklisted_emails_set()
+        filtered_leads = [l for l in leads if l["email"] not in blacklisted]
+        blacklisted_count = len(leads) - len(filtered_leads)
+
+        existing_in_campaign = db.get_campaign_recipient_emails(campaign_id)
+        already_count = sum(1 for l in filtered_leads if l["email"] in existing_in_campaign)
+        filtered_leads = [l for l in filtered_leads if l["email"] not in existing_in_campaign]
+
+        with db._Session() as s:
+            from ..db.models import Lead
+            rows = s.query(Lead.id, Lead.email).filter(Lead.id.in_(req.lead_ids)).all()
+            lead_id_by_email = {r.email: r.id for r in rows}
+
+        email_dicts = []
+        for lead in filtered_leads:
+            missing = []
+            if not lead.get("person_name"):
+                missing.append("name")
+            if not lead.get("designation"):
+                missing.append("designation")
+
+            subject_vars = {
+                "name": lead.get("person_name") or "Official",
+                "designation": lead.get("designation") or "",
+            }
+            body_vars = {
+                "name": lead.get("person_name") or "[MISSING: name]",
+                "designation": lead.get("designation") or "[MISSING: designation]",
+            }
+
+            lead_id = lead_id_by_email.get(lead["email"])
+            if lead_id is None:
+                continue
+
+            email_dicts.append({
+                "lead_id": lead_id,
+                "recipient_email": lead["email"],
+                "subject": render_template_string(template["subject"], **subject_vars),
+                "body": render_template_string(template["raw_body"], **body_vars),
+                "is_selected": len(missing) == 0,
+                "missing_fields": ",".join(missing) if missing else None,
+            })
+
+        staged_count = db.bulk_create_campaign_emails(campaign_id, email_dicts)
+        return {
+            "added": staged_count,
+            "blacklisted_count": blacklisted_count,
+            "already_in_campaign": already_count,
+            "message": f"Added {staged_count} draft emails to campaign",
+        }
 
     # ── Test Campaign routes ──────────────────────────────────────────────────
 
@@ -395,12 +515,40 @@ def register_campaign_routes(app: FastAPI, db: Database):
         if not campaign:
             raise HTTPException(status_code=404, detail="Test Campaign not found")
 
+        if campaign["status"] == CampaignStatus.CANCELLED.value:
+            raise HTTPException(status_code=400, detail="Cannot edit emails in a cancelled campaign")
+
         if not req.body.strip() or not req.subject.strip():
             raise HTTPException(status_code=400, detail="Subject and Body cannot be empty")
 
         if not db.update_test_email(email_id, req.subject, req.body):
             raise HTTPException(status_code=404, detail="Email not found or not in DRAFT status")
         return {"message": "Email body updated"}
+
+    @app.patch("/api/test-campaigns/{campaign_id}/emails/{email_id}/selection")
+    async def toggle_test_email_selection(campaign_id: int, email_id: int,
+                                          req: EmailSelectionUpdate):
+        """Select or deselect a DRAFT test email for the next dispatch."""
+        campaign = db.get_test_campaign(campaign_id)
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Test Campaign not found")
+        if campaign["status"] == CampaignStatus.CANCELLED.value:
+            raise HTTPException(status_code=400, detail="Cannot modify emails in a cancelled campaign")
+        if not db.set_test_email_selection(email_id, req.is_selected):
+            raise HTTPException(status_code=404, detail="Email not found or not in DRAFT status")
+        return {"message": "Selection updated"}
+
+    @app.delete("/api/test-campaigns/{campaign_id}/emails/{email_id}", status_code=200)
+    async def delete_test_campaign_email(campaign_id: int, email_id: int):
+        """Permanently remove a DRAFT test email from a test campaign."""
+        campaign = db.get_test_campaign(campaign_id)
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Test Campaign not found")
+        if campaign["status"] == CampaignStatus.CANCELLED.value:
+            raise HTTPException(status_code=400, detail="Cannot modify emails in a cancelled campaign")
+        if not db.delete_test_campaign_email(email_id):
+            raise HTTPException(status_code=404, detail="Email not found or not in DRAFT status")
+        return {"message": "Email removed from campaign"}
 
     @app.patch("/api/test-campaigns/{campaign_id}")
     async def update_test_campaign_status(campaign_id: int, req: CampaignStatusUpdate):
