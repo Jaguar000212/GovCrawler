@@ -273,15 +273,30 @@ function nextPage() {
 }
 
 // ── Import ────────────────────────────────────────────────────────────────────
-async function triggerJsonImport() {
-    if (!confirm('Import from gov_domains.json?\n\nPlace the file in the project root. This clears all existing domains.')) return;
-    try {
-        await apiFetch('/api/import/json', {method: 'POST'});
-        startImportPoll();
-    } catch (e) {
-        alert('Import failed to start: ' + e.message);
-    }
+function triggerJsonImport() {
+    document.getElementById('json-file-input').click();
 }
+
+document.addEventListener('DOMContentLoaded', function () {
+    document.getElementById('json-file-input').addEventListener('change', async function () {
+        const file = this.files[0];
+        if (!file) return;
+        document.getElementById('json-file-label').textContent = file.name;
+        if (!confirm(`Import from "${file.name}"?\n\nThis clears all existing domains.`)) {
+            this.value = '';
+            return;
+        }
+        const form = new FormData();
+        form.append('file', file);
+        try {
+            await apiFetch('/api/import/json', {method: 'POST', body: form});
+            startImportPoll();
+        } catch (e) {
+            alert('Import failed to start: ' + e.message);
+        }
+        this.value = '';
+    });
+});
 
 async function triggerImport() {
     if (!confirm('Refresh from india.gov.in API?\n\nThis makes many network requests and takes 2–5 minutes.')) return;

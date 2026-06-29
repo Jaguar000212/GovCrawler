@@ -10,7 +10,7 @@ Endpoints:
   GET  /api/domains/ids     → all matching domain IDs (for select-all)
   GET  /api/config          → current crawler settings
   POST /api/config          → save crawler settings
-  POST /api/import/json     → import from gov_domains.json (zero API calls)
+  POST /api/import/json     → import from uploaded JSON file (zero API calls)
   POST /api/import          → import from live india.gov.in API
   GET  /api/import/status   → import progress
   POST /api/jobs            → create + start a crawl job
@@ -25,11 +25,12 @@ import copy
 import csv
 import io
 import logging
+import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import yaml
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from playwright.async_api import async_playwright
@@ -289,12 +290,16 @@ def create_app(config: dict, db: Database) -> FastAPI:
     # ── Import ────────────────────────────────────────────────────────────────
 
     @app.post("/api/import/json")
-    async def trigger_json_import(json_path: str = "gov_domains.json"):
-        """Import domains from gov_domains.json — zero API calls."""
+    async def trigger_json_import(file: UploadFile = File(...)):
+        """Import domains from an uploaded JSON file — zero API calls."""
         if import_status.get("running"):
             return {"message": "Import already running", "status": import_status}
-        asyncio.create_task(_run_json_import(json_path))
-        return {"message": f"JSON import started from {json_path}"}
+        content = await file.read()
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".json")
+        tmp.write(content)
+        tmp.close()
+        asyncio.create_task(_run_json_import(tmp.name, cleanup=True))
+        return {"message": f"JSON import started from {file.filename}"}
 
     @app.post("/api/import")
     async def trigger_import():
@@ -512,9 +517,13 @@ def create_app(config: dict, db: Database) -> FastAPI:
 
 # ── Background tasks ──────────────────────────────────────────────────────────
 
-async def _run_json_import(json_path: str):
+async def _run_json_import(json_path: str, cleanup: bool = False):
     log.info(f"Background JSON import started from {json_path}")
-    await asyncio.to_thread(import_from_json, _db, json_path, _config)
+    try:
+        await asyncio.to_thread(import_from_json, _db, json_path, _config)
+    finally:
+        if cleanup:
+            Path(json_path).unlink(missing_ok=True)
     log.info("Background JSON import finished")
 
 
