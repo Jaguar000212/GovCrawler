@@ -96,6 +96,21 @@ def create_app(config: dict, db: Database) -> FastAPI:
         template = templates.get_template("leads.html")
         return HTMLResponse(template.render({"request": request}))
 
+    @app.get("/settings", response_class=HTMLResponse)
+    async def settings_page(request: Request):
+        template = templates.get_template("settings.html")
+        return HTMLResponse(template.render({"request": request}))
+
+    @app.get("/test-campaign", response_class=HTMLResponse)
+    async def test_campaign_page(request: Request):
+        template = templates.get_template("test-campaign.html")
+        return HTMLResponse(template.render({"request": request}))
+
+    @app.get("/campaigns", response_class=HTMLResponse)
+    async def campaigns_page(request: Request):
+        template = templates.get_template("campaigns.html")
+        return HTMLResponse(template.render({"request": request}))
+
     @app.get("/api/logs")
     async def get_logs():
         log_file = Path("portal/data/portal.log")
@@ -450,6 +465,17 @@ def create_app(config: dict, db: Database) -> FastAPI:
             headers={"Content-Disposition":
                          f'attachment; filename="leads_export.csv"'},
         )
+
+    # ── Outreach & Campaign routes (Phase 2) ──────────────────────────────────
+    from .templates import register_template_routes
+    from .blacklist import register_blacklist_routes
+    from .campaigns import register_campaign_routes
+    from .credentials import register_credential_routes
+
+    register_template_routes(app, db)
+    register_blacklist_routes(app, db)
+    register_campaign_routes(app, db)
+    register_credential_routes(app, db)
 
     return app
 

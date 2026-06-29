@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+
+{% block title %}Outreach Campaigns — GovCrawler{% endblock %}
+
+{% block extra_head %}
+<link href="/static/css/campaigns.css" rel="stylesheet">
+{% endblock %}
+
+{% block header_actions %}
+<button class="btn-secondary" onclick="window.location.href='/leads'">Back to Leads</button>
+<button class="btn-secondary" onclick="window.location.href='/'">Dashboard</button>
+{% endblock %}
+
+{% block content %}
+<div class="layout">
+    <aside style="width: 320px;">
+        <div class="sidebar-section">
+            <div class="section-label" style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
+                <span>Campaigns</span>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <label style="font-size: 11px; font-weight: normal; cursor: pointer; display: flex; align-items: center; gap: 4px; color: var(--text-muted);">
+                        <input type="checkbox" id="toggle-tests" onchange="toggleTestCampaigns()" style="margin:0;">
+                        Show Tests
+                    </label>
+                    <button class="btn-icon" onclick="loadCampaigns()" title="Refresh" style="font-size:16px; padding:0;">↻</button>
+                </div>
+            </div>
+            <ul class="campaign-list" id="campaign-list">
+                <li class="empty-state">Loading campaigns...</li>
+            </ul>
+
+            <div class="pagination" style="margin-top: 16px;">
+                <button class="btn-secondary btn-sm" id="c-btn-prev" onclick="prevCampaignPage()">←</button>
+                <span id="c-page-info" style="font-size:12px;">—</span>
+                <button class="btn-secondary btn-sm" id="c-btn-next" onclick="nextCampaignPage()">→</button>
+            </div>
+        </div>
+    </aside>
+
+    <main id="campaign-main" style="display:none; flex-direction:column;">
+        <div class="campaign-header">
+            <div>
+                <h2 id="cd-title">Campaign Name</h2>
+                <div class="campaign-meta">
+                    Status: <span id="cd-status" class="status-badge">UNKNOWN</span>
+                    <span style="margin: 0 12px; color:var(--muted)">•</span>
+                    Created: <span id="cd-created">—</span>
+                </div>
+            </div>
+            <div class="campaign-actions">
+                <button class="btn-secondary" id="btn-pause" onclick="pauseCampaign()" style="display:none;">Pause</button>
+                <button class="btn-primary" id="btn-dispatch" onclick="triggerDispatch()" style="display:none;">▶ Dispatch emails</button>
+                <button class="btn-secondary" id="btn-add-leads" onclick="openAddLeadsModal()" style="display:none;">+ Add Leads</button>
+                <button class="btn-secondary" id="btn-cancel" onclick="cancelCampaign()" style="display:none; color:var(--danger)">Cancel</button>
+            </div>
+        </div>
+
+        <div class="campaign-stats">
+            <div class="stat-box">
+                <div class="stat-val" id="stat-total">0</div>
+                <div class="stat-label">Total</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-val" id="stat-draft">0</div>
+                <div class="stat-label" style="color:var(--primary)">Selected</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-val" id="stat-skipped">0</div>
+                <div class="stat-label" style="color:var(--muted)">Skipped</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-val" id="stat-queued">0</div>
+                <div class="stat-label" style="color:var(--warning)">Queued</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-val" id="stat-sent">0</div>
+                <div class="stat-label" style="color:var(--success)">Sent</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-val" id="stat-failed">0</div>
+                <div class="stat-label" style="color:var(--danger)">Failed</div>
+            </div>
+        </div>
+
+        <!-- Live progress bar when running -->
+        <div class="progress-bar-wrap" id="dispatch-progress-wrap" style="display:none; margin: 16px 0;">
+            <div class="progress-bar-fill" id="dispatch-progress-fill" style="width:0%"></div>
+        </div>
+
+        <!-- Email table toolbar -->
+        <div class="email-toolbar" id="email-toolbar" style="display:none;">
+            <button class="btn-secondary btn-sm" onclick="selectAllEmails(true)">Select All</button>
+            <button class="btn-secondary btn-sm" onclick="selectAllEmails(false)">Deselect All</button>
+            <span id="toolbar-selection-info" style="font-size:12px; color:var(--muted); margin-left: 8px;"></span>
+        </div>
+
+        <div class="table-wrap" style="flex: 1; overflow: auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 36px;"></th>
+                        <th>Recipient</th>
+                        <th>Subject</th>
+                        <th>Status</th>
+                        <th>Error / Note</th>
+                        <th style="width: 100px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="emails-tbody">
+                    <tr><td colspan="6" class="empty-state">Loading emails...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="pagination">
+            <button class="btn-secondary btn-sm" id="e-btn-prev" onclick="prevEmailPage()">← Prev</button>
+            <span id="e-page-info">—</span>
+            <button class="btn-secondary btn-sm" id="e-btn-next" onclick="nextEmailPage()">Next →</button>
+        </div>
+    </main>
+
+    <main id="campaign-empty" style="display:flex; justify-content:center; align-items:center; color:var(--muted)">
+        Select a campaign from the sidebar to view details.
+    </main>
+</div>
+
+<!-- Fat-Finger Guard Modal -->
+<div class="modal-overlay" id="modal-dispatch" style="display:none;">
+    <div class="modal">
+        <h3>Confirm Dispatch</h3>
+        <p style="margin-bottom:10px;">You are about to queue <strong id="dispatch-draft-count">0</strong> selected draft emails for sending.</p>
+        <p style="font-size:13px; color:var(--red);">The background engine will send them using your active SMTP credentials. This cannot be fully undone.</p>
+        <div class="modal-actions">
+            <button class="btn-secondary" onclick="closeDispatchModal()">Cancel</button>
+            <button class="btn-primary" onclick="confirmDispatch()">▶ Yes, Dispatch</button>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Email Body Modal -->
+<div class="modal-overlay" id="modal-edit-email" style="display:none;">
+    <div class="modal modal-lg">
+        <h3>Edit Email Draft</h3>
+        <p style="font-size:13px; color:var(--muted); margin-bottom:16px;">Manually overriding template for <strong id="ee-recipient"></strong>.</p>
+        <div class="form-group">
+            <label>Subject</label>
+            <input type="text" id="ee-subject">
+        </div>
+        <div class="form-group">
+            <label>Body</label>
+            <textarea id="ee-body" rows="14" style="font-family:monospace; resize:vertical;"></textarea>
+        </div>
+        <div class="modal-actions">
+            <button class="btn-secondary" onclick="closeEditEmailModal()">Cancel</button>
+            <button class="btn-primary" onclick="saveEmailEdit()">Save Override</button>
+        </div>
+    </div>
+</div>
+
+<!-- View Sent Email Modal (read-only) -->
+<div class="modal-overlay" id="modal-view-email" style="display:none;">
+    <div class="modal modal-lg">
+        <h3>Sent Email</h3>
+        <p style="font-size:13px; color:var(--muted); margin-bottom:16px;">
+            Sent to <strong id="ve-recipient"></strong><span id="ve-sent-at" style="margin-left:8px; color:var(--small);"></span>
+        </p>
+        <div class="form-group">
+            <label>Subject</label>
+            <input type="text" id="ve-subject" readonly style="cursor:default; opacity:0.75;">
+        </div>
+        <div class="form-group">
+            <label>Body</label>
+            <textarea id="ve-body" rows="14" readonly style="font-family:monospace; resize:vertical; cursor:default; opacity:0.75;"></textarea>
+        </div>
+        <div class="modal-actions">
+            <button class="btn-secondary" onclick="closeViewEmailModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="/static/js/campaigns.js"></script>
+{% endblock %}
+
+{% block init_js %}
+document.addEventListener('DOMContentLoaded', () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const initialId = urlParams.get('id') ? parseInt(urlParams.get('id')) : null;
+    const hintIsTest = urlParams.get('is_test') === 'true';
+    const notice = urlParams.get('notice');
+    if (notice) {
+        // Insert after campaigns are loaded so campaign-header exists
+        const showNotice = () => {
+            const anchor = document.getElementById('campaign-main');
+            if (!anchor) return;
+            const bar = document.createElement('div');
+            bar.style.cssText = 'background:#ddeee2; border-bottom:1px solid #a8cdb4; padding:9px 24px; font-size:13px; color:var(--green); flex-shrink:0;';
+            bar.textContent = notice;
+            anchor.insertBefore(bar, anchor.firstChild);
+            setTimeout(() => bar.remove(), 6000);
+        };
+        // campaign-main may be hidden; show after a tick so the campaign loads first
+        setTimeout(showNotice, 800);
+    }
+
+    if (hintIsTest) {
+        const toggle = document.getElementById('toggle-tests');
+        if (toggle) toggle.checked = true;
+    }
+
+    loadCampaigns().then(() => {
+        if (!initialId) return;
+
+        // Find by id in whichever campaigns were loaded
+        const found = loadedCampaigns.find(c => c.id === initialId);
+        if (found) {
+            selectCampaign(found.id, found.is_test);
+            return;
+        }
+
+        // Not found — might be a test campaign; enable toggle and retry once
+        const toggle = document.getElementById('toggle-tests');
+        if (toggle && !toggle.checked) {
+            toggle.checked = true;
+            loadCampaigns().then(() => {
+                const foundNow = loadedCampaigns.find(c => c.id === initialId);
+                if (foundNow) selectCampaign(foundNow.id, foundNow.is_test);
+            });
+        }
+    });
+});
+{% endblock %}

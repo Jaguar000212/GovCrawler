@@ -3,11 +3,31 @@ let leadsTotalPgs = 1;
 let selectedLeadIds = new Set();
 let leadsSearchTimer = null;
 let leadsTotalMatching = 0;
+let pendingAddToCampaignId = null;
 
 document.addEventListener('DOMContentLoaded', () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const addToCamp = urlParams.get('add_to_campaign');
+    if (addToCamp) {
+        pendingAddToCampaignId = parseInt(addToCamp);
+        showAddToCampaignBanner();
+    }
+
     loadLeadsFilters();
     loadLeads();
 });
+
+function showAddToCampaignBanner() {
+    const banner = document.createElement('div');
+    banner.id = 'atc-banner';
+    banner.style.cssText = 'background:#f0e8d0; border-bottom:1px solid #d4be8c; padding:10px 24px; font-size:13px; display:flex; align-items:center; gap:12px; flex-shrink:0;';
+    banner.innerHTML = `
+        <span>Select leads below, then click <strong>+ Add to Campaign</strong> in the toolbar.</span>
+        <a href="/campaigns?id=${pendingAddToCampaignId}" style="margin-left:auto; font-size:12px; color:var(--accent);">← Back to Campaign</a>
+    `;
+    const toolbar = document.querySelector('.table-toolbar');
+    if (toolbar) toolbar.insertAdjacentElement('beforebegin', banner);
+}
 
 async function loadLeadsFilters() {
     try {
@@ -176,6 +196,8 @@ function updateSelLeadsCount() {
     document.getElementById('sel-leads-count').textContent = n.toLocaleString();
     const show = n > 0 ? 'inline-block' : 'none';
     document.getElementById('sel-leads-count-label').style.display = show;
+    document.getElementById('btn-create-campaign').style.display = show;
+    document.getElementById('btn-add-to-campaign').style.display = show;
 }
 
 function updateSelectAllLeads() {
@@ -248,6 +270,84 @@ async function exportLeads() {
     }
 }
 
+// ── Campaign Creation ────────────────────────────────────────────────────────
+
+async function openCampaignModal() {
+    document.getElementById('camp-leads-count').textContent = selectedLeadIds.size;
+    document.getElementById('camp-name').value = '';
+    
+    // Load templates
+    try {
+        const res = await fetch('/api/templates');
+        const templates = await res.json();
+        
+        const select = document.getElementById('camp-template');
+        select.innerHTML = '<option value="">-- Choose Template --</option>';
+        templates.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t.id;
+            opt.textContent = t.name;
+            select.appendChild(opt);
+        });
+    } catch (e) {
+        console.error("Failed to load templates", e);
+    }
+    
+    document.getElementById('modal-create-campaign').style.display = 'flex';
+}
+
+function closeCampaignModal() {
+    document.getElementById('modal-create-campaign').style.display = 'none';
+}
+
+async function submitCampaign() {
+    const name = document.getElementById('camp-name').value.trim();
+    const templateId = parseInt(document.getElementById('camp-template').value);
+    
+    if (!name || !templateId) {
+        alert("Please provide a name and select a template.");
+        return;
+    }
+    
+    if (selectedLeadIds.size === 0) {
+        alert("No leads selected.");
+        return;
+    }
+    
+    const btn = document.getElementById('btn-camp-submit');
+    btn.disabled = true;
+    btn.textContent = "Creating...";
+    
+    try {
+        const payload = {
+            name: name,
+            template_id: templateId,
+            lead_ids: Array.from(selectedLeadIds)
+        };
+        
+        const res = await fetch('/api/campaigns', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        
+        if (res.ok) {
+            const data = await res.json();
+            // Redirect to campaigns page
+            window.location.href = `/campaigns?id=${data.campaign_id}`;
+        } else {
+            const err = await res.json();
+            alert("Failed to create campaign: " + err.detail);
+        }
+    } catch (e) {
+        alert("Network error.");
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Generate Drafts";
+    }
+}
+
+
 async function leadsPrev() {
     if (leadsPage > 1) {
         leadsPage--;
@@ -259,5 +359,90 @@ async function leadsNext() {
     if (leadsPage < leadsTotalPgs) {
         leadsPage++;
         await loadLeads();
+    }
+}
+
+
+// ── Add to Existing Campaign ─────────────────────────────────────────────────
+
+async function openAddToCampaignModal() {
+    document.getElementById('atc-leads-count').textContent = selectedLeadIds.size.toLocaleString();
+    document.getElementById('atc-warning').style.display = 'none';
+    document.getElementById('btn-atc-submit').disabled = false;
+    document.getElementById('btn-atc-submit').textContent = 'Add Leads';
+
+    const select = document.getElementById('atc-campaign-select');
+    select.innerHTML = '<option value="">Loading…</option>';
+    document.getElementById('modal-add-to-campaign').style.display = 'flex';
+
+    try {
+        const data = await apiFetch('/api/campaigns?limit=100&include_test=false');
+        const active = (data.campaigns || []).filter(c => c.status !== 'CANCELLED');
+
+        select.innerHTML = '<option value="">-- Choose Campaign --</option>';
+        if (active.length === 0) {
+            select.innerHTML = '<option value="" disabled>No active campaigns found</option>';
+            return;
+        }
+        active.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            opt.textContent = `${c.name}  [${c.status}]`;
+            // Pre-select if arriving from the campaign page via ?add_to_campaign=
+            if (pendingAddToCampaignId && c.id === pendingAddToCampaignId) opt.selected = true;
+            select.appendChild(opt);
+        });
+    } catch (e) {
+        select.innerHTML = '<option value="" disabled>Failed to load campaigns</option>';
+    }
+}
+
+function closeAddToCampaignModal() {
+    document.getElementById('modal-add-to-campaign').style.display = 'none';
+}
+
+async function submitAddToCampaign() {
+    const campaignId = document.getElementById('atc-campaign-select').value;
+    if (!campaignId) {
+        document.getElementById('atc-warning').textContent = 'Please select a campaign.';
+        document.getElementById('atc-warning').style.display = 'block';
+        return;
+    }
+
+    if (selectedLeadIds.size === 0) {
+        document.getElementById('atc-warning').textContent = 'No leads selected.';
+        document.getElementById('atc-warning').style.display = 'block';
+        return;
+    }
+
+    const btn = document.getElementById('btn-atc-submit');
+    btn.disabled = true;
+    btn.textContent = 'Adding…';
+    document.getElementById('atc-warning').style.display = 'none';
+
+    try {
+        const res = await fetch(`/api/campaigns/${campaignId}/emails`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({lead_ids: Array.from(selectedLeadIds)})
+        });
+
+        if (res.ok) {
+            const data = await res.json();
+            const skipped = (data.blacklisted_count || 0) + (data.already_in_campaign || 0);
+            const msg = skipped > 0 ? `?notice=${encodeURIComponent(`${data.added} added, ${skipped} skipped (duplicates/blacklisted)`)}` : '';
+            window.location.href = `/campaigns?id=${campaignId}${msg}`;
+        } else {
+            const err = await res.json();
+            document.getElementById('atc-warning').textContent = err.detail || 'Failed to add leads.';
+            document.getElementById('atc-warning').style.display = 'block';
+            btn.disabled = false;
+            btn.textContent = 'Add Leads';
+        }
+    } catch (e) {
+        document.getElementById('atc-warning').textContent = 'Network error.';
+        document.getElementById('atc-warning').style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Add Leads';
     }
 }
