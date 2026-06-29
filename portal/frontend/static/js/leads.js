@@ -166,7 +166,7 @@ function renderLeads(leads, total) {
     const tbody = document.getElementById('leads-tbody');
     tbody.innerHTML = '';
     if (!leads.length) {
-        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No leads found.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No leads found.</td></tr>';
         return;
     }
     const WARN_FIELDS = ['person_name', 'designation', 'department', 'domain_state'];
@@ -177,12 +177,13 @@ function renderLeads(leads, total) {
         let domainUrl = null;
         try { if (l.source_url) domainUrl = new URL(l.source_url).origin; } catch(_) {}
         const tr = document.createElement('tr');
-        if (missing.length) tr.classList.add('row-warn');
+        if (missing.length || l.confidence_band === 'MID') tr.classList.add('row-warn');
         tr.innerHTML = [
             `<td style="width:40px"><input type="checkbox" ${checked ? 'checked' : ''} onchange="toggleLead(${l.id}, this.checked)"></td>`,
             missing.length
                 ? `<td class="warn-cell"><span class="warn-flag" title="Missing: ${esc(missing.map(f => f.replace(/_/g, ' ')).join(', '))}">⚠</span></td>`
                 : `<td></td>`,
+            `<td style="text-align:center">${l.confidence_band ? `<span class="badge badge-${l.confidence_band === 'HIGH' ? 'success' : 'warning'}">${esc(l.confidence_band)}</span>` : ''}</td>`,
             `<td><a href="mailto:${esc(l.email)}" style="font-family:monospace;font-size:11px;color:var(--accent)">${esc(l.email)}<span style="font-size:9px;margin-left:2px;opacity:0.55">↗</span></a></td>`,
             `<td class="lead-person-cell">
                 <input type="text" class="lead-cell-input lead-primary-input" data-lead-id="${l.id}" data-field="person_name" data-orig="${esc(l.person_name||'')}" value="${esc(l.person_name||'')}" placeholder="Name" autocomplete="off" spellcheck="false">
