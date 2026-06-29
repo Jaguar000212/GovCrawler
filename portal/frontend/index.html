@@ -24,12 +24,13 @@
             <div class="import-box">
                 <div class="import-row">
                     <div>
-                        <div class="import-row-label">gov_domains.json</div>
+                        <div class="import-row-label" id="json-file-label">Choose a JSON file…</div>
                         <div class="import-row-sub">Zero API calls · instant</div>
                     </div>
                     <button class="btn-primary btn-sm" id="import-json-btn" onclick="triggerJsonImport()">Import
                     </button>
                 </div>
+                <input type="file" id="json-file-input" accept=".json" style="display:none">
                 <div class="import-row">
                     <div>
                         <div class="import-row-label" style="color:var(--muted)">Live API refresh</div>
