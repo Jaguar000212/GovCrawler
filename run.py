@@ -162,7 +162,20 @@ class CrawlerLauncher:
             uri = f"http://127.0.0.1:{config['api']['port']}"
         else:
             uri = f"http://{config['api']['host']}:{config['api']['port']}"
-        webbrowser.open(uri)
+
+        if sys.platform.startswith("linux"):
+            # PyInstaller overrides LD_LIBRARY_PATH with bundled libs; child processes
+            # like xdg-open inherit it and /bin/sh crashes with a readline symbol error.
+            # Restore the original value the bootloader saved before spawning.
+            env = os.environ.copy()
+            orig = env.get("LD_LIBRARY_PATH_ORIG")
+            if orig is not None:
+                env["LD_LIBRARY_PATH"] = orig
+            else:
+                env.pop("LD_LIBRARY_PATH", None)
+            subprocess.Popen(["xdg-open", uri], env=env)
+        else:
+            webbrowser.open(uri)
 
     # --- ACTION: Window Close Intercept ---
     def on_closing(self):
