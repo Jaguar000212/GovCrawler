@@ -42,8 +42,6 @@ crawler:
     - committee
     - administration
     - team
-    - tender
-    - procurement
     - telephone
     - tele-directory
     - phone-directory
@@ -97,6 +95,10 @@ extraction:
         - .
       - - \s*\(dot\)\s*
         - .
+      - - \s*\[hyphen\]\s*
+        - '-'
+      - - \s*\(hyphen\)\s*
+        - '-'
     context_chars: 200
   max_input_chars: 50000
   role_local_parts:

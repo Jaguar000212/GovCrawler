@@ -12,6 +12,20 @@ from portal.main import load_config
 config = load_config()
 
 # ==========================================
+# SSL Certificate FIX
+# ==========================================
+import certifi
+
+if getattr(sys, 'frozen', False):
+    # PyInstaller creates a temporary folder and stores path in _MEIPASS
+    cert_path = os.path.join(sys._MEIPASS, 'certifi', 'cacert.pem')
+    os.environ['REQUESTS_CA_BUNDLE'] = cert_path
+    os.environ['SSL_CERT_FILE'] = cert_path
+else:
+    # Standard runtime environment
+    cert_path = certifi.where()
+
+# ==========================================
 # NO-CONSOLE CRASH FIX
 # ==========================================
 # If Windows destroyed the console, redirect all print statements to the void 
