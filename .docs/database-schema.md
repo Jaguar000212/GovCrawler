@@ -1,8 +1,11 @@
 # Database Schema
 
-All tables are defined in [`portal/db/models.py`](../portal/db/models.py) as SQLAlchemy ORM models. The `Database`
-wrapper class in the same file provides all data-access methods; direct session usage elsewhere in the codebase is
-intentionally avoided.
+Tables are defined as SQLAlchemy ORM models under [`portal/db/tables/`](../portal/db/tables/): `crawl.py` (Domain,
+CrawlJob, VisitedUrl), `leads.py` (Lead), and `outreach.py` (Campaign, CampaignEmail, EmailTemplate, SMTPCredential,
+Blacklist, TestCampaign, TestCampaignEmail). Enums live in [`portal/db/enums.py`](../portal/db/enums.py). The
+`Database` wrapper class in [`portal/db/database.py`](../portal/db/database.py) provides all data-access methods —
+its ~50 methods are composed from mixins under [`portal/db/mixins/`](../portal/db/mixins/), grouped by concern
+(domain, job, lead, visited-url, outreach). Direct session usage elsewhere in the codebase is intentionally avoided.
 
 **Backend:** SQLite (default, WAL mode) or PostgreSQL (set `database.uri` in config).
 
@@ -269,10 +272,10 @@ crawl_jobs ──────┐              leads ─────────�
 
 ## Database Class — Key Methods
 
-The `Database` class in `models.py` wraps all SQL access. A new `Session` context is opened and closed for each method
-call.
+The `Database` class in `database.py` wraps all SQL access via its mixins. A new `Session` context is opened and closed
+for each method call.
 
-### Domain Methods
+### Domain Methods — `portal/db/mixins/domain_mixin.py`
 
 | Method                           | Description                                  |
 |----------------------------------|----------------------------------------------|
@@ -286,7 +289,7 @@ call.
 | `get_domain_ids(...)`            | All matching IDs for "select all"            |
 | `get_domains_by_ids(ids)`        | Fetch specific rows by PK list               |
 
-### Job Methods
+### Job Methods — `portal/db/mixins/job_mixin.py`
 
 | Method                              | Description                                          |
 |-------------------------------------|------------------------------------------------------|
@@ -298,7 +301,7 @@ call.
 | `get_job(job_id)`                   | Single job dict                                      |
 | `list_jobs(limit)`                  | Recent jobs descending                               |
 
-### Lead Methods
+### Lead Methods — `portal/db/mixins/lead_mixin.py`
 
 | Method                              | Description                                          |
 |-------------------------------------|------------------------------------------------------|
@@ -310,7 +313,11 @@ call.
 | `get_lead_states(job_id, category)` | Distinct states                                      |
 | `update_lead(lead_id, updates)`     | Edit name/designation/department/state               |
 
-### Visited URL Methods
+`get_leads`, `get_lead_ids`, and `get_all_leads_for_export` all build their filter set through a shared
+`_apply_lead_filters()` static helper, so pagination totals can never diverge from the row query (a duplicated
+filter block previously made that possible).
+
+### Visited URL Methods — `portal/db/mixins/visited_mixin.py`
 
 | Method                          | Description                              |
 |---------------------------------|------------------------------------------|
@@ -319,6 +326,7 @@ call.
 | `get_recently_visited_global()` | URLs from all jobs within `recrawl_days` |
 | `clear_visited_urls()`          | Truncate table                           |
 
-### Campaign / Email Methods
+### Campaign / Email Methods — `portal/db/mixins/outreach_mixin.py`
 
-See `portal/db/models.py` lines 709–1106 for the full set of campaign, credential, blacklist, and test campaign methods.
+See that file for the full set of template, blacklist, campaign, credential, and test campaign methods (~35 methods,
+the largest mixin).

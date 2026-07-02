@@ -24,7 +24,7 @@ CrawlerEngine.run(seeds)
   │     ├── _fetch(url, ctx)
   │     │     ├── _fetch_httpx()  [fast path, ~60-70% of sites]
   │     │     └── _fetch_playwright()  [fallback for JS sites]
-  │     ├── run_in_executor(parse_pool, _parse_html)
+  │     ├── run_in_executor(parse_pool, parser.parse_for_engine)
   │     │     ├── BeautifulSoup parse
   │     │     ├── Link harvest (before tag decomposition)
   │     │     └── extract_leads()
@@ -180,7 +180,7 @@ Seed pages are always treated as priority pages; all their links (up to the cap)
 | Pool         | Threads     | Work                                                                                |
 |--------------|-------------|-------------------------------------------------------------------------------------|
 | `db_pool`    | 1           | `save_lead()`, `mark_visited()`, `update_job_metrics()`, `increment_job_progress()` |
-| `parse_pool` | `cpu_count` | `_parse_html()` (BeautifulSoup tree construction + lead extraction)                 |
+| `parse_pool` | `cpu_count` | `parser.parse_for_engine()` (BeautifulSoup tree construction + lead extraction)     |
 
 The single-thread DB pool serializes all writes to avoid SQLite WAL contention. The parse pool parallelizes CPU-bound
 HTML parsing across all cores without touching shared state.
@@ -212,6 +212,11 @@ live status dashboard.
 ## Parser — Lead Extraction
 
 Source: `portal/crawler/parser.py`
+
+`parse_for_engine(html, url, excfg)` is `CrawlerEngine`'s thread-pool entry point (moved here from
+`engine.py` — it used to live there only because `run_in_executor` needs a top-level callable). It builds one
+`BeautifulSoup` tree, harvests `<a href>` links before any tag decomposition happens, then calls `extract_leads()`
+on the same tree and returns `(leads, raw_links)`.
 
 ### Lead Dataclass
 

@@ -70,7 +70,7 @@ sends it via `aiosmtplib`. Credential rotation and rate-limit cooldowns are mana
 User (UI)
   │  POST /api/jobs  {domain_ids: [...]}
   ▼
-server.py — create_job() → CrawlJob (status=running)
+jobs.py — create_job() → CrawlJob (status=running)
   │  asyncio.create_task(_run_crawl(job_id, seeds))
   ▼
 CrawlerEngine.run(seeds)
@@ -127,7 +127,7 @@ User (UI or CLI)
   │  POST /api/import/json  (file upload)
   │  POST /api/import        (live API)
   ▼
-server.py — asyncio.create_task(_run_json_import / _run_import)
+imports.py — asyncio.create_task(_run_json_import / _run_import)
   ▼
   asyncio.to_thread(import_from_json / import_all)  ← blocking, runs off event loop
   │
@@ -158,7 +158,7 @@ Thread pool: db_pool (1 thread, serialized writes)
   └── db.save_lead(), db.mark_visited(), db.update_job_metrics()
 
 Thread pool: parse_pool (cpu_count threads)
-  └── _parse_html() — BeautifulSoup, extract_leads()
+  └── parser.parse_for_engine() — BeautifulSoup, extract_leads()
 
 Thread pool: asyncio.to_thread (import)
   └── import_from_json() / import_all()
@@ -178,11 +178,11 @@ are parsed concurrently.
 | Component  | Entry Point                                      | State it Owns                                 |
 |------------|--------------------------------------------------|-----------------------------------------------|
 | GUI        | `run.py:CrawlerLauncher`                         | Uvicorn server handle, thread references      |
-| Web App    | `portal/api/server.py:create_app`                | `_db`, `_config`, `_browser`, `_active_tasks` |
+| Web App    | `portal/api/server.py:create_app`                | `portal/api/deps.py` (`_db`, `_config`, `_browser`, `_active_tasks`) |
 | Crawler    | `portal/crawler/engine.py:CrawlerEngine`         | `_queue`, `_visited`, `_domain_locks`         |
 | Dispatcher | `portal/api/dispatcher.py:run_campaign_dispatch` | In-loop locals only; state persisted in DB    |
 | Importer   | `portal/scraper/importer.py`                     | `import_status` module-level dict             |
-| DB         | `portal/db/models.py:Database`                   | SQLAlchemy engine + session factory           |
+| DB         | `portal/db/database.py:Database`                 | SQLAlchemy engine + session factory           |
 
 ---
 

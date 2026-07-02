@@ -30,20 +30,34 @@ GovCrawler/
 ├── GovScraper/              # Standalone domain-discovery module (india.gov.in API)
 └── portal/                  # Core FastAPI application package
     ├── main.py              # CLI dispatcher and server factory
+    ├── paths.py             # Path resolution + first-run bootstrap (dev + PyInstaller)
     ├── default_config.yaml  # Shipped default configuration
     ├── config.yaml          # Live user configuration (gitignored)
-    ├── api/                 # REST API routers
-    │   ├── server.py        # App factory, core routes (domains, jobs, leads, config)
+    ├── api/                 # REST API layer — one APIRouter per concern
+    │   ├── server.py        # App factory: lifespan, static mount, include_router × 10
+    │   ├── deps.py          # Shared app state (db/config/browser) + Depends() providers
+    │   ├── frontend.py      # HTML page routes + /api/logs, /api/visited-urls
+    │   ├── domains.py       # Domain metadata + browsing routes
+    │   ├── config.py        # Crawler/extraction settings routes
+    │   ├── imports.py       # Domain import routes + background tasks
+    │   ├── jobs.py          # Crawl job routes + background crawl task
+    │   ├── leads.py         # Lead browsing, export, and editing routes
     │   ├── campaigns.py     # Campaign generation + dispatch routes
     │   ├── dispatcher.py    # Async SMTP background worker
     │   ├── credentials.py   # SMTP credential CRUD
     │   ├── templates.py     # Email template CRUD (Jinja2 validated)
     │   └── blacklist.py     # Email/domain blacklist CRUD
+    ├── services/
+    │   └── campaign_service.py  # Draft rendering shared by campaign create/add-emails
     ├── crawler/
     │   ├── engine.py        # CrawlerEngine: priority queue, httpx-first, Playwright fallback
-    │   └── parser.py        # Email + personnel extraction (regex + table scanning)
+    │   └── parser.py        # Email + personnel extraction + parse_for_engine entry point
     ├── db/
-    │   └── models.py        # SQLAlchemy ORM models + Database wrapper
+    │   ├── base.py          # declarative_base() + SQLite WAL pragma
+    │   ├── enums.py         # CampaignStatus, EmailStatus
+    │   ├── tables/          # ORM models (crawl, leads, outreach)
+    │   ├── mixins/          # Database's methods, grouped by concern
+    │   └── database.py      # Database class, composed from the mixins
     ├── scraper/
     │   └── importer.py      # JSON and live-API domain import handlers
     ├── frontend/            # Jinja2 HTML templates + vanilla JS/CSS
@@ -208,9 +222,10 @@ See [`.docs/configuration.md`](.docs/configuration.md) for the full reference.
 
 ### 5. Database Migrations
 
-Changes to `portal/db/models.py` must be accompanied by an Alembic migration script in `alembic/versions/`. For
-backward-compatible column additions, `_ensure_columns()` in `Database.__init__` can be used as a lightweight
-alternative during development. Communicate schema changes to the team before merging.
+Changes to ORM models in `portal/db/tables/` must be accompanied by an Alembic migration script in
+`alembic/versions/`. For backward-compatible column additions, `_ensure_columns()` in `Database.__init__`
+(`portal/db/database.py`) can be used as a lightweight alternative during development. Communicate schema changes to
+the team before merging.
 
 ### 6. Async Patterns
 

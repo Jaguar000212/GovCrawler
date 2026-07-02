@@ -2,11 +2,17 @@
 
 Source files:
 
-- [`portal/api/campaigns.py`](../portal/api/campaigns.py) — campaign generation + staging routes
+- [`portal/api/campaigns.py`](../portal/api/campaigns.py) — campaign generation + staging routes (`APIRouter`)
+- [`portal/services/campaign_service.py`](../portal/services/campaign_service.py) — `render_template_string()` and
+  `render_draft_emails()`; the blacklist/exclude filtering + Jinja2 rendering logic shared by campaign creation and
+  the "add more leads" endpoint
 - [`portal/api/dispatcher.py`](../portal/api/dispatcher.py) — async SMTP dispatch worker
-- [`portal/api/templates.py`](../portal/api/templates.py) — email template CRUD
-- [`portal/api/credentials.py`](../portal/api/credentials.py) — SMTP credential management
-- [`portal/api/blacklist.py`](../portal/api/blacklist.py) — email/domain blacklist
+- [`portal/api/templates.py`](../portal/api/templates.py) — email template CRUD (`APIRouter`)
+- [`portal/api/credentials.py`](../portal/api/credentials.py) — SMTP credential management (`APIRouter`)
+- [`portal/api/blacklist.py`](../portal/api/blacklist.py) — email/domain blacklist (`APIRouter`)
+
+All route modules pull the shared `Database` instance via `Depends(get_db)` from
+[`portal/api/deps.py`](../portal/api/deps.py) rather than through closures.
 
 ---
 
@@ -62,7 +68,7 @@ number and error message.
 1. **Load leads** from DB by `lead_ids`.
 2. **Blacklist filter** — skip any lead whose email is in the `blacklist` table.
 3. **Create `Campaign` row** with status `PAUSED`.
-4. **Render drafts** — for each remaining lead:
+4. **Render drafts** via `campaign_service.render_draft_emails()` — for each remaining lead:
     - Detect missing variables (`name`, `designation`).
     - Render subject with clean fallbacks (`"Official"` for missing name).
     - Render body with `[MISSING: field]` markers so reviewers know what to fix.
@@ -70,6 +76,11 @@ number and error message.
 5. **Bulk insert** `CampaignEmail` rows with status `DRAFT`.
 
 The campaign starts in `PAUSED` status. No emails are sent until you explicitly dispatch.
+
+`POST /api/campaigns/{id}/emails` (adding more leads to an existing campaign) runs the same
+`render_draft_emails()` call with an additional `exclude_emails` set — recipients already staged in the
+campaign are skipped and counted separately (`already_in_campaign` in the response) rather than treated as
+new drafts.
 
 ---
 

@@ -230,8 +230,9 @@ that are cross-linked from `.gov.in` pages.
 ## Editing via the Settings UI
 
 The Settings page (`/settings`) renders all the above fields in an editable form. Multiline fields (keyword lists,
-extensions) are newline-separated text areas. On save, `POST /api/config` writes the new `config.yaml` and updates the
-in-memory `_config` dict. The browser reloads the form to confirm the saved values.
+extensions) are newline-separated text areas. On save, `POST /api/config` (`portal/api/config.py`) writes the new
+`config.yaml` and updates the in-memory config dict shared via `portal/api/deps.py`. The browser reloads the form to
+confirm the saved values.
 
 ---
 
