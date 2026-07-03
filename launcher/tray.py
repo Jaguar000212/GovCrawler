@@ -7,12 +7,11 @@ Tkinter thread (e.g. via root.after) before touching any widget.
 """
 
 import logging
+import pystray
 import threading
+from PIL import Image
 from pathlib import Path
 from typing import Callable
-
-import pystray
-from PIL import Image
 
 log = logging.getLogger(__name__)
 
@@ -30,8 +29,8 @@ class TrayController:
     """Owns the pystray icon and the thread it runs on."""
 
     def __init__(self, icon_path: Path, on_show: Callable[[], None],
-                on_open_browser: Callable[[], None], on_quit: Callable[[], None],
-                is_running: Callable[[], bool]):
+                 on_open_browser: Callable[[], None], on_quit: Callable[[], None],
+                 is_running: Callable[[], bool]):
         image = _load_image(icon_path)
         menu = pystray.Menu(
             pystray.MenuItem("Show GovCrawler", lambda icon, item: on_show(), default=True),

@@ -55,8 +55,9 @@
                 <table>
                     <thead>
                     <tr>
-                        <th style="width: 40px"><input onchange="toggleAllCheckboxes(this, 'cred-checkbox', 'batch-action-cred')"
-                                                       type="checkbox">
+                        <th style="width: 40px"><input
+                                onchange="toggleAllCheckboxes(this, 'cred-checkbox', 'batch-action-cred')"
+                                type="checkbox">
                         </th>
                         <th>Host</th>
                         <th>Port</th>
@@ -94,8 +95,9 @@
                 <table>
                     <thead>
                     <tr>
-                        <th style="width: 40px"><input onchange="toggleAllCheckboxes(this, 'tpl-checkbox', 'batch-action-tpl')"
-                                                       type="checkbox">
+                        <th style="width: 40px"><input
+                                onchange="toggleAllCheckboxes(this, 'tpl-checkbox', 'batch-action-tpl')"
+                                type="checkbox">
                         </th>
                         <th>Name</th>
                         <th>Subject</th>
@@ -126,8 +128,9 @@
                 <table>
                     <thead>
                     <tr>
-                        <th style="width: 40px"><input onchange="toggleAllCheckboxes(this, 'blk-checkbox', 'batch-action-blk')"
-                                                       type="checkbox">
+                        <th style="width: 40px"><input
+                                onchange="toggleAllCheckboxes(this, 'blk-checkbox', 'batch-action-blk')"
+                                type="checkbox">
                         </th>
                         <th>Email</th>
                         <th>Domain</th>
@@ -269,7 +272,8 @@
                         </div>
                         <div class="cfg-row" style="flex-direction:column; align-items:flex-start;">
                             <label class="cfg-label" style="margin-bottom:4px">Email Regex</label>
-                            <input class="cfg-input cfg-input-full" id="cfg-email-regex" readonly style="background:#0d1117; color:#8b949e; width:100%"
+                            <input class="cfg-input cfg-input-full" id="cfg-email-regex" readonly
+                                   style="background:#0d1117; color:#8b949e; width:100%"
                                    type="text">
                         </div>
                         <div class="cfg-row" style="flex-direction:column; align-items:flex-start;">
@@ -311,26 +315,30 @@
                             <label class="cfg-label" style="margin-bottom:4px">Max Pages per Chain <span
                                     class="info-icon"
                                     data-tip="Hard cap on how many pages a single 'Next page' chain may follow (e.g. page 1 -> 2 -> 3 -> ...). Once a chain reaches this many hops, the crawler stops following it further, no matter how many pages the site claims to have. This is the safety backstop against a site whose pagination never actually ends.">ⓘ</span></label>
-                            <input class="cfg-input" id="cfg-pagination-max-pages" min="1" style="width:160px" type="number">
+                            <input class="cfg-input" id="cfg-pagination-max-pages" min="1" style="width:160px"
+                                   type="number">
                         </div>
                         <div class="cfg-row" style="flex-direction:column; align-items:flex-start;">
                             <label class="cfg-label" style="margin-bottom:4px">Max Children per Chain <span
                                     class="info-icon"
                                     data-tip="Total number of ordinary (non-pagination) links the crawler will follow OUT of an entire pagination chain, shared across all its pages combined — not per page. Without this, a 50-page chain could otherwise enqueue 50x the usual per-page link limit.">ⓘ</span></label>
-                            <input class="cfg-input" id="cfg-pagination-max-chain-children" min="1" style="width:160px" type="number">
+                            <input class="cfg-input" id="cfg-pagination-max-chain-children" min="1" style="width:160px"
+                                   type="number">
                         </div>
                         <div class="cfg-row" style="flex-direction:column; align-items:flex-start;">
                             <label class="cfg-label" style="margin-bottom:4px">Anchor Text Signals <span
                                     class="info-icon"
                                     data-tip="Link text treated as a pagination cue when the link has no numbered page parameter to check instead (e.g. a 'Next' link with no query string). Read-only here; edit config.yaml directly to change this list.">ⓘ</span></label>
-                            <textarea class="cfg-input cfg-input-full" id="cfg-pagination-text-signals" readonly rows="2"
+                            <textarea class="cfg-input cfg-input-full" id="cfg-pagination-text-signals" readonly
+                                      rows="2"
                                       style="background:#0d1117; color:#8b949e; width:100%"></textarea>
                         </div>
                         <div class="cfg-row" style="flex-direction:column; align-items:flex-start;">
                             <label class="cfg-label" style="margin-bottom:4px">Paging Query Params <span
                                     class="info-icon"
                                     data-tip="Query parameter names checked for a page number (e.g. ?page=2). A recognized param with a NON-numeric value (session junk, tokens) is treated as NOT pagination, regardless of link text - this is the safety check that keeps a disguised trap link from being followed indefinitely. Read-only here; edit config.yaml directly to change this list.">ⓘ</span></label>
-                            <textarea class="cfg-input cfg-input-full" id="cfg-pagination-param-signals" readonly rows="2"
+                            <textarea class="cfg-input cfg-input-full" id="cfg-pagination-param-signals" readonly
+                                      rows="2"
                                       style="background:#0d1117; color:#8b949e; width:100%"></textarea>
                         </div>
                     </div>

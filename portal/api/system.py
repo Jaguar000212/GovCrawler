@@ -11,13 +11,12 @@ plain HTTP instead of reaching into asyncio task dicts from another thread.
 """
 
 import logging
-
 from fastapi import APIRouter, Depends
 
-from ..db import CampaignStatus, Database, TestCampaign
 from . import campaigns as campaigns_module
 from .deps import get_active_tasks, get_db
 from .jobs import cancel_job_if_running
+from ..db import CampaignStatus, Database, TestCampaign
 
 log = logging.getLogger(__name__)
 

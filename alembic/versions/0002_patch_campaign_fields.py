@@ -1,7 +1,8 @@
 """Add template_id, created_at to campaigns and error_message, sent_at to campaign_emails"""
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "0002_patch_campaign_fields"

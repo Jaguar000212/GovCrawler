@@ -6,17 +6,17 @@ falls out of any `min_score >= 1` filter for free.
 """
 
 DEFAULT_WEIGHTS = {
-    "email_high": 20,   # confidence_band == HIGH (mailto/microdata)
-    "email_low": 10,    # everything else (table/proximity-text scrape)
+    "email_high": 20,  # confidence_band == HIGH (mailto/microdata)
+    "email_low": 10,  # everything else (table/proximity-text scrape)
     "person_name": 40,
     "designation": 30,
-    "phone": 10,        # reserved top slice: base fields cap at 90 without it
+    "phone": 10,  # reserved top slice: base fields cap at 90 without it
 }
 
 
 def compute_lead_score(fields: dict, confidence_band: str | None = None,
-                        channel_tag: str | None = None,
-                        weights: dict = DEFAULT_WEIGHTS) -> int:
+                       channel_tag: str | None = None,
+                       weights: dict = DEFAULT_WEIGHTS) -> int:
     if channel_tag == "manual":
         return 0
 

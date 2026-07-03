@@ -1,5 +1,4 @@
 import datetime
-
 from sqlalchemy.exc import IntegrityError
 
 from ..tables.crawl import VisitedUrl

@@ -16,12 +16,11 @@ Both run as blocking calls inside asyncio.to_thread() from the API layer.
 Progress is tracked in import_status dict, polled by /api/import/status.
 """
 
+import httpx
 import json
 import logging
 from pathlib import Path
 from urllib.parse import urlparse
-
-import httpx
 
 from GovScraper.api import (
     get_categories,

@@ -1,15 +1,14 @@
 import logging
-
 from sqlalchemy import create_engine, inspect as sa_inspect, text
 from sqlalchemy.orm import sessionmaker
 
 from .base import Base
+from .migrations import run_migrations
 from .mixins.domain_mixin import DomainMixin
 from .mixins.job_mixin import JobMixin
 from .mixins.lead_mixin import LeadMixin
 from .mixins.outreach_mixin import OutreachMixin
 from .mixins.visited_mixin import VisitedUrlMixin
-from .migrations import run_migrations
 from ..services.lead_scoring import DEFAULT_WEIGHTS, compute_lead_score
 
 log = logging.getLogger(__name__)
@@ -104,7 +103,7 @@ class Database(DomainMixin, JobMixin, LeadMixin, VisitedUrlMixin, OutreachMixin)
                 weights=self._lead_score_weights,
             )
             conn.execute(text("UPDATE leads SET lead_score = :score WHERE id = :id"),
-                        {"score": score, "id": m["id"]})
+                         {"score": score, "id": m["id"]})
         log.info(f"Schema: recomputed lead_score for {len(rows)} leads")
 
     def close(self):

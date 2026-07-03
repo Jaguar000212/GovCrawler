@@ -1,5 +1,4 @@
 import datetime
-
 from sqlalchemy import func, literal, or_
 from sqlalchemy.exc import IntegrityError
 

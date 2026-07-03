@@ -7,7 +7,6 @@ Registers routes:
 """
 
 import copy
-
 import yaml
 from fastapi import APIRouter, Depends
 

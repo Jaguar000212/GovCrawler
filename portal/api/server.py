@@ -11,16 +11,15 @@ See each route module's docstring for its endpoint list.
 
 import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
-
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 from playwright.async_api import async_playwright
 
-from ..db import Database
 from . import (
     blacklist, campaigns, config, credentials, deps, domains, frontend, imports, jobs, leads, system, templates,
 )
+from ..db import Database
 
 log = logging.getLogger(__name__)
 

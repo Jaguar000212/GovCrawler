@@ -3,8 +3,9 @@
 Revision ID: 0003_add_test_campaign_models
 Revises: 0002_patch_campaign_fields
 """
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = '0003_add_test_campaign_models'

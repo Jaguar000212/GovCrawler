@@ -22,11 +22,11 @@ def render_template_string(template_str: str, **kwargs) -> str:
 
 
 def render_draft_emails(
-    leads: list[dict],
-    template: dict,
-    blacklisted: set[str],
-    lead_id_by_email: dict[str, int],
-    exclude_emails: set[str] = frozenset(),
+        leads: list[dict],
+        template: dict,
+        blacklisted: set[str],
+        lead_id_by_email: dict[str, int],
+        exclude_emails: set[str] = frozenset(),
 ) -> tuple[list[dict], int, int]:
     """
     Filters leads against the blacklist and an optional exclude set (e.g.

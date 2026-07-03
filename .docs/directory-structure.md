@@ -320,24 +320,24 @@ GovCrawler/
 
 ## Notable Files
 
-| File                                  | Size       | Notes                                                      |
-|---------------------------------------|------------|-------------------------------------------------------------|
-| `portal/api/campaigns.py`             | ~605 lines | Campaign + test-campaign creation, staging, dispatch routes (APIRouter) |
-| `portal/db/mixins/outreach_mixin.py`  | ~500 lines | Largest single db file — templates through test campaigns |
-| `portal/crawler/parser.py`            | ~670 lines | 6-stage extraction pipeline + `parse_for_engine` thread-pool entry point |
-| `portal/crawler/engine.py`            | ~530 lines | Core async crawler implementation, incl. pagination-chain logic |
-| `portal/api/dispatcher.py`            | ~330 lines | SMTP dispatch loop for both real + test campaigns          |
-| `portal/scraper/importer.py`          | ~330 lines | JSON and live-API import                                   |
-| `portal/db/mixins/lead_mixin.py`      | ~325 lines | Lead CRUD + shared `_apply_lead_filters`/`_apply_lead_sort` helpers |
-| `portal/api/leads.py`                 | ~205 lines | Lead browsing, export, CSV import, and editing routes       |
-| `portal/api/jobs.py`                  | ~200 lines | Crawl job routes (domain- or custom-URL-seeded) + `_run_crawl` background task |
-| `portal/db/mixins/domain_mixin.py`    | ~215 lines | Domain CRUD, stats, and metadata queries                     |
-| `GovScraper/api/api.py`               | ~110 lines | Three HTTP functions for india.gov.in API                   |
-| `launcher/app.py`                     | ~400 lines | CrawlerLauncher: state machine, polling, shutdown flow, UI  |
-| `portal/api/server.py`                | ~65 lines  | Pure app wiring — lifespan + `include_router` × 11          |
-| `portal/api/system.py`                | ~100 lines | Activity aggregation + cancel-all for the desktop GUI        |
-| `launcher/tray.py`                    | ~50 lines  | pystray icon lifecycle                                      |
-| `run.py`                              | ~50 lines  | Bootstrap only — SSL fix, INSTALL_BROWSERS sentinel, entry  |
+| File                                 | Size       | Notes                                                                          |
+|--------------------------------------|------------|--------------------------------------------------------------------------------|
+| `portal/api/campaigns.py`            | ~605 lines | Campaign + test-campaign creation, staging, dispatch routes (APIRouter)        |
+| `portal/db/mixins/outreach_mixin.py` | ~500 lines | Largest single db file — templates through test campaigns                      |
+| `portal/crawler/parser.py`           | ~670 lines | 6-stage extraction pipeline + `parse_for_engine` thread-pool entry point       |
+| `portal/crawler/engine.py`           | ~530 lines | Core async crawler implementation, incl. pagination-chain logic                |
+| `portal/api/dispatcher.py`           | ~330 lines | SMTP dispatch loop for both real + test campaigns                              |
+| `portal/scraper/importer.py`         | ~330 lines | JSON and live-API import                                                       |
+| `portal/db/mixins/lead_mixin.py`     | ~325 lines | Lead CRUD + shared `_apply_lead_filters`/`_apply_lead_sort` helpers            |
+| `portal/api/leads.py`                | ~205 lines | Lead browsing, export, CSV import, and editing routes                          |
+| `portal/api/jobs.py`                 | ~200 lines | Crawl job routes (domain- or custom-URL-seeded) + `_run_crawl` background task |
+| `portal/db/mixins/domain_mixin.py`   | ~215 lines | Domain CRUD, stats, and metadata queries                                       |
+| `GovScraper/api/api.py`              | ~110 lines | Three HTTP functions for india.gov.in API                                      |
+| `launcher/app.py`                    | ~400 lines | CrawlerLauncher: state machine, polling, shutdown flow, UI                     |
+| `portal/api/server.py`               | ~65 lines  | Pure app wiring — lifespan + `include_router` × 11                             |
+| `portal/api/system.py`               | ~100 lines | Activity aggregation + cancel-all for the desktop GUI                          |
+| `launcher/tray.py`                   | ~50 lines  | pystray icon lifecycle                                                         |
+| `run.py`                             | ~50 lines  | Bootstrap only — SSL fix, INSTALL_BROWSERS sentinel, entry                     |
 
 ## Generated / Ignored Paths
 

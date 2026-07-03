@@ -3,8 +3,9 @@
 Revision ID: 0005_add_lead_depth
 Revises: 0004_add_email_selection
 """
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = '0005_add_lead_depth'
 down_revision = '0004_add_email_selection'

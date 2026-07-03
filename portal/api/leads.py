@@ -16,14 +16,13 @@ Registers routes:
 
 import csv
 import io
-
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from .deps import get_db
 from ..db import Database
 from ..services.csv_import import build_template_csv, parse_contacts_csv
-from .deps import get_db
 
 router = APIRouter(tags=["leads"])
 

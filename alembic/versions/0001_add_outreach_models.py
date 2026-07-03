@@ -1,7 +1,8 @@
 """Migration script to add outreach & campaign management models"""
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "0001_add_outreach_models"

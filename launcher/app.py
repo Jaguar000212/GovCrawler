@@ -3,23 +3,21 @@ Tkinter control panel for GovCrawler: state machine, live activity polling,
 safe shutdown, and the sv-ttk UI.
 """
 
-import tkinter as tk
-from tkinter import messagebox, ttk
+import httpx
+import logging
+import os
 import subprocess
+import sv_ttk
+import sys
 import threading
 import time
-import logging
-import webbrowser
-import sys
-import os
-from enum import Enum, auto
-
-import httpx
-import sv_ttk
+import tkinter as tk
 import uvicorn
+import webbrowser
+from enum import Enum, auto
+from tkinter import messagebox, ttk
 
 from portal.paths import BROWSER_PATH, ICON_PATH
-
 from .notifications import notify
 from .tray import TrayController
 
@@ -37,10 +35,10 @@ class AppState(Enum):
     IDLE = auto()
     STARTING = auto()
     RUNNING = auto()
-    CHECKING = auto()      # briefly asking the server "is anything active?"
-    CANCELLING = auto()    # cancel-all issued, waiting for it to take effect
-    DRAINING = auto()      # waiting for active jobs/campaigns to actually stop
-    STOPPING = auto()      # uvicorn graceful shutdown in progress
+    CHECKING = auto()  # briefly asking the server "is anything active?"
+    CANCELLING = auto()  # cancel-all issued, waiting for it to take effect
+    DRAINING = auto()  # waiting for active jobs/campaigns to actually stop
+    STOPPING = auto()  # uvicorn graceful shutdown in progress
 
 
 STATE_LABELS = {
@@ -150,7 +148,7 @@ class CrawlerLauncher:
         self.btn_download.config(state=tk.NORMAL if self.state == AppState.IDLE else tk.DISABLED)
 
         can_toggle = self.state in (AppState.IDLE, AppState.RUNNING) and \
-            (self.state != AppState.IDLE or self._browsers_ok)
+                     (self.state != AppState.IDLE or self._browsers_ok)
         self.btn_toggle.config(
             text="Start Server" if self.state == AppState.IDLE else "Stop Server",
             state=tk.NORMAL if can_toggle else tk.DISABLED,

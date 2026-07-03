@@ -9,11 +9,11 @@ Usage:
     python -m portal import                   # refresh from live india.gov.in API
     python -m portal crawl <job_id>           # manually run a specific job (debug)
 """
-import os
-import sys
-import shutil
 import asyncio
 import logging
+import os
+import shutil
+import sys
 from pathlib import Path
 
 from .paths import LOG_FILE_PATH, LIVE_CONFIG_PATH, DEFAULT_CONFIG_PATH, bootstrap

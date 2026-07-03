@@ -14,10 +14,9 @@ Fully config-driven — no regexes or keyword lists hardcoded here.
 import json
 import logging
 import re
+from bs4 import BeautifulSoup, Tag
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlparse
-
-from bs4 import BeautifulSoup, Tag
 
 log = logging.getLogger(__name__)
 

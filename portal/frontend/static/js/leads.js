@@ -23,7 +23,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
         const w = await apiFetch('/api/leads/score-weights');
         if (w && typeof w === 'object') scoreWeights = w;
-    } catch (e) { /* keep built-in default weights */ }
+    } catch (e) { /* keep built-in default weights */
+    }
     await loadLeadsFilters();
     loadLeads();
 });

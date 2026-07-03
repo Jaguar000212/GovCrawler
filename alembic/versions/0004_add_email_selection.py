@@ -3,8 +3,9 @@
 Revision ID: 0004_add_email_selection
 Revises: 0003_add_test_campaign_models
 """
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = '0004_add_email_selection'
 down_revision = '0003_add_test_campaign_models'

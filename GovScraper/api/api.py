@@ -2,8 +2,8 @@
 API interactions for the india.gov.in Web Directory.
 """
 
-import logging
 import httpx
+import logging
 
 from .config import WEB_DIR_API, PAGE_SIZE
 

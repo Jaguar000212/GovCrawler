@@ -9,12 +9,12 @@ Registers routes:
   POST   /api/credentials/{id}/test→ test connection and login
 """
 
+import aiosmtplib
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-import aiosmtplib
 
-from ..db import Database
 from .deps import get_db
+from ..db import Database
 
 router = APIRouter(tags=["credentials"])
 

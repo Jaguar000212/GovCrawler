@@ -30,13 +30,12 @@ Public API (unchanged — drop-in replacement):
 """
 
 import asyncio
+import httpx
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from urllib.parse import parse_qs, urlparse, urlsplit
-
-import httpx
 
 from .parser import parse_for_engine
 from ..db import Database

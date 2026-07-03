@@ -2,14 +2,13 @@
 Async background dispatcher for SMTP campaigns.
 """
 
+import aiosmtplib
 import asyncio
 import logging
 import random
 import time
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
-
-import aiosmtplib
 
 from ..db import Database, CampaignStatus
 

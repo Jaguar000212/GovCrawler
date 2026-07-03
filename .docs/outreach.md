@@ -93,15 +93,15 @@ new drafts.
 
 Before dispatching, you can:
 
-| Action                       | API                                                |
-|------------------------------|-----------------------------------------------------|
-| View all drafts              | `GET /api/campaigns/{id}/emails`                   |
-| Edit subject/body            | `PUT /api/campaigns/{id}/emails/{eid}`             |
-| Select/deselect one          | `PATCH /api/campaigns/{id}/emails/{eid}/selection` |
-| Select/deselect all drafts   | `PATCH /api/campaigns/{id}/emails/selection-all`   |
-| Delete a draft                | `DELETE /api/campaigns/{id}/emails/{eid}`          |
-| Add more leads                | `POST /api/campaigns/{id}/emails`                  |
-| Change SMTP credential pool   | `PUT /api/campaigns/{id}/credentials`              |
+| Action                      | API                                                |
+|-----------------------------|----------------------------------------------------|
+| View all drafts             | `GET /api/campaigns/{id}/emails`                   |
+| Edit subject/body           | `PUT /api/campaigns/{id}/emails/{eid}`             |
+| Select/deselect one         | `PATCH /api/campaigns/{id}/emails/{eid}/selection` |
+| Select/deselect all drafts  | `PATCH /api/campaigns/{id}/emails/selection-all`   |
+| Delete a draft              | `DELETE /api/campaigns/{id}/emails/{eid}`          |
+| Add more leads              | `POST /api/campaigns/{id}/emails`                  |
+| Change SMTP credential pool | `PUT /api/campaigns/{id}/credentials`              |
 
 Deselected emails (`is_selected = False`) are excluded from dispatch and counted as `skipped` in stats. Deselecting
 a QUEUED email (not just DRAFT) pulls it back to DRAFT.
@@ -169,12 +169,12 @@ very next send — no need to pause first.
 
 ### Credential States
 
-| State    | Condition                                                  | Effect                                                                |
-|----------|-------------------------------------------------------------|-----------------------------------------------------------------------|
-| Active   | `is_active=True`, `cooldown_until=NULL or past`             | Available for round-robin                                             |
-| Cooling  | `is_active=True`, `cooldown_until` in future                | Skipped until cooldown expires                                        |
-| Capped   | `daily_send_limit` set and already reached today            | Excluded from the pool until the next UTC day                         |
-| Disabled | `is_active=False`                                            | Never used; requires manual re-enable via `PUT /api/credentials/{id}` |
+| State    | Condition                                        | Effect                                                                |
+|----------|--------------------------------------------------|-----------------------------------------------------------------------|
+| Active   | `is_active=True`, `cooldown_until=NULL or past`  | Available for round-robin                                             |
+| Cooling  | `is_active=True`, `cooldown_until` in future     | Skipped until cooldown expires                                        |
+| Capped   | `daily_send_limit` set and already reached today | Excluded from the pool until the next UTC day                         |
+| Disabled | `is_active=False`                                | Never used; requires manual re-enable via `PUT /api/credentials/{id}` |
 
 If every assigned/active credential is disabled, cooling, or capped, the campaign is auto-paused with
 `pause_reason` set to a fixed message explaining why (see Stats Endpoint below).
@@ -236,13 +236,13 @@ POST /api/test-campaigns
 
 ## Campaign Status Reference
 
-| Status      | Who sets it       | When                                                           |
-|-------------|-------------------|----------------------------------------------------------------|
-| `PAUSED`    | `create_campaign` | Initial state after draft generation                           |
-| `RUNNING`   | `dispatch`        | When dispatch starts; or manually via PATCH                    |
+| Status      | Who sets it       | When                                                                                |
+|-------------|-------------------|-------------------------------------------------------------------------------------|
+| `PAUSED`    | `create_campaign` | Initial state after draft generation                                                |
+| `RUNNING`   | `dispatch`        | When dispatch starts; or manually via PATCH                                         |
 | `PAUSED`    | Dispatcher        | No usable credentials (`pause_reason` set); or deselected drafts remain after batch |
-| `CANCELLED` | User (PATCH)      | All QUEUED emails marked FAILED                                |
-| `COMPLETED` | Dispatcher        | All selected emails sent, no remaining drafts                  |
+| `CANCELLED` | User (PATCH)      | All QUEUED emails marked FAILED                                                     |
+| `COMPLETED` | Dispatcher        | All selected emails sent, no remaining drafts                                       |
 
 `pause_reason` (nullable, on `campaigns`/`test_campaigns`) is set only for the "no usable credentials" auto-pause —
 cleared automatically on any subsequent status change. It's surfaced via `GET /api/campaigns/{id}/stats`.

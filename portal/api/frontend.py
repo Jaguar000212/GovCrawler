@@ -12,14 +12,13 @@ Registers routes:
   DELETE /api/visited-urls  → clear the recrawl-protection cache
 """
 
-from pathlib import Path
-
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from pathlib import Path
 
-from ..db import Database
 from .deps import get_db
+from ..db import Database
 
 router = APIRouter(tags=["frontend"])
 

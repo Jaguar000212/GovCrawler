@@ -54,19 +54,19 @@ outreach). Direct session usage elsewhere in the codebase is intentionally avoid
 
 Seed records from the india.gov.in Web Directory.
 
-| Column           | Type       | Notes                                    |
-|------------------|------------|------------------------------------------|
-| `id`             | Integer PK | Auto-increment                           |
-| `category_code`  | String     | e.g. `ug`, `sg`, `dist` — indexed        |
-| `category_title` | String     | Human-readable e.g. "Union Government"   |
-| `state`          | String     | State/UT name — indexed                  |
-| `org_type`       | String     | Organization type code — indexed         |
-| `org_type_title` | String     | e.g. "Departments", "Statutory Bodies"   |
-| `title`          | String     | Organization name — indexed              |
-| `main_url`       | String     | Root URL (scheme + netloc only); nullable |
-| `contact_url`    | String     | Direct contact/directory page (nullable) |
+| Column           | Type       | Notes                                               |
+|------------------|------------|-----------------------------------------------------|
+| `id`             | Integer PK | Auto-increment                                      |
+| `category_code`  | String     | e.g. `ug`, `sg`, `dist` — indexed                   |
+| `category_title` | String     | Human-readable e.g. "Union Government"              |
+| `state`          | String     | State/UT name — indexed                             |
+| `org_type`       | String     | Organization type code — indexed                    |
+| `org_type_title` | String     | e.g. "Departments", "Statutory Bodies"              |
+| `title`          | String     | Organization name — indexed                         |
+| `main_url`       | String     | Root URL (scheme + netloc only); nullable           |
+| `contact_url`    | String     | Direct contact/directory page (nullable)            |
 | `external_id`    | String     | india.gov.in `npi_sanitized_id` — indexed, nullable |
-| `imported_at`    | DateTime   | UTC timestamp of last import             |
+| `imported_at`    | DateTime   | UTC timestamp of last import                        |
 
 `main_url`/`contact_url` are `null` for organizations the india.gov.in directory lists with no URL at all — these
 are imported (not dropped) so their metadata isn't lost, and the frontend marks them "not crawlable" until a URL is
@@ -81,27 +81,27 @@ added via `PATCH /api/domains/{id}`.
 
 Tracks a single crawl run over a set of domains.
 
-| Column            | Type       | Notes                                               |
-|-------------------|------------|-----------------------------------------------------|
-| `id`              | Integer PK | Auto-increment                                      |
+| Column            | Type       | Notes                                                                     |
+|-------------------|------------|---------------------------------------------------------------------------|
+| `id`              | Integer PK | Auto-increment                                                            |
 | `domain_ids`      | Text       | JSON-serialized `list[int]` of seed domain IDs (null for custom-URL jobs) |
-| `source_type`     | String     | `domains` (default) or `custom_urls` — which seeding path was used |
-| `category_filter` | String     | Optional filter label (metadata only)               |
-| `title_filter`    | String     | Optional filter label (metadata only)               |
-| `status`          | String     | `pending`, `running`, `done`, `failed`, `cancelled` |
-| `total_domains`   | Integer    | Count of seed domains                               |
-| `crawled_domains` | Integer    | Seed domains whose seed page was visited            |
-| `seed_domains`    | Integer    | Same as `total_domains` (kept for display)          |
-| `queued_urls`     | Integer    | URLs currently in the priority queue                |
-| `visited_urls`    | Integer    | URLs visited in this session                        |
-| `skipped_urls`    | Integer    | URLs skipped (recrawl, extension, non-gov, limit)   |
-| `leads_found`     | Integer    | Total leads extracted                               |
-| `current_depth`   | Integer    | Deepest crawl depth reached so far                  |
-| `active_workers`  | Integer    | Workers currently processing a URL                  |
-| `error_message`   | String     | Set on `failed` status                              |
-| `created_at`      | DateTime   | UTC                                                 |
-| `started_at`      | DateTime   | Set when status → `running`                         |
-| `finished_at`     | DateTime   | Set when status → `done`/`failed`/`cancelled`       |
+| `source_type`     | String     | `domains` (default) or `custom_urls` — which seeding path was used        |
+| `category_filter` | String     | Optional filter label (metadata only)                                     |
+| `title_filter`    | String     | Optional filter label (metadata only)                                     |
+| `status`          | String     | `pending`, `running`, `done`, `failed`, `cancelled`                       |
+| `total_domains`   | Integer    | Count of seed domains                                                     |
+| `crawled_domains` | Integer    | Seed domains whose seed page was visited                                  |
+| `seed_domains`    | Integer    | Same as `total_domains` (kept for display)                                |
+| `queued_urls`     | Integer    | URLs currently in the priority queue                                      |
+| `visited_urls`    | Integer    | URLs visited in this session                                              |
+| `skipped_urls`    | Integer    | URLs skipped (recrawl, extension, non-gov, limit)                         |
+| `leads_found`     | Integer    | Total leads extracted                                                     |
+| `current_depth`   | Integer    | Deepest crawl depth reached so far                                        |
+| `active_workers`  | Integer    | Workers currently processing a URL                                        |
+| `error_message`   | String     | Set on `failed` status                                                    |
+| `created_at`      | DateTime   | UTC                                                                       |
+| `started_at`      | DateTime   | Set when status → `running`                                               |
+| `finished_at`     | DateTime   | Set when status → `done`/`failed`/`cancelled`                             |
 
 For `custom_urls` jobs, the actual seed URLs live in the separate `job_custom_urls` table (below), not
 `domain_ids`. `GET /api/jobs/{id}/seeds` branches on `source_type` to return the right shape.
@@ -113,11 +113,11 @@ For `custom_urls` jobs, the actual seed URLs live in the separate `job_custom_ur
 Ad-hoc seed URLs for a `custom_urls`-sourced crawl job (an alternative to selecting known `domains` rows).
 
 | Column       | Type       | Notes                          |
-|--------------|------------|----------------------------------|
-| `id`         | Integer PK | Auto-increment                  |
-| `job_id`     | Integer FK | → `crawl_jobs.id` — indexed      |
-| `url`        | String     | Normalized, deduped custom URL  |
-| `created_at` | DateTime   | UTC                              |
+|--------------|------------|--------------------------------|
+| `id`         | Integer PK | Auto-increment                 |
+| `job_id`     | Integer FK | → `crawl_jobs.id` — indexed    |
+| `url`        | String     | Normalized, deduped custom URL |
+| `created_at` | DateTime   | UTC                            |
 
 **Unique constraint:** `(job_id, url)`
 
@@ -127,28 +127,28 @@ Ad-hoc seed URLs for a `custom_urls`-sourced crawl job (an alternative to select
 
 Extracted contact records.
 
-| Column             | Type       | Notes                                                                  |
-|--------------------|------------|--------------------------------------------------------------------------|
-| `id`               | Integer PK | Auto-increment                                                          |
-| `job_id`           | Integer FK | → `crawl_jobs.id` — indexed                                             |
-| `domain_id`        | Integer FK | → `domains.id` (nullable — null for manually-imported leads)           |
-| `email`            | String     | Lowercase, indexed                                                      |
-| `person_name`      | String     | Extracted or user-edited (nullable)                                     |
-| `designation`      | String     | e.g. "Secretary", "Director" (nullable)                                 |
-| `department`       | String     | e.g. "Ministry of Finance" (nullable)                                   |
-| `source_url`       | String     | Page the lead was extracted from                                        |
-| `source_title`     | String     | `<title>` of that page (nullable)                                       |
-| `context_snippet`  | Text       | ±200 chars around the email (nullable)                                  |
-| `domain_state`     | String     | Denormalized from domain at insert time                                 |
-| `domain_org_type`  | String     | Denormalized from domain at insert time                                 |
-| `entity_kind`      | String     | Nullable; extraction classification                                     |
-| `phone`            | String     | Nullable; extracted phone number                                        |
-| `channel_tag`      | String     | Nullable; `"manual"` for CSV-imported leads, else extraction-set        |
+| Column             | Type       | Notes                                                                                                 |
+|--------------------|------------|-------------------------------------------------------------------------------------------------------|
+| `id`               | Integer PK | Auto-increment                                                                                        |
+| `job_id`           | Integer FK | → `crawl_jobs.id` — indexed                                                                           |
+| `domain_id`        | Integer FK | → `domains.id` (nullable — null for manually-imported leads)                                          |
+| `email`            | String     | Lowercase, indexed                                                                                    |
+| `person_name`      | String     | Extracted or user-edited (nullable)                                                                   |
+| `designation`      | String     | e.g. "Secretary", "Director" (nullable)                                                               |
+| `department`       | String     | e.g. "Ministry of Finance" (nullable)                                                                 |
+| `source_url`       | String     | Page the lead was extracted from                                                                      |
+| `source_title`     | String     | `<title>` of that page (nullable)                                                                     |
+| `context_snippet`  | Text       | ±200 chars around the email (nullable)                                                                |
+| `domain_state`     | String     | Denormalized from domain at insert time                                                               |
+| `domain_org_type`  | String     | Denormalized from domain at insert time                                                               |
+| `entity_kind`      | String     | Nullable; extraction classification                                                                   |
+| `phone`            | String     | Nullable; extracted phone number                                                                      |
+| `channel_tag`      | String     | Nullable; `"manual"` for CSV-imported leads, else extraction-set                                      |
 | `confidence_band`  | String     | Nullable; email provenance tier — see `extraction.confidence` in [configuration.md](configuration.md) |
-| `field_provenance` | Text       | Nullable; detail on where each field came from                          |
-| `lead_score`       | Integer    | NOT NULL, default 0 — see "Lead Scoring" below                          |
-| `depth`            | Integer    | NOT NULL, default 0 — crawl depth the lead was found at                 |
-| `captured_at`      | DateTime   | UTC                                                                      |
+| `field_provenance` | Text       | Nullable; detail on where each field came from                                                        |
+| `lead_score`       | Integer    | NOT NULL, default 0 — see "Lead Scoring" below                                                        |
+| `depth`            | Integer    | NOT NULL, default 0 — crawl depth the lead was found at                                               |
+| `captured_at`      | DateTime   | UTC                                                                                                   |
 
 **Unique constraint:** `(job_id, email)` — an email is stored at most once per job. Global dedup (across jobs) is
 enforced at the `email` level in `save_lead()`.
@@ -202,14 +202,14 @@ Jinja2 email templates for campaigns.
 
 Production email outreach campaigns.
 
-| Column         | Type       | Notes                                                                |
-|----------------|------------|------------------------------------------------------------------------|
-| `id`           | Integer PK | Auto-increment                                                        |
-| `name`         | String     | Display name                                                          |
-| `template_id`  | Integer FK | → `email_templates.id` (nullable)                                     |
-| `status`       | Enum       | `CampaignStatus`                                                      |
+| Column         | Type       | Notes                                                                                                         |
+|----------------|------------|---------------------------------------------------------------------------------------------------------------|
+| `id`           | Integer PK | Auto-increment                                                                                                |
+| `name`         | String     | Display name                                                                                                  |
+| `template_id`  | Integer FK | → `email_templates.id` (nullable)                                                                             |
+| `status`       | Enum       | `CampaignStatus`                                                                                              |
 | `pause_reason` | String     | Nullable; set when the dispatcher auto-pauses (e.g. no usable SMTP credentials), cleared on any status change |
-| `created_at`   | DateTime   | UTC                                                                    |
+| `created_at`   | DateTime   | UTC                                                                                                           |
 
 ---
 
@@ -218,11 +218,11 @@ Production email outreach campaigns.
 Many-to-many: which SMTP credentials a campaign is allowed to dispatch through. Empty (no rows for a campaign) means
 "every active credential" — see [outreach.md](outreach.md#credential-assignment).
 
-| Column          | Type       | Notes                        |
-|-----------------|------------|--------------------------------|
-| `id`            | Integer PK | Auto-increment                 |
-| `campaign_id`   | Integer FK | → `campaigns.id` — indexed      |
-| `credential_id` | Integer FK | → `smtp_credentials.id`         |
+| Column          | Type       | Notes                      |
+|-----------------|------------|----------------------------|
+| `id`            | Integer PK | Auto-increment             |
+| `campaign_id`   | Integer FK | → `campaigns.id` — indexed |
+| `credential_id` | Integer FK | → `smtp_credentials.id`    |
 
 **Unique constraint:** `(campaign_id, credential_id)`
 
@@ -232,20 +232,20 @@ Many-to-many: which SMTP credentials a campaign is allowed to dispatch through. 
 
 Individual staged email drafts for a production campaign.
 
-| Column            | Type       | Notes                                                           |
-|-------------------|------------|-----------------------------------------------------------------|
-| `id`              | Integer PK | Auto-increment                                                  |
-| `campaign_id`     | Integer FK | → `campaigns.id`                                                |
-| `lead_id`         | Integer FK | → `leads.id`                                                    |
-| `recipient_email` | String     | Lowercase email address                                         |
-| `subject`         | String     | Rendered from template                                          |
-| `body`            | Text       | Rendered from template                                          |
-| `status`          | Enum       | `EmailStatus`                                                   |
-| `is_selected`     | Boolean    | Default true; false = deselected (skipped on dispatch)          |
-| `missing_fields`  | String     | Comma-separated missing template vars (e.g. `name,designation`) |
-| `error_message`   | String     | Set on FAILED status (nullable)                                 |
+| Column            | Type       | Notes                                                                          |
+|-------------------|------------|--------------------------------------------------------------------------------|
+| `id`              | Integer PK | Auto-increment                                                                 |
+| `campaign_id`     | Integer FK | → `campaigns.id`                                                               |
+| `lead_id`         | Integer FK | → `leads.id`                                                                   |
+| `recipient_email` | String     | Lowercase email address                                                        |
+| `subject`         | String     | Rendered from template                                                         |
+| `body`            | Text       | Rendered from template                                                         |
+| `status`          | Enum       | `EmailStatus`                                                                  |
+| `is_selected`     | Boolean    | Default true; false = deselected (skipped on dispatch)                         |
+| `missing_fields`  | String     | Comma-separated missing template vars (e.g. `name,designation`)                |
+| `error_message`   | String     | Set on FAILED status (nullable)                                                |
 | `credential_id`   | Integer FK | → `smtp_credentials.id` (nullable); which credential sent/attempted this email |
-| `sent_at`         | DateTime   | UTC timestamp when sent (nullable)                              |
+| `sent_at`         | DateTime   | UTC timestamp when sent (nullable)                                             |
 
 ---
 
@@ -253,16 +253,16 @@ Individual staged email drafts for a production campaign.
 
 SMTP sender accounts used by the dispatcher.
 
-| Column              | Type       | Notes                                                   |
-|---------------------|------------|---------------------------------------------------------|
-| `id`                | Integer PK | Auto-increment                                          |
-| `host`              | String     | SMTP server hostname                                    |
-| `port`              | Integer    | 465 (TLS) or 587 (STARTTLS)                             |
-| `username`          | String     | Email address                                           |
-| `password`          | String     | Plain-text app password                                 |
-| `is_active`         | Boolean    | False = permanently disabled (auth failure)             |
-| `cooldown_until`    | DateTime   | Null = available; future timestamp = temporarily paused |
-| `daily_send_limit`  | Integer    | Nullable; `None` = unlimited. Once today's sent count reaches this, the credential is excluded from the dispatch pool until the next UTC day |
+| Column             | Type       | Notes                                                                                                                                        |
+|--------------------|------------|----------------------------------------------------------------------------------------------------------------------------------------------|
+| `id`               | Integer PK | Auto-increment                                                                                                                               |
+| `host`             | String     | SMTP server hostname                                                                                                                         |
+| `port`             | Integer    | 465 (TLS) or 587 (STARTTLS)                                                                                                                  |
+| `username`         | String     | Email address                                                                                                                                |
+| `password`         | String     | Plain-text app password                                                                                                                      |
+| `is_active`        | Boolean    | False = permanently disabled (auth failure)                                                                                                  |
+| `cooldown_until`   | DateTime   | Null = available; future timestamp = temporarily paused                                                                                      |
+| `daily_send_limit` | Integer    | Nullable; `None` = unlimited. Once today's sent count reaches this, the credential is excluded from the dispatch pool until the next UTC day |
 
 **Note:** Passwords are stored plain-text. Ensure the database file has appropriate filesystem permissions.
 
@@ -287,15 +287,15 @@ Entries are added automatically on SMTP hard bounces (codes 550, 553) and manual
 
 Test email campaigns using dummy recipient data.
 
-| Column               | Type       | Notes                              |
-|----------------------|------------|------------------------------------|
-| `id`                 | Integer PK | Auto-increment                     |
-| `name`               | String     | Display name                       |
-| `template_id`        | Integer FK | → `email_templates.id` (nullable)  |
-| `test_credential_id` | Integer FK | → `smtp_credentials.id` (nullable) |
-| `status`             | Enum       | `CampaignStatus`                   |
+| Column               | Type       | Notes                                                |
+|----------------------|------------|------------------------------------------------------|
+| `id`                 | Integer PK | Auto-increment                                       |
+| `name`               | String     | Display name                                         |
+| `template_id`        | Integer FK | → `email_templates.id` (nullable)                    |
+| `test_credential_id` | Integer FK | → `smtp_credentials.id` (nullable)                   |
+| `status`             | Enum       | `CampaignStatus`                                     |
 | `pause_reason`       | String     | Nullable; same semantics as `campaigns.pause_reason` |
-| `created_at`         | DateTime   | UTC                                |
+| `created_at`         | DateTime   | UTC                                                  |
 
 ---
 
@@ -303,19 +303,19 @@ Test email campaigns using dummy recipient data.
 
 Individual staged emails for a test campaign.
 
-| Column             | Type       | Notes                   |
-|--------------------|------------|-------------------------|
-| `id`               | Integer PK | Auto-increment          |
-| `test_campaign_id` | Integer FK | → `test_campaigns.id`   |
-| `recipient_email`  | String     | Dummy recipient address |
-| `subject`          | String     | Rendered from template  |
-| `body`             | Text       | Rendered from template  |
-| `status`           | Enum       | `EmailStatus`           |
-| `is_selected`      | Boolean    | Default true            |
-| `missing_fields`   | String     | Nullable                |
-| `error_message`    | String     | Nullable                |
+| Column             | Type       | Notes                                                                          |
+|--------------------|------------|--------------------------------------------------------------------------------|
+| `id`               | Integer PK | Auto-increment                                                                 |
+| `test_campaign_id` | Integer FK | → `test_campaigns.id`                                                          |
+| `recipient_email`  | String     | Dummy recipient address                                                        |
+| `subject`          | String     | Rendered from template                                                         |
+| `body`             | Text       | Rendered from template                                                         |
+| `status`           | Enum       | `EmailStatus`                                                                  |
+| `is_selected`      | Boolean    | Default true                                                                   |
+| `missing_fields`   | String     | Nullable                                                                       |
+| `error_message`    | String     | Nullable                                                                       |
 | `credential_id`    | Integer FK | → `smtp_credentials.id` (nullable); which credential sent/attempted this email |
-| `sent_at`          | DateTime   | Nullable                |
+| `sent_at`          | DateTime   | Nullable                                                                       |
 
 ---
 
@@ -352,46 +352,46 @@ for each method call.
 
 ### Domain Methods — `portal/db/mixins/domain_mixin.py`
 
-| Method                            | Description                                                     |
-|-----------------------------------|------------------------------------------------------------------|
-| `upsert_domain(...)`              | Insert or update by `external_id` (fallback `main_url`); returns `id` |
-| `update_domain_url(id, url, ...)` | Manually set `main_url`/`contact_url` on a no-URL domain          |
-| `clear_domains()`                 | Delete all domain rows                                            |
-| `count_domains()`                 | Total domain count                                                |
+| Method                            | Description                                                                   |
+|-----------------------------------|-------------------------------------------------------------------------------|
+| `upsert_domain(...)`              | Insert or update by `external_id` (fallback `main_url`); returns `id`         |
+| `update_domain_url(id, url, ...)` | Manually set `main_url`/`contact_url` on a no-URL domain                      |
+| `clear_domains()`                 | Delete all domain rows                                                        |
+| `count_domains()`                 | Total domain count                                                            |
 | `get_domain_stats(...)`           | `{total, crawlable, not_crawlable, duplicate}`, same filters as `get_domains` |
-| `get_categories()`                | `[{code, title, count}]` grouped                                  |
-| `get_states(category)`            | Distinct state list                                               |
-| `get_org_types(category, state)`  | `[{code, title, count}]` grouped                                  |
-| `get_domains(...)`                | Paginated `(list[dict], total)`                                   |
-| `get_domain_ids(...)`             | Matching, crawlable (`main_url` set) IDs for "select all"          |
-| `get_domains_by_ids(ids)`         | Fetch specific rows by PK list                                     |
+| `get_categories()`                | `[{code, title, count}]` grouped                                              |
+| `get_states(category)`            | Distinct state list                                                           |
+| `get_org_types(category, state)`  | `[{code, title, count}]` grouped                                              |
+| `get_domains(...)`                | Paginated `(list[dict], total)`                                               |
+| `get_domain_ids(...)`             | Matching, crawlable (`main_url` set) IDs for "select all"                     |
+| `get_domains_by_ids(ids)`         | Fetch specific rows by PK list                                                |
 
 ### Job Methods — `portal/db/mixins/job_mixin.py`
 
-| Method                              | Description                                          |
-|-------------------------------------|------------------------------------------------------|
-| `create_job(domain_ids/custom_urls, ...)` | Insert CrawlJob (sets `source_type`), return `id` |
-| `start_job(job_id)`                 | Set status=running, started_at=now                   |
-| `finish_job(job_id, status, error)` | Set terminal status + finished_at                    |
-| `increment_job_progress(...)`       | Atomic increment of `leads_found`, `crawled_domains` |
-| `update_job_metrics(...)`           | Overwrite queue/visit/skip/depth/worker counts       |
-| `get_job(job_id)`                   | Single job dict                                      |
-| `list_jobs(limit)`                  | Recent jobs descending                               |
+| Method                                    | Description                                          |
+|-------------------------------------------|------------------------------------------------------|
+| `create_job(domain_ids/custom_urls, ...)` | Insert CrawlJob (sets `source_type`), return `id`    |
+| `start_job(job_id)`                       | Set status=running, started_at=now                   |
+| `finish_job(job_id, status, error)`       | Set terminal status + finished_at                    |
+| `increment_job_progress(...)`             | Atomic increment of `leads_found`, `crawled_domains` |
+| `update_job_metrics(...)`                 | Overwrite queue/visit/skip/depth/worker counts       |
+| `get_job(job_id)`                         | Single job dict                                      |
+| `list_jobs(limit)`                        | Recent jobs descending                               |
 
 ### Lead Methods — `portal/db/mixins/lead_mixin.py`
 
-| Method                                  | Description                                                      |
-|------------------------------------------|-------------------------------------------------------------------|
-| `get_lead_score_weights()`               | Returns the active `lead_score.weights` dict                      |
-| `save_lead(...)`                         | Insert with global email dedup; computes `lead_score`; returns bool |
-| `get_leads(...)`                         | Paginated `(list[dict], total)` with join to domains               |
-| `get_lead_ids(...)`                      | All matching IDs                                                   |
-| `get_all_leads_for_export(...)`          | Full rows for CSV export                                            |
-| `get_lead_categories(job_id)`            | Category counts for leads                                          |
-| `get_lead_states(job_id, category)`      | Distinct states                                                     |
+| Method                                   | Description                                                                |
+|------------------------------------------|----------------------------------------------------------------------------|
+| `get_lead_score_weights()`               | Returns the active `lead_score.weights` dict                               |
+| `save_lead(...)`                         | Insert with global email dedup; computes `lead_score`; returns bool        |
+| `get_leads(...)`                         | Paginated `(list[dict], total)` with join to domains                       |
+| `get_lead_ids(...)`                      | All matching IDs                                                           |
+| `get_all_leads_for_export(...)`          | Full rows for CSV export                                                   |
+| `get_lead_categories(job_id)`            | Category counts for leads                                                  |
+| `get_lead_states(job_id, category)`      | Distinct states                                                            |
 | `get_lead_org_types(job_id)`             | Organization-type counts for leads (leads-scoped, unlike `/api/org-types`) |
-| `bulk_upsert_manual_leads(job_id, rows)` | CSV-import manual leads (`channel_tag="manual"`, score forced to 0) |
-| `update_lead(lead_id, updates)`          | Edit name/designation/department/state; recomputes `lead_score`    |
+| `bulk_upsert_manual_leads(job_id, rows)` | CSV-import manual leads (`channel_tag="manual"`, score forced to 0)        |
+| `update_lead(lead_id, updates)`          | Edit name/designation/department/state; recomputes `lead_score`            |
 
 `get_leads`, `get_lead_ids`, and `get_all_leads_for_export` all build their filter set through a shared
 `_apply_lead_filters()` static helper (`job_id`, `category`, `state`, `search`, `complete_only`, `min_score`,

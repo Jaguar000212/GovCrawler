@@ -13,8 +13,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from jinja2 import Environment, TemplateSyntaxError
 from pydantic import BaseModel
 
-from ..db import Database
 from .deps import get_db
+from ..db import Database
 
 router = APIRouter(tags=["templates"])
 

@@ -3,8 +3,9 @@
 Revision ID: 0008_add_campaign_credentials
 Revises: 0007_add_domain_external_id
 """
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = '0008_add_campaign_credentials'
 down_revision = '0007_add_domain_external_id'
@@ -23,8 +24,10 @@ def upgrade():
     op.create_index('ix_campaign_credentials_campaign_id', 'campaign_credentials', ['campaign_id'])
 
     op.add_column('smtp_credentials', sa.Column('daily_send_limit', sa.Integer(), nullable=True))
-    op.add_column('campaign_emails', sa.Column('credential_id', sa.Integer(), sa.ForeignKey('smtp_credentials.id'), nullable=True))
-    op.add_column('test_campaign_emails', sa.Column('credential_id', sa.Integer(), sa.ForeignKey('smtp_credentials.id'), nullable=True))
+    op.add_column('campaign_emails',
+                  sa.Column('credential_id', sa.Integer(), sa.ForeignKey('smtp_credentials.id'), nullable=True))
+    op.add_column('test_campaign_emails',
+                  sa.Column('credential_id', sa.Integer(), sa.ForeignKey('smtp_credentials.id'), nullable=True))
 
 
 def downgrade():

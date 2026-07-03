@@ -74,6 +74,7 @@ class DomainMixin:
         this filtered set*, minus one per group (the redundant extra rows,
         not the whole group).
         """
+
         def _filtered(q):
             if category:
                 q = q.filter(Domain.category_code == category)
@@ -215,4 +216,3 @@ class DomainMixin:
                  "state": d.state, "org_type": d.org_type}
                 for d in rows
             ]
-    

@@ -1,5 +1,5 @@
-import logging
 import httpx
+import logging
 
 from api import (
     get_categories,

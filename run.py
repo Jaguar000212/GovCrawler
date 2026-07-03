@@ -1,6 +1,6 @@
-import tkinter as tk
-import sys
 import os
+import sys
+import tkinter as tk
 
 from portal.main import load_config
 
@@ -45,7 +45,6 @@ if len(sys.argv) > 1 and sys.argv[1] == "INSTALL_BROWSERS":
         sys.exit(0)
     except SystemExit as e:
         sys.exit(e.code)
-
 
 if __name__ == "__main__":
     from launcher.app import CrawlerLauncher

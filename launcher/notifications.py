@@ -4,9 +4,8 @@ Cross-platform toast notifications for the GovCrawler control panel.
 
 import logging
 import tempfile
-from pathlib import Path
-
 from notifypy import Notify
+from pathlib import Path
 
 log = logging.getLogger(__name__)
 

@@ -11,13 +11,12 @@ Registers routes:
   PATCH /api/domains/{id}    → set/update a domain's crawlable URL
 """
 
-from urllib.parse import urlsplit
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from urllib.parse import urlsplit
 
-from ..db import Database
 from .deps import get_db
+from ..db import Database
 
 router = APIRouter(tags=["domains"])
 

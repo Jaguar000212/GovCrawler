@@ -12,14 +12,13 @@ Registers routes:
 import asyncio
 import json
 import logging
-from urllib.parse import urlsplit
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, model_validator
+from urllib.parse import urlsplit
 
+from .deps import get_active_tasks, get_browser, get_config as get_app_config, get_db
 from ..crawler.engine import CrawlerEngine
 from ..db import CrawlJob, Database
-from .deps import get_active_tasks, get_browser, get_config as get_app_config, get_db
 
 log = logging.getLogger(__name__)
 

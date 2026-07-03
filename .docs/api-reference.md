@@ -132,9 +132,11 @@ redundant extra rows, not the whole group).
 Set or update a domain's crawlable URL — used to fix up organizations imported with `main_url: null`.
 
 **Body:**
+
 ```json
 { "main_url": "https://example.gov.in", "contact_url": "https://example.gov.in/contact" }
 ```
+
 `contact_url` is optional.
 
 **Response:** the updated domain object. `404` if the domain doesn't exist, `422` if the URL is malformed.
@@ -232,6 +234,7 @@ exactly one must be provided (a request with both, or neither, gets a `422`).
 For `custom_urls`: each URL is trimmed, auto-prefixed with `http://` if it has no scheme, and deduplicated. The
 `crawler.target_suffixes` restriction (e.g. `.gov.in`, `.nic.in`) is **not** applied — custom URLs are crawled as
 given, since the caller chose them deliberately. Validation errors (`422`):
+
 - `"Invalid URL(s): ..."` — one or more entries have no resolvable netloc.
 - `"No valid custom URLs provided"` — nothing left after filtering blanks/invalid entries.
 - `"Too many custom URLs (N); max is {max}"` — exceeds `crawler.max_custom_urls` (default 50).
@@ -393,7 +396,8 @@ leads that already exist as crawled (non-manual) are left untouched and reported
 
 **Body:** `multipart/form-data` with field `file` (CSV with columns `name, email, designation, department, phone`).
 
-**Response:** `{ "imported": 12, "updated": 2, "skipped": [{ "row": 5, "email": "x@y.gov.in", "reason": "email already exists as a crawled lead" }] }`
+**Response:**
+`{ "imported": 12, "updated": 2, "skipped": [{ "row": 5, "email": "x@y.gov.in", "reason": "email already exists as a crawled lead" }] }`
 
 ---
 
@@ -772,6 +776,7 @@ Add more leads to an existing campaign (renders template for new lead_ids, skips
 Start the background SMTP dispatch worker for this campaign.
 
 **Validation before starting:**
+
 - `404` if the campaign doesn't exist.
 - `400 "No selected draft or queued emails to dispatch..."` if there's nothing to send.
 - `409 "Campaign is already running"` if a dispatch task is already active for it.
@@ -786,22 +791,23 @@ Start the background SMTP dispatch worker for this campaign.
 
 Mirror structure of production campaigns but use dummy recipient data instead of real leads.
 
-| Method | Path                                              | Description                                |
-|--------|---------------------------------------------------|--------------------------------------------|
+| Method | Path                                              | Description                                     |
+|--------|---------------------------------------------------|-------------------------------------------------|
 | POST   | `/api/test-campaigns/parse-csv`                   | Parse a CSV into `dummy_details` (no DB writes) |
-| POST   | `/api/test-campaigns`                             | Create test campaign with dummy recipients |
-| POST   | `/api/test-campaigns/{id}/dispatch`               | Dispatch test emails                       |
-| GET    | `/api/test-campaigns/{id}`                        | Campaign detail + stats                    |
-| GET    | `/api/test-campaigns/{id}/stats`                  | Live stats (includes `pause_reason`)       |
-| GET    | `/api/test-campaigns/{id}/emails`                 | Email list                                 |
-| PUT    | `/api/test-campaigns/{id}/emails/{eid}`           | Edit subject/body                          |
-| PATCH  | `/api/test-campaigns/{id}/emails/{eid}/selection` | Select/deselect                            |
-| PATCH  | `/api/test-campaigns/{id}/emails/selection-all`   | Select/deselect every DRAFT email          |
-| DELETE | `/api/test-campaigns/{id}/emails/{eid}`           | Remove draft                               |
-| PATCH  | `/api/test-campaigns/{id}`                        | Update status                              |
+| POST   | `/api/test-campaigns`                             | Create test campaign with dummy recipients      |
+| POST   | `/api/test-campaigns/{id}/dispatch`               | Dispatch test emails                            |
+| GET    | `/api/test-campaigns/{id}`                        | Campaign detail + stats                         |
+| GET    | `/api/test-campaigns/{id}/stats`                  | Live stats (includes `pause_reason`)            |
+| GET    | `/api/test-campaigns/{id}/emails`                 | Email list                                      |
+| PUT    | `/api/test-campaigns/{id}/emails/{eid}`           | Edit subject/body                               |
+| PATCH  | `/api/test-campaigns/{id}/emails/{eid}/selection` | Select/deselect                                 |
+| PATCH  | `/api/test-campaigns/{id}/emails/selection-all`   | Select/deselect every DRAFT email               |
+| DELETE | `/api/test-campaigns/{id}/emails/{eid}`           | Remove draft                                    |
+| PATCH  | `/api/test-campaigns/{id}`                        | Update status                                   |
 
 **`POST /api/test-campaigns/parse-csv` body:** `multipart/form-data` with field `file` (same CSV shape as
-`POST /api/leads/import-csv`). **Response:** `{ "dummy_details": [{name, designation, email, department}, ...], "skipped": [...] }`
+`POST /api/leads/import-csv`). **Response:**
+`{ "dummy_details": [{name, designation, email, department}, ...], "skipped": [...] }`
 — feed the result straight into `dummy_details` below without any DB round-trip.
 
 **`POST /api/test-campaigns` body:**

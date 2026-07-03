@@ -3,8 +3,9 @@
 Revision ID: 0006_add_job_custom_urls
 Revises: 0005_add_lead_depth, 0005_add_lead_grading
 """
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = '0006_add_job_custom_urls'
 down_revision = ('0005_add_lead_depth', '0005_add_lead_grading')

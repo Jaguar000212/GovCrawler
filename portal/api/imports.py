@@ -10,13 +10,12 @@ Registers routes:
 import asyncio
 import logging
 import tempfile
+from fastapi import APIRouter, Depends, File, UploadFile
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, UploadFile
-
+from .deps import get_config as get_app_config, get_db
 from ..db import Database
 from ..scraper.importer import import_all, import_from_json, import_status
-from .deps import get_config as get_app_config, get_db
 
 log = logging.getLogger(__name__)
 

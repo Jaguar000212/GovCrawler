@@ -3,8 +3,9 @@
 Revision ID: 0009_add_campaign_pause_reason
 Revises: 0008_add_campaign_credentials
 """
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = '0009_add_campaign_pause_reason'
 down_revision = '0008_add_campaign_credentials'

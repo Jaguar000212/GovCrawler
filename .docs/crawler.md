@@ -41,31 +41,31 @@ CrawlerEngine.run(seeds)
 
 All crawler behaviour is controlled by the `crawler:` section of `portal/config.yaml`.
 
-| Key                     | Default                               | Description                                             |
-|-------------------------|---------------------------------------|---------------------------------------------------------|
-| `workers`               | 10                                    | Number of concurrent async worker coroutines            |
-| `max_depth`             | 4                                     | Maximum crawl depth from each seed (0 = seed only)      |
-| `recrawl_days`          | 30                                    | Skip URLs visited in any job within last N days         |
-| `httpx_first`           | true                                  | Try HTTP fetch before launching browser                 |
-| `playwright_fallback`   | false                                 | Enable Playwright fallback for JS sites                 |
-| `httpx_timeout.connect` | 10                                    | TCP connect timeout (seconds)                           |
-| `httpx_timeout.read`    | 30                                    | HTTP read timeout (seconds)                             |
-| `playwright_timeout`    | 45                                    | Playwright page load timeout (seconds)                  |
-| `js_settle_time`        | 3.0                                   | Extra wait after `domcontentloaded` for JS to execute   |
-| `per_url_timeout`       | 100                                   | Hard per-URL watchdog timeout (seconds)                 |
-| `request_delay`         | 1.5                                   | Minimum seconds between requests to the same domain     |
-| `target_suffixes`       | `.gov.in`, `.nic.in`                  | Only crawl URLs ending in these suffixes (bypassed entirely for custom-URL jobs — see below) |
-| `max_custom_urls`       | 50                                    | Max ad-hoc URLs a `custom_urls`-seeded job may supply    |
-| `priority_keywords`     | `contact`, `officer`, `directory`, …  | URLs containing these are crawled first                 |
-| `skip_extensions`       | `.pdf`, `.doc`, `.jpg`, …             | URLs with these path extensions are skipped             |
-| `js_indicators`         | `<div id="__next"`, …                 | HTML strings that signal JavaScript rendering is needed |
-| `max_links_per_page`    | `{0: 100, 1: 50, 2: 40, default: 20}` | Max links to follow per depth level (bypassed for pagination links — see below) |
-| `user_agent`            | Chrome/124 Linux                      | User-Agent header sent with all requests                |
-| `pagination.enabled`    | true                                  | Master switch for pagination-aware crawling             |
-| `pagination.max_pagination_pages` | 50                          | Max hops followed down one pagination chain             |
-| `pagination.max_chain_children`   | 100                         | Shared cap on non-pagination children spawned across one whole chain |
-| `pagination.text_signals`        | `next`, `»`, `›`, `more`, `last`     | Anchor text marking a "next page" link (fallback only)  |
-| `pagination.param_signals`       | `page`, `pageno`, `start`, `offset`, `p` | Query-param names checked first — deciding signal when present |
+| Key                               | Default                                  | Description                                                                                  |
+|-----------------------------------|------------------------------------------|----------------------------------------------------------------------------------------------|
+| `workers`                         | 10                                       | Number of concurrent async worker coroutines                                                 |
+| `max_depth`                       | 4                                        | Maximum crawl depth from each seed (0 = seed only)                                           |
+| `recrawl_days`                    | 30                                       | Skip URLs visited in any job within last N days                                              |
+| `httpx_first`                     | true                                     | Try HTTP fetch before launching browser                                                      |
+| `playwright_fallback`             | false                                    | Enable Playwright fallback for JS sites                                                      |
+| `httpx_timeout.connect`           | 10                                       | TCP connect timeout (seconds)                                                                |
+| `httpx_timeout.read`              | 30                                       | HTTP read timeout (seconds)                                                                  |
+| `playwright_timeout`              | 45                                       | Playwright page load timeout (seconds)                                                       |
+| `js_settle_time`                  | 3.0                                      | Extra wait after `domcontentloaded` for JS to execute                                        |
+| `per_url_timeout`                 | 100                                      | Hard per-URL watchdog timeout (seconds)                                                      |
+| `request_delay`                   | 1.5                                      | Minimum seconds between requests to the same domain                                          |
+| `target_suffixes`                 | `.gov.in`, `.nic.in`                     | Only crawl URLs ending in these suffixes (bypassed entirely for custom-URL jobs — see below) |
+| `max_custom_urls`                 | 50                                       | Max ad-hoc URLs a `custom_urls`-seeded job may supply                                        |
+| `priority_keywords`               | `contact`, `officer`, `directory`, …     | URLs containing these are crawled first                                                      |
+| `skip_extensions`                 | `.pdf`, `.doc`, `.jpg`, …                | URLs with these path extensions are skipped                                                  |
+| `js_indicators`                   | `<div id="__next"`, …                    | HTML strings that signal JavaScript rendering is needed                                      |
+| `max_links_per_page`              | `{0: 100, 1: 50, 2: 40, default: 20}`    | Max links to follow per depth level (bypassed for pagination links — see below)              |
+| `user_agent`                      | Chrome/124 Linux                         | User-Agent header sent with all requests                                                     |
+| `pagination.enabled`              | true                                     | Master switch for pagination-aware crawling                                                  |
+| `pagination.max_pagination_pages` | 50                                       | Max hops followed down one pagination chain                                                  |
+| `pagination.max_chain_children`   | 100                                      | Shared cap on non-pagination children spawned across one whole chain                         |
+| `pagination.text_signals`         | `next`, `»`, `›`, `more`, `last`         | Anchor text marking a "next page" link (fallback only)                                       |
+| `pagination.param_signals`        | `page`, `pageno`, `start`, `offset`, `p` | Query-param names checked first — deciding signal when present                               |
 
 ---
 
@@ -234,6 +234,7 @@ supplied (see [api-reference.md](api-reference.md#crawl-jobs)). This is recorded
 (`"domains"` or `"custom_urls"`, [database-schema.md](database-schema.md)).
 
 For `custom_urls`:
+
 - Each URL is trimmed, auto-prefixed with `http://` if it has no scheme, and deduplicated.
 - Capped at `crawler.max_custom_urls` (default 50); invalid or empty input is rejected with `422`.
 - **`target_suffixes` is not applied** — a caller who supplies explicit URLs has already chosen them deliberately,
@@ -332,11 +333,11 @@ Groups candidates by email address into **entities**, keeping only the highest-r
 precedence: `mailto_tel` > `microdata` > `table_block` > `proximity_text`). Classifies each entity's
 `channel_tag`/`entity_kind` from the local-part and domain:
 
-| local-part in `extraction.role_local_parts`? | domain ends in `valid_suffixes`? | `channel_tag`        | `entity_kind` |
-|-----------------------------------------------|-----------------------------------|------------------------|----------------|
-| Yes                                            | —                                  | `role`                 | `org`          |
-| No                                             | No                                 | `personal-external`    | `person`       |
-| No                                             | Yes                                | `office`               | `person`       |
+| local-part in `extraction.role_local_parts`? | domain ends in `valid_suffixes`? | `channel_tag`       | `entity_kind` |
+|----------------------------------------------|----------------------------------|---------------------|---------------|
+| Yes                                          | —                                | `role`              | `org`         |
+| No                                           | No                               | `personal-external` | `person`      |
+| No                                           | Yes                              | `office`            | `person`      |
 
 Phone-only candidates (no email) are best-effort attached to the nearest entity sharing the same DOM container, or
 to every phone-less entity if no container match is found.
