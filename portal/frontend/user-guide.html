@@ -773,6 +773,14 @@
                 <p>The dock is resizable — drag its top edge to make it taller or shorter. Click ✕ to close it. Reopen
                     it by clicking any job in the "Recent Jobs" list in the sidebar.</p>
 
+                <h3>Crawling Custom URLs</h3>
+                <p>Not every site you want leads from is in the india.gov.in registry. The <strong>Custom URL
+                    Job</strong> panel in the Dashboard sidebar lets you paste one or more URLs (one per line) and
+                    click <strong>▶ Crawl Custom URLs</strong> to start a job against them directly — no domain
+                    import needed. Custom-URL jobs ignore the <strong>Target Suffixes</strong> restriction (you chose
+                    these URLs deliberately, so <code>.gov.in</code>/<code>.nic.in</code> filtering doesn't apply),
+                    but every other crawler setting (depth, pagination, rate limiting) still applies normally.</p>
+
                 <h3>Recrawl Protection</h3>
                 <p>GovCrawler tracks every URL it visits. By default, any URL visited in the last 30 days (across all
                     jobs) is skipped on re-runs. To force a full re-crawl, go to Settings and click <strong>Clear
@@ -821,9 +829,9 @@
                             <tr style="border-bottom:1px solid var(--border); color:var(--muted); text-align:left; background:var(--surface2,#161b22);">
                                 <th style="padding:6px 4px; width:20px;"></th>
                                 <th style="padding:6px 4px; width:14px;"></th>
-                                <th style="padding:6px 8px;">Band</th>
-                                <th style="padding:6px 8px;">Contact</th>
-                                <th style="padding:6px 8px;">Person</th>
+                                <th style="padding:6px 8px;">Score ▾</th>
+                                <th style="padding:6px 8px;">Contact ▾</th>
+                                <th style="padding:6px 8px;">Person ▾</th>
                                 <th style="padding:6px 8px;">Department</th>
                             </tr>
                             </thead>
@@ -832,7 +840,7 @@
                                 <td style="padding:6px 4px;">☑</td>
                                 <td style="padding:6px 4px;"></td>
                                 <td style="padding:6px 8px;"><span
-                                        style="background:rgba(82,196,26,.15); color:#52c41a; border-radius:3px; padding:1px 5px; font-size:10px; font-weight:600;">HIGH</span>
+                                        style="background:rgba(82,196,26,.15); color:#52c41a; border-radius:3px; padding:1px 5px; font-size:10px; font-weight:600;">90</span>
                                 </td>
                                 <td style="padding:6px 8px; color:var(--accent,#58a6ff);">js.sharma@finmin.gov.in</td>
                                 <td style="padding:6px 8px;">Shri J.S. Sharma</td>
@@ -842,7 +850,7 @@
                                 <td style="padding:6px 4px;">☐</td>
                                 <td style="padding:6px 4px; color:#f0a500; font-size:14px;">!</td>
                                 <td style="padding:6px 8px;"><span
-                                        style="background:rgba(240,165,0,.15); color:#f0a500; border-radius:3px; padding:1px 5px; font-size:10px; font-weight:600;">LOW</span>
+                                        style="background:rgba(240,165,0,.15); color:#f0a500; border-radius:3px; padding:1px 5px; font-size:10px; font-weight:600;">40</span>
                                 </td>
                                 <td style="padding:6px 8px; color:var(--accent,#58a6ff);">info@revenue.gov.in</td>
                                 <td style="padding:6px 8px; color:var(--muted); font-style:italic;">—</td>
@@ -853,18 +861,26 @@
                     </div>
                 </div>
 
-                <h3>Understanding the Band Column</h3>
-                <ul>
-                    <li><strong>HIGH</strong> (green) — Email found in a structured table row or a <code>mailto:</code>
-                        link, with a person name identified nearby. High confidence.
-                    </li>
-                    <li><strong>LOW</strong> (yellow) — Email found via proximity scan (regex pattern). Name or
-                        designation may be inaccurate or absent.
-                    </li>
-                </ul>
-                <p>A yellow left-border on a row means one or more fields (name, designation, or department) are
-                    missing. These rows are automatically deselected when you create a campaign so they won't receive a
-                    badly rendered email.</p>
+                <h3>Understanding the Score Column</h3>
+                <p>Every crawled lead gets a 0–100 <strong>Score</strong> built from how much usable contact
+                    information it carries: a verified email (found via a <code>mailto:</code> link or page
+                    microdata) is worth more than one found by a text scan, and a name, designation, and phone number
+                    each add further points. Hover the badge to see the exact point breakdown. The badge color is
+                    just a quick visual cue (green ≥ 70, yellow ≥ 40, grey below that) — it doesn't gate anything by
+                    itself.</p>
+                <p>Leads you add yourself via <strong>Import CSV</strong> (see below) always show a grey
+                    <strong>MANUAL</strong> chip instead of a number — they're not run through scoring.</p>
+                <p>A yellow left-border on a row means one or more fields (name, designation, department, or state)
+                    are missing. Rows with missing template fields are automatically deselected when you create a
+                    campaign so they won't receive a badly rendered email.</p>
+
+                <h3>Sorting</h3>
+                <p>Click the <strong>Score</strong>, <strong>Contact</strong>, or <strong>Person</strong> column
+                    header to sort by it — click again to reverse direction, and a third click returns to the
+                    default (newest first). <strong>Contact</strong> sorts leads with a phone number first;
+                    <strong>Person</strong> sorts leads with a name first (a designation alone doesn't count).
+                    Sorting is the only thing these three headers do — everything else on this page is a filter, not
+                    a sort.</p>
 
                 <h3>Inline Editing</h3>
                 <p>Click any editable cell in the table (Name, Designation, Department, State) to edit it in place.
@@ -874,20 +890,39 @@
                 <h3>Filters &amp; Search</h3>
                 <ul>
                     <li><strong>Job</strong> — Show leads from one specific crawl job only.</li>
-                    <li><strong>Category / State</strong> — Geographic and tier-based filtering.</li>
-                    <li><strong>Search</strong> — Matches against name, email, and designation fields.</li>
-                    <li><strong>Complete data only</strong> — Hides leads with no name or no designation. Use this
-                        before building a campaign to see only well-populated records.
+                    <li><strong>Category / State / Organization</strong> — Geographic and tier-based filtering
+                        (Organization mirrors the Dashboard's Org Type filter, scoped to leads that actually exist).
+                    </li>
+                    <li><strong>Search</strong> — Matches against name, email, designation, and department fields.</li>
+                    <li><strong>Show manual leads</strong> — On by default. Turn off to hide CSV-imported leads and
+                        see only crawler-extracted ones.
+                    </li>
+                    <li><strong>Data Competency</strong> — <strong>Complete data only</strong> hides leads missing
+                        name, designation, or department. The <strong>Has name / Has designation / Has phone</strong>
+                        checkboxes are independent and combine — tick more than one to require all of them at once.
                     </li>
                 </ul>
+                <div class="callout">
+                    <p><strong>Manual leads and domain filters:</strong> CSV-imported leads have no crawl-job domain,
+                        so a Category/State/Organization filter can't literally match them — with "Show manual
+                        leads" on, they're shown anyway rather than being silently hidden by a filter that doesn't
+                        apply to them.</p>
+                </div>
+
+                <h3 id="csv-import">Import Leads from CSV</h3>
+                <p>Click <strong>⬆ Import CSV</strong> (top right of the Leads page) to add contacts you already have
+                    — a spreadsheet from a colleague, a previous export — without crawling for them. Columns:
+                    <code>email</code> (required), <code>name</code>, <code>designation</code>, <code>department</code>,
+                    <code>phone</code>. Re-uploading a CSV updates existing manual leads matched by email; a row whose
+                    email already belongs to a crawled (non-manual) lead is skipped and reported, never overwritten.</p>
 
                 <h3 id="csv-export">CSV Export</h3>
                 <p>Click <strong>⬇ Export CSV</strong> (top right of the Leads page) to open the field selector. Email
                     is always included. Tick or untick any other column:</p>
                 <p style="color:var(--muted); font-size:13px;">Name &nbsp;·&nbsp; Designation &nbsp;·&nbsp; Department
                     &nbsp;·&nbsp; Domain/Org &nbsp;·&nbsp; State &nbsp;·&nbsp; Org Type &nbsp;·&nbsp; Category &nbsp;·&nbsp;
-                    Source URL &nbsp;·&nbsp; Page Title &nbsp;·&nbsp; Context Snippet &nbsp;·&nbsp; Captured At &nbsp;·&nbsp;
-                    Crawl Depth</p>
+                    Source URL &nbsp;·&nbsp; Page Title &nbsp;·&nbsp; Context Snippet &nbsp;·&nbsp; Score &nbsp;·&nbsp;
+                    Captured At &nbsp;·&nbsp; Crawl Depth</p>
                 <p>The export respects your current filters and selection. If leads are checked, only those N leads are
                     exported. If nothing is selected, all leads matching the current filters are exported.</p>
             </div>
@@ -939,6 +974,13 @@
                             the table.
                         </td>
                         <td>Wait — it auto-resumes after cooldown expires</td>
+                    </tr>
+                    <tr>
+                        <td>Capped</td>
+                        <td>Its optional <strong>Daily Send Limit</strong> (editable inline in the credentials table;
+                            blank = unlimited) has been reached for the day.
+                        </td>
+                        <td>Wait for the next day, or raise/clear the limit</td>
                     </tr>
                     <tr>
                         <td>Disabled</td>
@@ -1031,10 +1073,15 @@ Regards,
                     <li>Check the leads you want, or click <strong>Select all N</strong> for the full filtered set.</li>
                     <li>Click <strong>+ Create Campaign</strong> in the toolbar.</li>
                     <li>Enter a Campaign Name and choose a Template from the dropdown.</li>
+                    <li>Optionally uncheck <strong>Use all active credentials (round robin)</strong> to restrict this
+                        campaign to specific SMTP credentials instead of any active one.
+                    </li>
                     <li>Click <strong>Generate Drafts</strong>. You are taken to the Campaigns page.</li>
                 </ol>
                 <p>To add leads to an existing campaign later, select them and click <strong>+ Add to Campaign</strong>
                     instead, then pick the target campaign from the dropdown.</p>
+                <p>You can change which credentials a campaign uses at any time — even while it's running — from its
+                    detail page: click <strong>Edit</strong> next to the <strong>SMTP:</strong> line.</p>
 
                 <h3>Reviewing Drafts</h3>
                 <p>The campaign opens with status <span class="status-pill status-paused">PAUSED</span>. No emails have
@@ -1110,6 +1157,10 @@ Regards,
                     </li>
                     <li><strong>Cancel</strong> — All remaining QUEUED emails are marked FAILED. This cannot be undone.
                         Use only to abandon a campaign entirely.
+                    </li>
+                    <li><strong>Auto-pause</strong> — If every credential available to this campaign becomes
+                        disabled, cooling, or capped mid-dispatch, the campaign pauses itself and shows a ⚠ reason
+                        message on its detail page. Fix or add a credential, then click Dispatch again.
                     </li>
                 </ul>
 
@@ -1290,18 +1341,19 @@ Regards,
                     <tbody>
                     <tr>
                         <td><span class="cfg-name">Workers</span><span class="cfg-key">crawler.workers</span><span
-                                class="cfg-default">Default: <strong>50</strong></span></td>
-                        <td>Number of parallel coroutines crawling simultaneously. Reduce to 10–20 for slow machines or
-                            rate-sensitive targets. Higher values increase throughput but also put more load on crawled
-                            servers.
+                                class="cfg-default">Default: <strong>10</strong></span></td>
+                        <td>Number of parallel coroutines crawling simultaneously. The shipped default is
+                            conservative for a local machine — raise to 30–50 on a faster connection if you're not
+                            worried about rate-sensitive targets.
                         </td>
                     </tr>
                     <tr>
                         <td><span class="cfg-name">Max Depth</span><span class="cfg-key">crawler.max_depth</span><span
-                                class="cfg-default">Default: <strong>3</strong></span></td>
+                                class="cfg-default">Default: <strong>4</strong></span></td>
                         <td>How many link hops from the seed URL to follow. <strong>0</strong> = seed page only
-                            (fastest, fewest leads). <strong>3</strong> = enough to reach most /contact, /about, /staff
-                            pages. Beyond 4 grows exponentially in URL count.
+                            (fastest, fewest leads). The shipped default (<strong>4</strong>) reaches most /contact,
+                            /about, /staff pages a few hops from the home page, including through one pagination
+                            chain. Going deeper grows exponentially in URL count.
                         </td>
                     </tr>
                     <tr>
@@ -1386,7 +1438,7 @@ Regards,
                     </tr>
                     <tr>
                         <td><span class="cfg-name">Max Links per Depth</span><span class="cfg-key">crawler.max_links_per_page</span><span
-                                class="cfg-default">Default: <strong>100 / 50 / 40 / 15</strong></span></td>
+                                class="cfg-default">Default: <strong>100 / 50 / 40 / 20</strong></span></td>
                         <td>Per-page link budget at each depth level (0 / 1 / 2 / default). Seed pages (depth 0) get 100
                             because home pages have many navigation links. Deeper levels get fewer since subpages are
                             more focused. Tighter limits reduce runtime.
@@ -1459,10 +1511,10 @@ Regards,
                     <tbody>
                     <tr>
                         <td><span class="cfg-name">Valid Email Suffixes</span><span class="cfg-key">extraction.email.valid_suffixes</span><span
-                                class="cfg-default">Default: <strong>.gov.in .nic.in .res.in .ac.in</strong></span></td>
-                        <td>Only emails whose domain ends in one of these suffixes are saved as leads. Emails from
-                            commercial providers found incidentally on government pages are discarded. Add
-                            <code>.edu.in</code> to include educational institutions.
+                                class="cfg-default">Default: <strong>.gov.in .nic.in .res.in .ac.in .com</strong></span></td>
+                        <td>Only emails whose domain ends in one of these suffixes are saved as leads. <code>.com</code>
+                            is included by default to catch officials who list a personal/Gmail address alongside
+                            their official one. Add <code>.edu.in</code> to include educational institutions.
                         </td>
                     </tr>
                     <tr>

@@ -43,8 +43,8 @@ All crawler behaviour is controlled by the `crawler:` section of `portal/config.
 
 | Key                     | Default                               | Description                                             |
 |-------------------------|---------------------------------------|---------------------------------------------------------|
-| `workers`               | 50                                    | Number of concurrent async worker coroutines            |
-| `max_depth`             | 3                                     | Maximum crawl depth from each seed (0 = seed only)      |
+| `workers`               | 10                                    | Number of concurrent async worker coroutines            |
+| `max_depth`             | 4                                     | Maximum crawl depth from each seed (0 = seed only)      |
 | `recrawl_days`          | 30                                    | Skip URLs visited in any job within last N days         |
 | `httpx_first`           | true                                  | Try HTTP fetch before launching browser                 |
 | `playwright_fallback`   | false                                 | Enable Playwright fallback for JS sites                 |
@@ -54,12 +54,18 @@ All crawler behaviour is controlled by the `crawler:` section of `portal/config.
 | `js_settle_time`        | 3.0                                   | Extra wait after `domcontentloaded` for JS to execute   |
 | `per_url_timeout`       | 100                                   | Hard per-URL watchdog timeout (seconds)                 |
 | `request_delay`         | 1.5                                   | Minimum seconds between requests to the same domain     |
-| `target_suffixes`       | `.gov.in`, `.nic.in`                  | Only crawl URLs ending in these suffixes                |
+| `target_suffixes`       | `.gov.in`, `.nic.in`                  | Only crawl URLs ending in these suffixes (bypassed entirely for custom-URL jobs — see below) |
+| `max_custom_urls`       | 50                                    | Max ad-hoc URLs a `custom_urls`-seeded job may supply    |
 | `priority_keywords`     | `contact`, `officer`, `directory`, …  | URLs containing these are crawled first                 |
 | `skip_extensions`       | `.pdf`, `.doc`, `.jpg`, …             | URLs with these path extensions are skipped             |
 | `js_indicators`         | `<div id="__next"`, …                 | HTML strings that signal JavaScript rendering is needed |
-| `max_links_per_page`    | `{0: 100, 1: 50, 2: 40, default: 15}` | Max links to follow per depth level                     |
+| `max_links_per_page`    | `{0: 100, 1: 50, 2: 40, default: 20}` | Max links to follow per depth level (bypassed for pagination links — see below) |
 | `user_agent`            | Chrome/124 Linux                      | User-Agent header sent with all requests                |
+| `pagination.enabled`    | true                                  | Master switch for pagination-aware crawling             |
+| `pagination.max_pagination_pages` | 50                          | Max hops followed down one pagination chain             |
+| `pagination.max_chain_children`   | 100                         | Shared cap on non-pagination children spawned across one whole chain |
+| `pagination.text_signals`        | `next`, `»`, `›`, `more`, `last`     | Anchor text marking a "next page" link (fallback only)  |
+| `pagination.param_signals`       | `page`, `pageno`, `start`, `offset`, `p` | Query-param names checked first — deciding signal when present |
 
 ---
 
@@ -164,14 +170,76 @@ invoked regardless of HTTP success.
 
 After parsing, `_enqueue_links()` filters and enqueues discovered hrefs:
 
-1. Skip if `_is_skippable(url)` (matches `skip_extensions`).
-2. Skip if not `_is_gov_domain(url)` (doesn't end in `target_suffixes`).
-3. Skip if already in `_visited`.
-4. On a non-priority page and no `priority_keywords` match → skip.
-5. Cap at `max_links_per_page[depth]`.
-6. Enqueue remaining with `depth + 1`.
+1. Elect at most one pagination link for this page (see below) — it's exempt from the rest of this list.
+2. Cap non-pagination links at `max_links_per_page[depth]` (or the page's shared `chain_budget` if this page is
+   itself part of a pagination chain — see below).
+3. Skip if `_is_skippable(url)` (matches `skip_extensions`).
+4. Skip if not `_is_gov_domain(url)` (doesn't end in `target_suffixes`).
+5. Skip if already in `_visited`.
+6. On a non-priority page and no `priority_keywords` match → skip.
+7. Enqueue remaining with `depth + 1`.
 
 Seed pages are always treated as priority pages; all their links (up to the cap) are followed regardless of URL content.
+
+---
+
+## Pagination-Aware Crawling
+
+A page can carry one elected "next page" link that follows a separate budget from ordinary link discovery, so a
+long results listing doesn't get truncated by `max_links_per_page` after its first page.
+
+### Detection
+
+`_is_pagination_link(url, anchor_text, rel)` is deliberately conservative, to avoid falling into session-URL traps
+some `.gov.in` sites use (a "Next" link whose href carries a non-numeric/base64 session param instead of a real page
+number):
+
+1. If the URL has a query param matching `pagination.param_signals` (case-insensitive on the param name), its value
+   **must** be a plain base-10 integer, or the link is rejected outright — regardless of anchor text or `rel`. A
+   blank value (`?page=`) counts as present-but-non-numeric, so it's rejected too. If more than one signal param is
+   present, **any** non-numeric value among them rejects the whole URL (fail closed).
+2. Only when the URL carries **none** of the configured `param_signals` does it fall back to: `rel="next"`, or the
+   anchor text matching `pagination.text_signals` (or being a plain integer itself, e.g. a numbered pager link).
+
+### Election
+
+At most **one** pagination link is chosen per page (`_elect_pagination_target`) — preferring an explicit `rel="next"`
+hit, else the first classifier-accepted link in document order. Without this, a numbered pager bar
+("1 2 3 4 5 Next Last") would classify every matching link as its own independent pagination chain, multiplying the
+amplification bound by however many links the pager shows. Real "next page" progression is one hop per page.
+
+### Chain mechanics
+
+- The elected pagination link bypasses `max_links_per_page` and the priority-keyword filter entirely (a "Next"
+  anchor rarely carries a keyword). It spends `page_hops` — a linear counter capped at
+  `pagination.max_pagination_pages` — not `depth`.
+- Every page in one chain shares one mutable `chain_budget` counter. `pagination.max_chain_children` bounds the
+  **total** non-pagination children spawned across the **entire chain**, not per individual page — otherwise an
+  N-page chain would re-apply the full per-page cap N times, defeating the point of bounding it.
+- `pagination.enabled: false` doesn't disable the classifier itself — the gate lives at the `_enqueue_links()` call
+  site, so a disabled config simply never elects a pagination target and every link falls back to ordinary link
+  discovery rules.
+
+**Known limitation:** `mark_visited()` fires before `_fetch()` in the worker loop, so a transient fetch failure
+partway down a pagination chain permanently strands the rest of that chain for `recrawl_days` — and since chain
+continuation depends on parsing the current page, it also aborts the rest of the *current* crawl's discovery down
+that chain, not just future recrawls. This is a known, intentionally-deferred interaction, not a bug to work around.
+
+---
+
+## Job Seeding: Domains vs Custom URLs
+
+`POST /api/jobs` seeds a crawl from **either** known `domain_ids` **or** ad-hoc `custom_urls` — exactly one must be
+supplied (see [api-reference.md](api-reference.md#crawl-jobs)). This is recorded on the job as `source_type`
+(`"domains"` or `"custom_urls"`, [database-schema.md](database-schema.md)).
+
+For `custom_urls`:
+- Each URL is trimmed, auto-prefixed with `http://` if it has no scheme, and deduplicated.
+- Capped at `crawler.max_custom_urls` (default 50); invalid or empty input is rejected with `422`.
+- **`target_suffixes` is not applied** — a caller who supplies explicit URLs has already chosen them deliberately,
+  so the crawl runs against an engine config with `target_suffixes: []` for that job only. Every other crawler
+  setting (workers, depth, pagination, etc.) is unchanged.
+- The raw URLs are stored in the `job_custom_urls` table rather than resolved against `domains`.
 
 ---
 
@@ -213,70 +281,121 @@ live status dashboard.
 
 Source: `portal/crawler/parser.py`
 
-`parse_for_engine(html, url, excfg)` is `CrawlerEngine`'s thread-pool entry point (moved here from
-`engine.py` — it used to live there only because `run_in_executor` needs a top-level callable). It builds one
-`BeautifulSoup` tree, harvests `<a href>` links before any tag decomposition happens, then calls `extract_leads()`
-on the same tree and returns `(leads, raw_links)`.
+`parse_for_engine(html, url, excfg)` is `CrawlerEngine`'s thread-pool entry point. It builds one `BeautifulSoup`
+tree, harvests `<a href>` links (including `rel` tokens, used for pagination — see above) before any tag
+decomposition happens, then calls `extract_leads()` on the same tree and returns `(leads, raw_links)`.
+
+Extraction is a **6-stage pipes-and-filters pipeline**, entirely config-driven (no regexes or keyword lists
+hardcoded in the pipeline itself):
+
+```
+extract_candidates → bind_channels → enrich_fields → normalise_spans → score → flatten_emit
+```
 
 ### Lead Dataclass
 
 ```python
 @dataclass
 class Lead:
-    email: str | None
-    person_name: str | None
-    designation: str | None
-    department: str | None
-    source_url: str
-    source_title: str
-    context_snippet: str
+    email: str | None = None
+    person_name: str | None = None
+    designation: str | None = None
+    department: str | None = None
+    source_url: str = ""
+    source_title: str = ""
+    context_snippet: str = ""
+    entity_kind: str | None = None
+    phone: str | None = None
+    channel_tag: str | None = None
+    confidence_band: str | None = None
+    field_provenance: str | None = None
 ```
 
-### Two-Pass Extraction
+### Stage 1 — `extract_candidates`
 
-**Pass 1 — Table scanning (high confidence)**
+Harvests `(address, rung, context_node, raw_span, phone)` candidate dicts from four signal sources, all read from
+the full DOM **before** `<script>`/`<style>`/`<noscript>` are stripped:
 
-For each `<table>` with ≥ 2 rows:
+1. **`mailto:`/`tel:` hrefs** (rung `mailto_tel`) — highest precedence.
+2. **Microdata** — `itemprop="email"` / `itemprop="telephone"` (rung `microdata`).
+3. **Table/card blocks** (rung `table_block`) — for each `<table>` with ≥ 2 rows, locate columns by header keyword
+   (`name/officer/official`, `designation/post/rank`, `department/division/ministry`, `email/e-mail/mail`), then
+   scan each data row for emails matching the configured regex.
+4. **Proximity text scan** (rung `proximity_text`, bounded by `extraction.max_input_chars`) — obfuscation patterns
+   are applied to the page text first (`webmaster at nic dot in` → `webmaster@nic.in`), then the email regex runs
+   via `re.finditer`. A separate regex also catches *bracketed* obfuscated forms (`[at]`/`[dot]`) for later
+   resolution in Stage 4, since those need per-span (not whole-page) de-obfuscation to avoid false positives.
 
-1. Read header row to locate columns by keyword: `name/officer/official`, `designation/post/rank`,
-   `department/division/ministry`, `email/e-mail/mail`.
-2. For each data row, find emails matching the configured regex + `valid_suffixes`.
-3. Extract name, designation, department from the mapped columns.
-4. If column-based name/designation is absent, fall back to proximity regex within the row text.
+### Stage 2 — `bind_channels`
 
-**Pass 2 — Proximity scan**
+Groups candidates by email address into **entities**, keeping only the highest-rung candidate per address (rung
+precedence: `mailto_tel` > `microdata` > `table_block` > `proximity_text`). Classifies each entity's
+`channel_tag`/`entity_kind` from the local-part and domain:
 
-1. Strip `<script>`, `<style>`, `<noscript>` tags from the soup (mutates the tree).
-2. Normalize obfuscation patterns (`[at]` → `@`, `(dot)` → `.`, etc.).
-3. Find all emails matching the regex + valid suffixes using `re.finditer`.
-4. For each email, extract a `context_snippet` (±`context_chars` characters).
-5. Within a ±`proximity_chars` window, search for:
-    - Name: title prefix (`Shri`, `Dr`, `Mr`, etc.) followed by capitalized words.
-    - Designation: first matching `designation_keyword` in the window + up to 60 chars.
+| local-part in `extraction.role_local_parts`? | domain ends in `valid_suffixes`? | `channel_tag`        | `entity_kind` |
+|-----------------------------------------------|-----------------------------------|------------------------|----------------|
+| Yes                                            | —                                  | `role`                 | `org`          |
+| No                                             | No                                 | `personal-external`    | `person`       |
+| No                                             | Yes                                | `office`               | `person`       |
 
-**Phone extraction is not implemented.** The parser is intentionally limited to emails and personnel. Phone support is
-planned for a future release.
+Phone-only candidates (no email) are best-effort attached to the nearest entity sharing the same DOM container, or
+to every phone-less entity if no container match is found.
 
-### Obfuscation Handling
+### Stage 3 — `enrich_fields`
+
+Adds `person_name`, `designation`, `department` per entity (gated by `extraction.person.enabled`):
+
+- **`table_block` entities:** read from the mapped table columns, falling back to a proximity regex over the row
+  text if a column wasn't found (name = title-prefix + capitalized words; designation = first matching
+  `designation_keyword` + up to 60 chars).
+- **`proximity_text` entities:** the same name/designation regexes run over a ±`proximity_chars` window around the
+  email's position in the page text; `context_snippet` is a separate, smaller ±`context_chars` window.
+- **`department`:** prefers a table column value, else falls back to a URL-derived guess (first path segment of the
+  netloc). A page-level `itemprop="name"` value that disagrees with the URL-derived department is flagged
+  internally and degrades the entity's confidence band in Stage 5.
+
+### Stage 4 — `normalise_spans`
+
+Guarded de-obfuscation: resolves the *bracketed* obfuscated candidates carried over from Stage 1 by applying the
+configured `obfuscation` pairs to that span only — never a global text rewrite. A span that doesn't resolve to a
+valid email, or resolves to an address already captured by a higher-rung candidate, is dropped.
 
 ```yaml
 obfuscation:
   - ['\s*\[at\]\s*', '@']
   - ['\s*\(at\)\s*', '@']
-  - ['\s+at\s+',     '@']
   - ['\s*\[dot\]\s*', '.']
   - ['\s*\(dot\)\s*', '.']
-  - ['\s+dot\s+',    '.']
+  - ['\s*\[hyphen\]\s*', '-']
+  - ['\s*\(hyphen\)\s*', '-']
 ```
 
-Each pair is `[regex_pattern, replacement]`, applied via `re.sub` before email scanning.
+### Stage 5 — `score`
+
+Assigns `confidence_band` (`HIGH` if the rung is in `extraction.confidence.high_rungs`, else `LOW`) — degraded to
+`LOW` if Stage 3 flagged a department mismatch, even for an otherwise-HIGH rung. Also builds a `field_provenance`
+JSON blob recording which rung supplied each populated field (`email`, `person_name`, `designation`, `department`,
+`phone`).
+
+### Stage 6 — `flatten_emit`
+
+Emits one flat `Lead` per unique email. **The confidence band never drops a lead** — an email with no name is still
+a lead; only entities with no email at all are skipped.
 
 ### Email Validation
 
 An email is kept only if it passes both:
 
 1. The configured `regex` (default: `[a-zA-Z0-9._%+\-]+@(?:[a-zA-Z0-9\-]+\.)+[a-zA-Z]{2,6}`)
-2. Ends with one of `valid_suffixes` (`.gov.in`, `.nic.in`, `.res.in`, `.ac.in`)
+2. Ends with one of `valid_suffixes` (`.gov.in`, `.nic.in`, `.res.in`, `.ac.in`, `.com`)
+
+### Relationship to Lead Scoring
+
+`confidence_band`, `phone`, `person_name`, and `designation` set here feed directly into
+`portal/services/lead_scoring.compute_lead_score()` — see [database-schema.md](database-schema.md#leads) and
+[configuration.md](configuration.md) for the scoring weights. `channel_tag` values from this parser
+(`office`/`personal-external`/`role`) are distinct from the CSV-import sentinel `channel_tag == "manual"`, which
+always forces `lead_score` to 0 regardless of any of the above.
 
 ---
 

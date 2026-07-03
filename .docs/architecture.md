@@ -80,6 +80,16 @@ the event loop free for I/O.
 Also runs as an `asyncio.Task` on the shared event loop. A tight loop fetches the next QUEUED email from the DB and
 sends it via `aiosmtplib`. Credential rotation and rate-limit cooldowns are managed in-loop.
 
+### 5. Lead Scoring — `portal/services/lead_scoring.py`
+
+Not a background task — a pure function, `compute_lead_score()`, called synchronously wherever a lead is written or
+edited (`save_lead()`, `update_lead()`, manual CSV import). Produces a 0–100 `lead_score` from the email's
+`confidence_band` plus the presence of `person_name`, `designation`, and `phone`, weighted by the `lead_score.weights`
+config section (see [configuration.md](configuration.md)). Manual (CSV-imported) leads always score 0 by design —
+the score exists to help prioritize *crawled* leads, not to grade manual entries. `Database._ensure_columns()` calls
+`_recompute_lead_scores()` on every startup, so a weight change in config takes effect retroactively for every
+existing lead, not just newly-crawled ones.
+
 ---
 
 ## Data Flow
@@ -116,13 +126,14 @@ User polls  GET /api/jobs/{id}  every 3 s for metrics
 
 ```
 User (UI)
-  │  POST /api/campaigns  {lead_ids, template_id, name}
+  │  POST /api/campaigns  {lead_ids, template_id, name, credential_ids?}
   ▼
 campaigns.py
   │  Load leads → check blacklist → render Jinja2 template per lead
   │  bulk_create_campaign_emails() → CampaignEmail (status=DRAFT)
+  │  set_campaign_credentials()  (optional; empty = any active credential)
   ▼
-User reviews drafts, edits, deselects
+User reviews drafts, edits, deselects; may PUT .../credentials to change the pool
   │  POST /api/campaigns/{id}/dispatch
   ▼
 dispatcher.py — run_campaign_dispatch(campaign_id, db)
@@ -130,14 +141,20 @@ dispatcher.py — run_campaign_dispatch(campaign_id, db)
   │  Loop:
   │    Check campaign status (PAUSED/CANCELLED → break)
   │    get_next_queued_email()
-  │    _get_next_credential()  (round-robin)
+  │    resolve_credential_pool()  (this campaign's assigned credentials, else
+  │      all active; excludes any credential over its daily_send_limit)
+  │    _get_next_credential()  (round-robin over that pool, re-read every iteration)
+  │    _wait_for_credential_slot()  — 30-90s gap per CREDENTIAL id (not per loop
+  │      iteration), shared across every campaign in the process
   │    aiosmtplib: send email
-  │    mark_email_sent() / mark_email_failed()
-  │    On hard bounce (550/553) → add_to_blacklist()
-  │    On rate limit (421/450/451) → set_credential_cooldown()
-  │    await asyncio.sleep(random 30–90 s)
+  │    On success            → mark_email_sent()
+  │    On hard bounce (550/553, incl. SMTPRecipientsRefused) → add_to_blacklist() + mark_email_failed()
+  │    On rate limit (421/450/451)  → set_credential_cooldown(+1h), retry
+  │    On auth failure        → disable_credential(), retry (email not marked failed)
+  │    On network error       → set_credential_cooldown(+15min), retry
+  │    No usable credential   → campaign PAUSED with pause_reason set
   ▼
-campaign status → COMPLETED / PAUSED
+campaign status → COMPLETED / PAUSED (pause_reason set if auto-paused)
 ```
 
 ### Domain Import Lifecycle
@@ -209,9 +226,10 @@ are parsed concurrently.
 | Tray/Toast | `launcher/tray.py:TrayController`, `launcher/notifications.py` | pystray icon + thread; stateless notification calls |
 | Web App    | `portal/api/server.py:create_app`                | `portal/api/deps.py` (`_db`, `_config`, `_browser`, `_active_tasks`) |
 | Crawler    | `portal/crawler/engine.py:CrawlerEngine`         | `_queue`, `_visited`, `_domain_locks`         |
-| Dispatcher | `portal/api/dispatcher.py:run_campaign_dispatch` | In-loop locals only; state persisted in DB    |
+| Dispatcher | `portal/api/dispatcher.py:run_campaign_dispatch` | Module-level `_credential_locks`/`_credential_last_sent` (per-credential send pacing, shared across all campaigns in the process); everything else persisted in DB |
 | System     | `portal/api/system.py`                           | No state of its own — aggregates `_active_tasks` + `campaigns._active_campaign_tasks` + DB status for the GUI |
 | Importer   | `portal/scraper/importer.py`                     | `import_status` module-level dict             |
+| Lead Scoring | `portal/services/lead_scoring.py:compute_lead_score` | No state — pure function; weights passed in from config |
 | DB         | `portal/db/database.py:Database`                 | SQLAlchemy engine + session factory           |
 
 ---
@@ -229,3 +247,7 @@ are parsed concurrently.
 | Seed domains bypass recrawl            | Seeds are always re-crawled entry points; their child pages inherit recrawl protection so reruns pick up only new links                                     |
 | GUI talks to its own server over HTTP  | The Tkinter thread and the Uvicorn/asyncio event loop are different OS threads; `asyncio.Task.cancel()` isn't thread-safe cross-thread, so the launcher polls `GET /api/system/activity` / calls `POST /api/system/cancel-all` instead of touching task dicts directly |
 | Confirm-then-drain shutdown            | Stopping the server while jobs/campaigns are active first confirms with the user, then cancels everything and polls until it actually stops (up to a 3-minute timeout with a force-stop escape hatch) before killing Uvicorn — avoids silently orphaning in-flight email sends |
+| One elected pagination link per page, shared chain budget | A numbered pager bar ("1 2 3 ... Next") would otherwise spawn N independent chains; electing exactly one link and sharing one `max_chain_children` budget across the whole chain bounds the amplification regardless of how many pages exist |
+| Pagination `param_signals` must resolve to a plain integer | Session-URL "next page" links dressed up with a non-numeric/base64 param (seen in the wild on some `.gov.in` sites) would otherwise be followed as if they were real pagination — rejecting outright on a non-numeric matched param fails closed instead of open |
+| Per-credential send pacing, not per-loop-iteration | A flat sleep between every send would waste time when multiple credentials are in rotation; pacing per credential id (shared across all campaigns) lets different credentials send back-to-back while still rate-limiting repeated use of the same one |
+| Custom-URL jobs bypass `target_suffixes`  | A caller supplying explicit URLs has already chosen them deliberately — restricting to `.gov.in`/`.nic.in` would silently defeat the point of the feature |

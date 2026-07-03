@@ -15,6 +15,7 @@ All API responses are JSON unless noted. Pagination parameters use `page` (1-ind
 | GET    | `/campaigns`     | Campaign management                  |
 | GET    | `/settings`      | Crawler and extraction configuration |
 | GET    | `/test-campaign` | Test campaign creation               |
+| GET    | `/user-guide`    | In-app user guide                    |
 
 ---
 
@@ -162,7 +163,9 @@ Saves updated settings to `portal/config.yaml`. New crawler settings take effect
 
 ### `POST /api/import/json`
 
-Upload a `gov_domains.json` file. Zero API calls to india.gov.in. Runs in background.
+Upload a `gov_domains.json` file. Zero API calls to india.gov.in. Runs in background. If an import is already
+running, short-circuits with `{ "message": "Import already running", "status": <import_status> }` instead of
+starting a second one.
 
 **Body:** `multipart/form-data` with field `file` (JSON file).
 
@@ -172,7 +175,8 @@ Upload a `gov_domains.json` file. Zero API calls to india.gov.in. Runs in backgr
 
 ### `POST /api/import`
 
-Trigger a live refresh from the india.gov.in Web Directory API. Use only to update existing data.
+Trigger a live refresh from the india.gov.in Web Directory API. Use only to update existing data. Same
+already-running short-circuit as `POST /api/import/json`.
 
 **Response:** `{ "message": "API import started" }`
 
@@ -202,9 +206,10 @@ Poll import progress.
 
 ### `POST /api/jobs`
 
-Create and immediately start a crawl job.
+Create and immediately start a crawl job. Seed with **either** known `domain_ids` **or** ad-hoc `custom_urls` —
+exactly one must be provided (a request with both, or neither, gets a `422`).
 
-**Body:**
+**Body (domain-based):**
 
 ```json
 {
@@ -214,7 +219,27 @@ Create and immediately start a crawl job.
 }
 ```
 
-**Response:** `{ "id": 42, "message": "Crawl started for 3 domains" }`
+**Body (custom-URL-based):**
+
+```json
+{
+  "custom_urls": ["https://example.gov.in", "another.gov.in/contact"],
+  "category_filter": null,
+  "title_filter": null
+}
+```
+
+For `custom_urls`: each URL is trimmed, auto-prefixed with `http://` if it has no scheme, and deduplicated. The
+`crawler.target_suffixes` restriction (e.g. `.gov.in`, `.nic.in`) is **not** applied — custom URLs are crawled as
+given, since the caller chose them deliberately. Validation errors (`422`):
+- `"Invalid URL(s): ..."` — one or more entries have no resolvable netloc.
+- `"No valid custom URLs provided"` — nothing left after filtering blanks/invalid entries.
+- `"Too many custom URLs (N); max is {max}"` — exceeds `crawler.max_custom_urls` (default 50).
+
+For `domain_ids`: `404` if none of the IDs match an existing domain; `422 "Selected domains have no crawlable
+URLs"` if every matched domain has `main_url: null`.
+
+**Response:** `{ "id": 42, "message": "Crawl started for 3 seed URL(s)" }`
 
 ---
 
@@ -230,7 +255,8 @@ List recent crawl jobs.
 
 ### `GET /api/jobs/{job_id}`
 
-Get a single job's status and metrics.
+Get a single job's status and metrics. `404` if the job doesn't exist. `status` is dynamically overridden to
+`"running"` if the job has a live, not-yet-done in-process task, even if the DB row hasn't caught up yet.
 
 **Response:**
 
@@ -258,9 +284,11 @@ Get a single job's status and metrics.
 
 ### `GET /api/jobs/{job_id}/seeds`
 
-Returns the list of seed domain records for a job.
+Resolves a job's seeds. `404 "Job not found"` if it doesn't exist. The response shape depends on `source_type`:
 
-**Response:** Array of domain objects.
+- **Domain-based job:** array of domain objects (same shape as `GET /api/domains` rows).
+- **Custom-URL job (`source_type == "custom_urls"`):** array of raw custom-URL records from `job_custom_urls`
+  (`{id, job_id, url, created_at}`), **not** domain objects.
 
 ---
 
@@ -268,7 +296,8 @@ Returns the list of seed domain records for a job.
 
 Cancel a running job. Marks status as `cancelled`.
 
-**Response:** `{ "message": "Job cancelled" }`
+**Response:** `{ "message": "Job cancelled" }`, or `{ "message": "Job is not currently running" }` if it wasn't
+actively running when called.
 
 ---
 
@@ -276,16 +305,24 @@ Cancel a running job. Marks status as `cancelled`.
 
 ### `GET /api/leads`
 
-Paginated leads with filters.
+Paginated leads with filters and sorting.
 
 **Query params:**
 | Param | Type | Default | Description |
 |---|---|---|---|
 | `job_id` | int | — | Filter to a specific job |
-| `category` | string | — | Filter by domain category |
-| `state` | string | — | Filter by domain state |
+| `category` | string | — | Filter by domain category (bypassed for manual leads if `show_manual`) |
+| `state` | string | — | Filter by domain state (bypassed for manual leads if `show_manual`) |
+| `org_type` | string | — | Filter by domain org type (bypassed for manual leads if `show_manual`) |
 | `search` | string | — | Search email, name, designation, department |
 | `complete_only` | bool | false | Only leads with name + designation + department filled |
+| `min_score` | int | — | Minimum `lead_score` (0-100); never excludes manual leads (always score 0) |
+| `show_manual` | bool | true | Include CSV-imported manual leads (`channel_tag == "manual"`) |
+| `require_name` | bool | false | Only leads with `person_name` set |
+| `require_designation` | bool | false | Only leads with `designation` set |
+| `require_phone` | bool | false | Only leads with `phone` set |
+| `sort_by` | string | — | `score`, `contact` (has phone), or `name` (has `person_name`, ignores designation) |
+| `sort_dir` | string | desc | `asc` or `desc` |
 | `page` | int | 1 | Page number |
 | `limit` | int | 100 | Max 500 |
 
@@ -301,15 +338,24 @@ Paginated leads with filters.
 ```
 
 Each lead:
-`id, email, person_name, designation, department, source_url, source_title, context_snippet, domain_title, category_code, domain_state, domain_org_type, captured_at`
+`id, email, person_name, designation, department, source_url, source_title, context_snippet, domain_title, category_code, domain_state, domain_org_type, confidence_band, field_provenance, channel_tag, phone, lead_score, depth, captured_at`
 
 ---
 
 ### `GET /api/leads/ids`
 
-All matching lead IDs (for bulk operations). Same filters as `GET /api/leads`.
+All matching lead IDs (for bulk operations). Same filters as `GET /api/leads` (no sort/pagination params).
 
 **Response:** `{ "ids": [...], "total": 500 }`
+
+---
+
+### `GET /api/leads/score-weights`
+
+Returns the active lead-scoring point weights (from `lead_score.weights` config, or the built-in defaults). Powers
+the frontend's score-breakdown tooltip.
+
+**Response:** `{ "email_high": 20, "email_low": 10, "person_name": 40, "designation": 30, "phone": 10 }`
 
 ---
 
@@ -329,9 +375,38 @@ Distinct states with leads.
 
 ---
 
+### `GET /api/leads/org-types`
+
+Organization-type counts for leads — like `GET /api/org-types` but scoped to leads that actually exist (inner-joined
+to `domains`), not every domain in the directory.
+
+**Query params:** `job_id` (optional)
+
+**Response:** `[{ "code": "dept", "title": "Departments", "count": 42 }]`
+
+---
+
+### `POST /api/leads/import-csv`
+
+Bulk-create or update manual leads from an uploaded CSV. Existing manual leads (matched by email) are updated;
+leads that already exist as crawled (non-manual) are left untouched and reported in `skipped`.
+
+**Body:** `multipart/form-data` with field `file` (CSV with columns `name, email, designation, department, phone`).
+
+**Response:** `{ "imported": 12, "updated": 2, "skipped": [{ "row": 5, "email": "x@y.gov.in", "reason": "email already exists as a crawled lead" }] }`
+
+---
+
+### `GET /api/leads/import-csv/template`
+
+Downloads a blank CSV template (`text/csv`) with the expected columns and one example row.
+
+---
+
 ### `POST /api/leads/export`
 
-Download a CSV file of selected leads.
+Download a CSV file of selected leads. Accepts the same filters as `GET /api/leads` (sorting is irrelevant to
+export and is not accepted here).
 
 **Body:**
 
@@ -342,6 +417,12 @@ Download a CSV file of selected leads.
   "state": null,
   "search": null,
   "complete_only": false,
+  "min_score": null,
+  "org_type": null,
+  "show_manual": true,
+  "require_name": false,
+  "require_designation": false,
+  "require_phone": false,
   "lead_ids": [1, 2, 3],
   "fields": ["email", "person_name", "designation", "source_url"]
 }
@@ -350,7 +431,7 @@ Download a CSV file of selected leads.
 `lead_ids` and `fields` are optional. `email` is always included. If `fields` is omitted, all fields are exported.
 
 **Available fields:**
-`email, person_name, designation, department, domain_title, domain_state, domain_org_type, category_title, source_url, source_title, context_snippet, captured_at`
+`email, person_name, designation, department, domain_title, domain_state, domain_org_type, category_title, source_url, source_title, context_snippet, lead_score, depth, captured_at`
 
 **Response:** `text/csv` download.
 
@@ -358,7 +439,7 @@ Download a CSV file of selected leads.
 
 ### `PUT /api/leads/{lead_id}`
 
-Update editable fields of a lead.
+Update editable fields of a lead. Recomputes `lead_score` after the edit.
 
 **Body:**
 
@@ -518,9 +599,13 @@ Add a new SMTP credential.
   "host": "smtp.gmail.com",
   "port": 587,
   "username": "sender@example.com",
-  "password": "app-password"
+  "password": "app-password",
+  "daily_send_limit": null
 }
 ```
+
+`daily_send_limit` is optional; `null`/omitted = unlimited. Once a credential hits its limit for the day it's
+excluded from dispatch until the next UTC day.
 
 **Supported ports:** 465 (TLS), 587 (STARTTLS)
 
@@ -528,7 +613,7 @@ Add a new SMTP credential.
 
 ### `PUT /api/credentials/{credential_id}`
 
-Update a credential. All fields optional.
+Update a credential. All fields optional: `host`, `port`, `username`, `password`, `is_active`, `daily_send_limit`.
 
 ---
 
@@ -540,7 +625,8 @@ Delete a credential.
 
 ### `POST /api/credentials/{credential_id}/test`
 
-Test SMTP connection and authentication. Re-activates credential on success.
+Test SMTP connection and authentication. **Side effects on credential state:** success re-activates the credential
+if it was disabled; any failure (auth or otherwise) sets `is_active = false`.
 
 **Response:**
 
@@ -564,9 +650,13 @@ Generate draft emails for a new campaign. Blacklisted leads are skipped. Missing
 {
   "name": "Q2 Outreach",
   "template_id": 1,
-  "lead_ids": [10, 11, 12]
+  "lead_ids": [10, 11, 12],
+  "credential_ids": []
 }
 ```
+
+`credential_ids` is optional — restricts which SMTP credentials this campaign may dispatch through. Empty (default)
+= any active credential. See [outreach.md](outreach.md#credential-assignment).
 
 **Response:**
 
@@ -593,7 +683,18 @@ Each campaign includes an embedded `stats` object.
 
 ### `GET /api/campaigns/{campaign_id}`
 
-Campaign detail including live stats.
+Campaign detail including live `stats` and `credential_ids` (its current SMTP credential assignment).
+
+---
+
+### `PUT /api/campaigns/{campaign_id}/credentials`
+
+Change which SMTP credentials a campaign may dispatch through, at any time before it's CANCELLED/COMPLETED. The
+dispatcher re-reads this assignment on every send, so an edit to a RUNNING campaign takes effect on its next send.
+
+**Body:** `{ "credential_ids": [1, 2, 3] }`
+
+**Response:** `{ "message": "Campaign credentials updated" }`, or `400` if the campaign is CANCELLED/COMPLETED.
 
 ---
 
@@ -610,9 +711,11 @@ Update campaign status.
 Live email counts by status (for UI polling every 3 s).
 
 **Response:**
-`{ "draft": 8, "queued": 2, "sent": 5, "failed": 1, "skipped": 2, "total": 18, "campaign_status": "RUNNING" }`
+`{ "draft": 8, "queued": 2, "sent": 5, "failed": 1, "skipped": 2, "total": 18, "campaign_status": "RUNNING", "pause_reason": null }`
 
-`skipped` = deselected DRAFT emails; `draft` = selected drafts only.
+`skipped` = deselected DRAFT emails; `draft` = selected drafts only. `pause_reason` is set when the dispatcher
+auto-pauses the campaign (e.g. every usable credential is disabled, cooling down, or capped) and cleared on any
+subsequent status change.
 
 ---
 
@@ -634,9 +737,19 @@ Manually override subject and body of a DRAFT email.
 
 ### `PATCH /api/campaigns/{campaign_id}/emails/{email_id}/selection`
 
-Select or deselect a DRAFT email for the next dispatch.
+Select or deselect a DRAFT or QUEUED email for the next dispatch. Deselecting a QUEUED email pulls it back to DRAFT.
 
 **Body:** `{ "is_selected": false }`
+
+---
+
+### `PATCH /api/campaigns/{campaign_id}/emails/selection-all`
+
+Select or deselect every DRAFT email in the campaign in one call, regardless of pagination.
+
+**Body:** `{ "is_selected": false }`
+
+**Response:** `{ "message": "Updated selection for 8 email(s)", "updated": 8 }`
 
 ---
 
@@ -656,7 +769,14 @@ Add more leads to an existing campaign (renders template for new lead_ids, skips
 
 ### `POST /api/campaigns/{campaign_id}/dispatch`
 
-Start the background SMTP dispatch worker for this campaign. Requires at least one active, non-cooling SMTP credential.
+Start the background SMTP dispatch worker for this campaign.
+
+**Validation before starting:**
+- `404` if the campaign doesn't exist.
+- `400 "No selected draft or queued emails to dispatch..."` if there's nothing to send.
+- `409 "Campaign is already running"` if a dispatch task is already active for it.
+- `400` if no usable SMTP credential exists — the message differs depending on whether none exist/are active at all
+  vs. every assigned credential is currently capped, cooling down, or disabled.
 
 **Response:** `{ "message": "Dispatch started" }`
 
@@ -668,15 +788,21 @@ Mirror structure of production campaigns but use dummy recipient data instead of
 
 | Method | Path                                              | Description                                |
 |--------|---------------------------------------------------|--------------------------------------------|
+| POST   | `/api/test-campaigns/parse-csv`                   | Parse a CSV into `dummy_details` (no DB writes) |
 | POST   | `/api/test-campaigns`                             | Create test campaign with dummy recipients |
 | POST   | `/api/test-campaigns/{id}/dispatch`               | Dispatch test emails                       |
 | GET    | `/api/test-campaigns/{id}`                        | Campaign detail + stats                    |
-| GET    | `/api/test-campaigns/{id}/stats`                  | Live stats                                 |
+| GET    | `/api/test-campaigns/{id}/stats`                  | Live stats (includes `pause_reason`)       |
 | GET    | `/api/test-campaigns/{id}/emails`                 | Email list                                 |
 | PUT    | `/api/test-campaigns/{id}/emails/{eid}`           | Edit subject/body                          |
 | PATCH  | `/api/test-campaigns/{id}/emails/{eid}/selection` | Select/deselect                            |
+| PATCH  | `/api/test-campaigns/{id}/emails/selection-all`   | Select/deselect every DRAFT email          |
 | DELETE | `/api/test-campaigns/{id}/emails/{eid}`           | Remove draft                               |
 | PATCH  | `/api/test-campaigns/{id}`                        | Update status                              |
+
+**`POST /api/test-campaigns/parse-csv` body:** `multipart/form-data` with field `file` (same CSV shape as
+`POST /api/leads/import-csv`). **Response:** `{ "dummy_details": [{name, designation, email, department}, ...], "skipped": [...] }`
+— feed the result straight into `dummy_details` below without any DB round-trip.
 
 **`POST /api/test-campaigns` body:**
 
