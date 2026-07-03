@@ -18,7 +18,9 @@ from fastapi.staticfiles import StaticFiles
 from playwright.async_api import async_playwright
 
 from ..db import Database
-from . import blacklist, campaigns, config, credentials, deps, domains, frontend, imports, jobs, leads, templates
+from . import (
+    blacklist, campaigns, config, credentials, deps, domains, frontend, imports, jobs, leads, system, templates,
+)
 
 log = logging.getLogger(__name__)
 
@@ -60,5 +62,6 @@ def create_app(config_dict: dict, db: Database) -> FastAPI:
     app.include_router(blacklist.router)
     app.include_router(campaigns.router)
     app.include_router(credentials.router)
+    app.include_router(system.router)
 
     return app

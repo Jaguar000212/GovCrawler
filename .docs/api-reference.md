@@ -393,6 +393,46 @@ Clears the `visited_urls` table. Useful before a fresh full crawl.
 
 ---
 
+### `GET /api/system/activity`
+
+Live counts of everything currently running — crawl jobs, real campaigns, and test campaigns. Powers the desktop
+Control Panel's activity indicator and its "is it safe to stop the server?" check; not used by the web frontend.
+Crawl jobs and real campaigns come from live in-memory task state (exact); test campaigns are inferred from
+`status == RUNNING` in the DB, since test-campaign dispatch has no task handle to check — this can lag if the
+process was killed mid-dispatch in a previous run.
+
+**Response:**
+
+```json
+{
+  "crawl_jobs": [{ "id": 12, "label": "Job #12 (4/10 domains, 7 leads)" }],
+  "campaigns": [{ "id": 3, "name": "Q2 Outreach" }],
+  "test_campaigns": [{ "id": 7, "name": "SMTP Test" }],
+  "total_active": 2
+}
+```
+
+---
+
+### `POST /api/system/cancel-all`
+
+Cancels every currently active crawl job, campaign, and test campaign in one call. Crawl jobs stop promptly; campaign
+dispatch loops only re-check their status once per send cycle, so they can take **up to ~90 seconds** to actually
+stop after this call returns.
+
+**Response:**
+
+```json
+{
+  "crawl_jobs_cancelled": 1,
+  "campaigns_cancelled": 1,
+  "test_campaigns_cancelled": 0,
+  "message": "Cancellation signalled. Campaign dispatch loops may take up to ~90s to actually stop."
+}
+```
+
+---
+
 ## Email Templates
 
 ### `GET /api/templates`

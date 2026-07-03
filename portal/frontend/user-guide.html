@@ -330,6 +330,9 @@
             <div class="section-label">User Guide</div>
             <ul class="settings-nav" id="guide-nav" style="font-size:13px;">
                 <li onclick="document.getElementById('overview').scrollIntoView({behavior:'smooth'})">Overview</li>
+                <li onclick="document.getElementById('control-panel').scrollIntoView({behavior:'smooth'})">Control
+                    Panel
+                </li>
                 <li onclick="document.getElementById('importing-domains').scrollIntoView({behavior:'smooth'})">Importing
                     Domains
                 </li>
@@ -496,6 +499,56 @@
                     </tr>
                     </tbody>
                 </table>
+            </div>
+
+
+            <!-- ════════════════════════════════════════════════
+                 SECTION 1B — CONTROL PANEL (desktop app)
+            ════════════════════════════════════════════════ -->
+            <div class="guide-section" id="control-panel">
+                <h2>The Desktop Control Panel</h2>
+                <p>If you're running the compiled <code>GovCrawler.exe</code> (or <code>python run.py</code> from
+                    source), a small always-on-top window — the <strong>Control Panel</strong> — is how you start and
+                    stop the server behind this web interface. If someone else runs the server for you and you only
+                    ever open it in a browser, you can skip this section.</p>
+
+                <h3>First-Time Setup</h3>
+                <p>The Control Panel checks for the Playwright Chromium browser automatically on launch. If it's
+                    missing, the <strong>Start Server</strong> button stays disabled until you click <strong>Download
+                        Browsers</strong> (~600 MB, one-time). Once installed, this step is skipped on every future
+                    launch.</p>
+
+                <h3>Starting and Stopping</h3>
+                <p>Click <strong>Start Server</strong> to launch the portal at <code>http://127.0.0.1:8000</code> —
+                    the same button becomes <strong>Stop Server</strong> while running. The <strong>Activity</strong>
+                    panel shows a live count of crawl jobs and campaigns currently in progress, refreshed every 1.5
+                    seconds.</p>
+                <div class="callout callout-warn">
+                    <p><strong>Stopping while work is in progress:</strong> if you click Stop Server (or Quit from
+                        the tray) while a crawl job or email campaign is active, a confirmation dialog lists what's
+                        running before anything is touched. Confirming cancels everything first and waits for it to
+                        actually stop — crawl jobs stop almost immediately, but a running email campaign can take up
+                        to <strong>~90 seconds</strong> (it only checks for cancellation between sends). If it's still
+                        not done after a few minutes, you're offered a "Force stop anyway" option.</p>
+                </div>
+
+                <h3>Tray Icon</h3>
+                <p>Closing the Control Panel window (the <strong>×</strong> button) minimizes it to the system tray
+                    instead of quitting — the server keeps running in the background. Double-click the tray icon, or
+                    choose <strong>Show GovCrawler</strong> from its right-click menu, to bring the window back. The
+                    tray menu's <strong>Quit</strong> option runs the same confirm-and-cancel flow as Stop Server, but
+                    also closes the Control Panel itself afterward.</p>
+
+                <h3>Notifications</h3>
+                <p>Desktop toast notifications fire when the server starts or stops, when a crawl job or campaign
+                    finishes, and when a browser download completes or fails — so you don't have to keep the window
+                    focused to know what's happening.</p>
+                <div class="callout">
+                    <p><strong>Not seeing notifications?</strong> On Windows, check Focus Assist / Do Not Disturb. On
+                        Linux, a notification daemon needs to be running (most desktop environments ship one). These
+                        failures are silent — no error shown anywhere in GovCrawler. See <a
+                                href="#control-panel-notifications-trouble">Troubleshooting</a>.</p>
+                </div>
             </div>
 
 
@@ -1541,6 +1594,23 @@ Regards,
                         <div class="solution">The dock is fixed to the bottom of the viewport — scroll down if it is not
                             visible. If the job status immediately shows "failed", click on the job in the Recent Jobs
                             sidebar to open the dock, then check the Server Logs tab for the error message.
+                        </div>
+                    </li>
+                    <li id="control-panel-notifications-trouble">
+                        <div class="problem">Control Panel toast notifications never appear</div>
+                        <div class="solution"><strong>Windows:</strong> check Focus Assist / Do Not Disturb, and that
+                            notifications aren't disabled for Python in Settings → System → Notifications.
+                            <strong>macOS:</strong> check System Settings → Notifications for the app. <strong>Linux:</strong>
+                            a notification daemon must be running (most desktop environments include one by default;
+                            minimal window manager setups may not). These failures are silent — no error appears
+                            anywhere in GovCrawler.
+                        </div>
+                    </li>
+                    <li>
+                        <div class="problem">Control Panel's Start Server button is greyed out</div>
+                        <div class="solution">The Playwright browser hasn't been downloaded yet. Click <strong>Download
+                            Browsers</strong> in the Control Panel and wait for it to finish (~600 MB, one-time) — the
+                            button enables automatically once installed.
                         </div>
                     </li>
                 </ul>
