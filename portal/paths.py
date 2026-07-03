@@ -41,6 +41,8 @@ LIVE_CONFIG_PATH = PORTAL_LIVE_DIR / "config.yaml"
 BROWSER_PATH = APP_DIR / "playwright_browsers"
 DEFAULT_CONFIG_PATH = BUNDLE_DIR / "portal" / "default_config.yaml"
 ICON_PATH = BUNDLE_DIR / "assets" / "favicon.ico"
+ALEMBIC_INI_PATH = BUNDLE_DIR / "alembic.ini"
+ALEMBIC_DIR = BUNDLE_DIR / "alembic"
 
 
 def bootstrap() -> None:

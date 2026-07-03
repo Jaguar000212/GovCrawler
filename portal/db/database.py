@@ -9,6 +9,7 @@ from .mixins.job_mixin import JobMixin
 from .mixins.lead_mixin import LeadMixin
 from .mixins.outreach_mixin import OutreachMixin
 from .mixins.visited_mixin import VisitedUrlMixin
+from .migrations import run_migrations
 
 log = logging.getLogger(__name__)
 
@@ -21,6 +22,7 @@ class Database(DomainMixin, JobMixin, LeadMixin, VisitedUrlMixin, OutreachMixin)
         self._Session = sessionmaker(bind=self.engine)
         self._recrawl_days = config.get("crawler", {}).get("recrawl_days", 30)
         self._ensure_columns()
+        run_migrations(uri)
         log.info(f"Database ready: {uri}")
 
     def _ensure_columns(self):

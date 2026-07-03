@@ -7,7 +7,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[('portal/frontend', 'portal/frontend'), ('portal/default_config.yaml', 'portal'), (cert_file, 'certifi'),
-          ('assets', 'assets')],
+          ('assets', 'assets'), ('alembic', 'alembic'), ('alembic.ini', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
