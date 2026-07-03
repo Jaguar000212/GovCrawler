@@ -50,7 +50,13 @@ GovCrawler/
 │       ├── 0005_add_lead_grading.py       # entity_kind, phone, channel_tag,
 │       │                                  # confidence_band, field_provenance (branch B)
 │       ├── 0006_add_job_custom_urls.py    # crawl_jobs.source_type + job_custom_urls table
-│       └── 0007_add_domain_external_id.py # domains.external_id (null-url dedup key)
+│       ├── 0007_add_domain_external_id.py # domains.external_id (null-url dedup key)
+│       ├── 0008_add_campaign_credentials.py  # campaign_credentials table,
+│       │                                     # smtp_credentials.daily_send_limit,
+│       │                                     # campaign_emails/test_campaign_emails.credential_id
+│       ├── 0009_add_campaign_pause_reason.py # campaigns/test_campaigns.pause_reason
+│       └── 0010_add_lead_score.py            # leads.lead_score (values populated by
+│                                             # Database._recompute_lead_scores(), not the migration)
 │
 ├── GovScraper/                     # Standalone domain-discovery tool (no dependency on
 │   │                               # the portal app/DB; run with GovScraper/ as CWD since
@@ -137,28 +143,43 @@ GovCrawler/
     │   ├── jobs.py                 # Crawl job routes
     │   │                           # /api/jobs, /api/jobs/{id}, /api/jobs/{id}/seeds,
     │   │                           # /api/jobs/{id}/cancel
+    │   │                           # Seeds via domain_ids OR custom_urls (mutually
+    │   │                           # exclusive); custom_urls validated/deduped/capped
+    │   │                           # by crawler.max_custom_urls and bypass target_suffixes
     │   │                           # _run_crawl() background task (drives CrawlerEngine)
     │   │
     │   ├── leads.py                # Lead browsing, export, and editing routes
-    │   │                           # /api/leads, /api/leads/ids, /api/leads/categories,
-    │   │                           # /api/leads/states, /api/leads/export, PUT /api/leads/{id}
+    │   │                           # /api/leads, /api/leads/ids, /api/leads/score-weights,
+    │   │                           # /api/leads/categories, /api/leads/states,
+    │   │                           # /api/leads/org-types, /api/leads/export,
+    │   │                           # /api/leads/import-csv(/template), PUT /api/leads/{id}
     │   │
     │   ├── campaigns.py            # Campaign generation + management routes (APIRouter)
     │   │                           # - Draft generation via services/campaign_service.py
     │   │                           # - Status management (RUNNING/PAUSED/CANCELLED)
-    │   │                           # - Email editing, selection, deletion
-    │   │                           # - Test campaign routes (same structure, dummy data)
+    │   │                           # - Per-campaign SMTP credential assignment
+    │   │                           #   (PUT /api/campaigns/{id}/credentials)
+    │   │                           # - Email editing, selection (incl. bulk selection-all)
+    │   │                           # - Test campaign routes (same structure, dummy data,
+    │   │                           #   + parse-csv for dummy_details)
     │   │
     │   ├── dispatcher.py           # Async SMTP dispatch background tasks
     │   │                           # run_campaign_dispatch(campaign_id, db)
     │   │                           # run_test_campaign_dispatch(campaign_id, db)
     │   │                           # - Flips DRAFT → QUEUED → SENT/FAILED
-    │   │                           # - Round-robin credential selection
-    │   │                           # - Hard-bounce → blacklist, rate-limit → cooldown
+    │   │                           # - resolve_credential_pool(): assigned credentials
+    │   │                           #   (else all active), excluding daily_send_limit-capped
+    │   │                           # - Round-robin over that pool; per-credential send
+    │   │                           #   pacing shared across all campaigns in the process
+    │   │                           # - Hard-bounce → blacklist; rate-limit/network error
+    │   │                           #   → cooldown; auth failure → disable credential
+    │   │                           # - No usable credential → campaign PAUSED + pause_reason
     │   │
     │   ├── credentials.py          # SMTP credential CRUD (APIRouter)
     │   │                           # - Password masking on list
-    │   │                           # - Live SMTP connection test
+    │   │                           # - daily_send_limit on create/update
+    │   │                           # - Live SMTP connection test (auto-disables on
+    │   │                           #   failure, re-activates on success)
     │   │
     │   ├── templates.py            # Email template CRUD (APIRouter)
     │   │                           # - Jinja2 syntax validation on create/update
@@ -172,10 +193,17 @@ GovCrawler/
     │
     ├── services/                   # Business logic shared across route handlers
     │   ├── __init__.py
-    │   └── campaign_service.py     # render_template_string(), render_draft_emails()
-    │                               # Blacklist/exclude filtering + Jinja2 rendering +
-    │                               # missing-field detection, used by campaigns.py's
-    │                               # create_campaign and add_emails_to_campaign
+    │   ├── campaign_service.py     # render_template_string(), render_draft_emails()
+    │   │                           # Blacklist/exclude filtering + Jinja2 rendering +
+    │   │                           # missing-field detection, used by campaigns.py's
+    │   │                           # create_campaign and add_emails_to_campaign
+    │   ├── csv_import.py           # parse_contacts_csv(), build_template_csv() — shared
+    │   │                           # by leads.py's import-csv and campaigns.py's
+    │   │                           # test-campaigns/parse-csv
+    │   └── lead_scoring.py         # compute_lead_score(), DEFAULT_WEIGHTS — 0-100 lead
+    │                               # score from email confidence_band + name/designation/
+    │                               # phone presence; manual (channel_tag="manual") leads
+    │                               # always score 0
     │
     ├── crawler/
     │   ├── __init__.py
@@ -189,32 +217,46 @@ GovCrawler/
     │   │                           #   (thread-pool target: parser.parse_for_engine)
     │   │                           # - _reporter() task: pushes metrics to DB every 2 s
     │   │
-    │   └── parser.py               # Lead/email extraction
+    │   └── parser.py               # Lead/email/phone extraction — 6-stage pipeline
     │                               # Lead dataclass: email, person_name, designation,
-    │                               #   department, source_url, source_title, context_snippet
-    │                               # extract_leads(soup, url, config) — two-pass:
-    │                               #   Pass 1: table rows (structured, high confidence)
-    │                               #   Pass 2: proximity scan (email anchor → nearby name)
+    │                               #   department, source_url, source_title, context_snippet,
+    │                               #   entity_kind, phone, channel_tag, confidence_band,
+    │                               #   field_provenance
+    │                               # extract_leads(soup, url, config):
+    │                               #   1. extract_candidates — mailto:/tel: hrefs, microdata
+    │                               #      itemprop, table rows, proximity-text regex scan
+    │                               #   2. bind_channels — group by email into entities;
+    │                               #      classify channel_tag (office/personal-external/role)
+    │                               #   3. enrich_fields — name/designation/department per entity
+    │                               #   4. normalise_spans — guarded de-obfuscation, bracketed
+    │                               #      forms only (never a global text rewrite)
+    │                               #   5. score — confidence_band (HIGH/LOW) + field_provenance
+    │                               #   6. flatten_emit — one Lead per email; band never drops one
     │                               # parse_for_engine(html, url, excfg) — CrawlerEngine's
     │                               #   thread-pool target: builds the soup once, harvests
-    │                               #   links, then calls extract_leads()
-    │                               # NOTE: Phone extraction is intentionally excluded
+    │                               #   links (incl. rel="next" for pagination), then calls
+    │                               #   extract_leads()
     │
     ├── db/                         # SQLAlchemy models + Database access wrapper
     │   ├── __init__.py             # Re-exports Base, Database, enums, and all table classes
     │   ├── base.py                 # declarative_base() + SQLite WAL pragma listener
     │   ├── enums.py                # CampaignStatus, EmailStatus
-    │   ├── database.py             # Database class: __init__, _ensure_columns(), close()
+    │   ├── database.py             # Database class: __init__, _ensure_columns()
+    │   │                           # (incl. _recompute_lead_scores()), close()
     │   │                           # Composed from the mixins below — same public API
     │   │                           # as before, just organized by concern
+    │   ├── migrations.py           # run_migrations(db_uri): stamps a pre-Alembic DB at
+    │   │                           # head (first contact), then always runs
+    │   │                           # `alembic upgrade head` — called from Database.__init__
+    │   │                           # after _ensure_columns(), every startup
     │   │
     │   ├── tables/                 # ORM model definitions
     │   │   ├── __init__.py
-    │   │   ├── crawl.py            # Domain, CrawlJob, VisitedUrl
+    │   │   ├── crawl.py            # Domain, CrawlJob, VisitedUrl, JobCustomUrl
     │   │   ├── leads.py            # Lead
-    │   │   └── outreach.py         # Campaign, CampaignEmail, EmailTemplate,
-    │   │                           # SMTPCredential, Blacklist, TestCampaign,
-    │   │                           # TestCampaignEmail
+    │   │   └── outreach.py         # Campaign, CampaignCredential, CampaignEmail,
+    │   │                           # EmailTemplate, SMTPCredential, Blacklist,
+    │   │                           # TestCampaign, TestCampaignEmail
     │   │
     │   └── mixins/                 # Database's methods, grouped by concern
     │       ├── __init__.py
@@ -222,19 +264,24 @@ GovCrawler/
     │       │                       # get_domains, get_categories, get_states, get_org_types,
     │       │                       # get_domain_ids, get_domains_by_ids, clear_domains,
     │       │                       # count_domains
-    │       ├── job_mixin.py        # create_job, start_job, finish_job,
-    │       │                       # increment_job_progress, update_job_metrics,
-    │       │                       # get_job, list_jobs, _job_dict
-    │       ├── lead_mixin.py       # save_lead, get_leads, get_lead_ids,
-    │       │                       # get_all_leads_for_export, get_lead_categories,
-    │       │                       # get_lead_states, update_lead
+    │       ├── job_mixin.py        # create_job (domain_ids or custom_urls), start_job,
+    │       │                       # finish_job, increment_job_progress, update_job_metrics,
+    │       │                       # get_job, list_jobs, _job_dict,
+    │       │                       # add_job_custom_urls, get_job_custom_urls
+    │       ├── lead_mixin.py       # get_lead_score_weights, save_lead, get_leads,
+    │       │                       # get_lead_ids, get_all_leads_for_export,
+    │       │                       # get_lead_categories, get_lead_states, get_lead_org_types,
+    │       │                       # bulk_upsert_manual_leads, update_lead
     │       │                       # _apply_lead_filters(): shared filter-building
     │       │                       # helper used by all three list/export methods
     │       │                       # so pagination totals can never diverge from rows
+    │       │                       # _apply_lead_sort(): separate helper for score/contact/name
+    │       │                       # sort — deliberately not folded into the filter helper
     │       ├── visited_mixin.py    # mark_visited, get_visited_urls,
     │       │                       # get_recently_visited_global, clear_visited_urls
-    │       └── outreach_mixin.py   # Templates, blacklist, campaigns, campaign emails,
-    │                               # credentials, test campaigns (largest mixin)
+    │       └── outreach_mixin.py   # Templates, blacklist, campaigns (incl. per-campaign
+    │                               # credential assignment), campaign emails, credentials,
+    │                               # test campaigns (largest mixin)
     │
     ├── scraper/
     │   ├── __init__.py
@@ -275,15 +322,15 @@ GovCrawler/
 
 | File                                  | Size       | Notes                                                      |
 |---------------------------------------|------------|-------------------------------------------------------------|
+| `portal/api/campaigns.py`             | ~605 lines | Campaign + test-campaign creation, staging, dispatch routes (APIRouter) |
 | `portal/db/mixins/outreach_mixin.py`  | ~500 lines | Largest single db file — templates through test campaigns |
-| `portal/crawler/parser.py`            | ~670 lines | Extraction pipeline + `parse_for_engine` thread-pool entry point |
-| `portal/crawler/engine.py`            | ~530 lines | Core async crawler implementation                          |
-| `portal/api/campaigns.py`             | ~510 lines | Campaign creation, staging, dispatch routes (APIRouter)    |
-| `portal/api/dispatcher.py`            | ~300 lines | SMTP dispatch loop for both real + test campaigns          |
+| `portal/crawler/parser.py`            | ~670 lines | 6-stage extraction pipeline + `parse_for_engine` thread-pool entry point |
+| `portal/crawler/engine.py`            | ~530 lines | Core async crawler implementation, incl. pagination-chain logic |
+| `portal/api/dispatcher.py`            | ~330 lines | SMTP dispatch loop for both real + test campaigns          |
 | `portal/scraper/importer.py`          | ~330 lines | JSON and live-API import                                   |
-| `portal/db/mixins/lead_mixin.py`      | ~190 lines | Lead CRUD + shared `_apply_lead_filters` helper            |
-| `portal/api/leads.py`                 | ~140 lines | Lead browsing, export, and editing routes                  |
-| `portal/api/jobs.py`                  | ~140 lines | Crawl job routes + `_run_crawl` background task             |
+| `portal/db/mixins/lead_mixin.py`      | ~325 lines | Lead CRUD + shared `_apply_lead_filters`/`_apply_lead_sort` helpers |
+| `portal/api/leads.py`                 | ~205 lines | Lead browsing, export, CSV import, and editing routes       |
+| `portal/api/jobs.py`                  | ~200 lines | Crawl job routes (domain- or custom-URL-seeded) + `_run_crawl` background task |
 | `portal/db/mixins/domain_mixin.py`    | ~215 lines | Domain CRUD, stats, and metadata queries                     |
 | `GovScraper/api/api.py`               | ~110 lines | Three HTTP functions for india.gov.in API                   |
 | `launcher/app.py`                     | ~400 lines | CrawlerLauncher: state machine, polling, shutdown flow, UI  |

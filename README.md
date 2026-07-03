@@ -13,8 +13,11 @@ leads, and an email outreach system backed by SQLite or PostgreSQL.
 - **Domain Discovery:** `GovScraper` extracts domains from the `india.gov.in` Web Directory API — no CAPTCHA needed.
   Organizations with no listed URL are kept (not dropped) and marked "not crawlable" until a URL is added manually.
 - **Deep Crawler Engine:** Async crawling via HTTPX (fast path) with Playwright fallback for JavaScript-heavy sites.
-- **Data Extraction:** Configurable regex/keyword extraction for emails and key personnel (name, designation,
-  department). Phone number extraction is planned but not yet implemented.
+- **Data Extraction:** Configurable regex/keyword extraction for emails, phone numbers, and key personnel (name,
+  designation, department), via a 6-stage confidence-scored pipeline (mailto/tel links, microdata, tables, and
+  proximity-text scanning).
+- **Lead Scoring:** Every crawled lead gets a 0–100 score from email confidence, name, designation, and phone
+  presence — configurable weights, manual (CSV-imported) leads always score 0.
 - **Email Outreach System:** Full campaign lifecycle — Jinja2 email templates, lead-to-draft generation, SMTP dispatch
   with rate-limit handling, blacklist, and test campaigns.
 - **Scalable Database:** SQLAlchemy ORM with SQLite (default) or PostgreSQL. Schema managed via Alembic migrations.
@@ -124,7 +127,7 @@ Opens the **GovCrawler Control Panel** (`launcher.app.CrawlerLauncher`):
 
 - **Playwright Browsers** — Detected automatically on launch; the download button only needs clicking once, on
   first-time setup (~600 MB Chromium). Starting the server is disabled until browsers are present.
-- **Start / Stop Server** — A single toggle button launches the FastAPI server on `http://127.0.0.1:8000` (or stops
+- **Start / Stop Server** — A single toggle button launches the FastAPI server on `http://127.0.0.1:8001` (or stops
   it). If a crawl job or email campaign is active when you click Stop, a confirmation dialog lists what's running;
   confirming cancels everything first and waits for it to actually stop (up to ~90 s for email campaigns, since the
   dispatch loop only re-checks its status once per send) before shutting the server down.
@@ -209,9 +212,9 @@ sections:
 | Section                                  | Key Settings                                         |
 |------------------------------------------|------------------------------------------------------|
 | `database.uri`                           | SQLite (default) or `postgresql://user:pass@host/db` |
-| `api.host` / `api.port`                  | Server bind address (default `0.0.0.0:8000`)         |
-| `crawler.workers`                        | Concurrent async workers (default 50)                |
-| `crawler.max_depth`                      | Max crawl depth per seed (default 3)                 |
+| `api.host` / `api.port`                  | Server bind address (default `127.0.0.1:8001`)       |
+| `crawler.workers`                        | Concurrent async workers (default 10)                |
+| `crawler.max_depth`                      | Max crawl depth per seed (default 4)                 |
 | `crawler.recrawl_days`                   | Skip URLs visited within N days (default 30)         |
 | `extraction.email.valid_suffixes`        | Only keep emails matching these domains              |
 | `extraction.person.designation_keywords` | Keywords that trigger designation detection          |
