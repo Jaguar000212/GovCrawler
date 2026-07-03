@@ -6,7 +6,8 @@ a = Analysis(
     ['run.py'],
     pathex=[],
     binaries=[],
-    datas=[('portal/frontend', 'portal/frontend'), ('portal/default_config.yaml', 'portal'), (cert_file, 'certifi')],
+    datas=[('portal/frontend', 'portal/frontend'), ('portal/default_config.yaml', 'portal'), (cert_file, 'certifi'),
+          ('assets', 'assets')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -33,6 +34,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon='assets/favicon.ico',
 )
 coll = COLLECT(
     exe,

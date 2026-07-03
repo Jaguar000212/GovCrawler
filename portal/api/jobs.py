@@ -180,11 +180,18 @@ async def get_job_seeds(job_id: int, db: Database = Depends(get_db)):
             return []
 
 
-@router.post("/api/jobs/{job_id}/cancel")
-async def cancel_job(job_id: int, db: Database = Depends(get_db), active_tasks: dict = Depends(get_active_tasks)):
+def cancel_job_if_running(job_id: int, db: Database, active_tasks: dict[int, asyncio.Task]) -> bool:
+    """Cancel a job's task and mark it cancelled in the DB. Returns whether it was running."""
     task = active_tasks.get(job_id)
     if task and not task.done():
         task.cancel()
         db.finish_job(job_id, status="cancelled")
+        return True
+    return False
+
+
+@router.post("/api/jobs/{job_id}/cancel")
+async def cancel_job(job_id: int, db: Database = Depends(get_db), active_tasks: dict = Depends(get_active_tasks)):
+    if cancel_job_if_running(job_id, db, active_tasks):
         return {"message": "Job cancelled"}
     return {"message": "Job is not currently running"}

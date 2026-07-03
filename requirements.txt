@@ -13,3 +13,6 @@ alembic==1.13.1
 aiosmtplib>=3.0.0
 python-multipart>=0.0.32
 certifi>=2026.6.17
+pystray>=0.19.5
+winotify>=1.1.0
+sv-ttk>=2.6.0
