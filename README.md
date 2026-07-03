@@ -23,7 +23,9 @@ leads, and an email outreach system backed by SQLite or PostgreSQL.
 
 ```
 GovCrawler/
-├── run.py                   # Tkinter GUI Control Panel entry point
+├── run.py                   # Thin GUI entry point (bootstrap only)
+├── launcher/                # Tkinter Control Panel — CrawlerLauncher, tray icon, notifications
+├── assets/                  # Desktop app icon (window/taskbar, tray, compiled .exe)
 ├── requirements.txt
 ├── GovCrawler.spec          # PyInstaller build configuration
 ├── alembic.ini              # Alembic database migration config
@@ -36,7 +38,7 @@ GovCrawler/
     ├── default_config.yaml  # Shipped default configuration
     ├── config.yaml          # Live user configuration (gitignored)
     ├── api/                 # REST API layer — one APIRouter per concern
-    │   ├── server.py        # App factory: lifespan, static mount, include_router × 10
+    │   ├── server.py        # App factory: lifespan, static mount, include_router × 11
     │   ├── deps.py          # Shared app state (db/config/browser) + Depends() providers
     │   ├── frontend.py      # HTML page routes + /api/logs, /api/visited-urls
     │   ├── domains.py       # Domain metadata, browsing, stats, and URL-edit routes
@@ -48,7 +50,8 @@ GovCrawler/
     │   ├── dispatcher.py    # Async SMTP background worker
     │   ├── credentials.py   # SMTP credential CRUD
     │   ├── templates.py     # Email template CRUD (Jinja2 validated)
-    │   └── blacklist.py     # Email/domain blacklist CRUD
+    │   ├── blacklist.py     # Email/domain blacklist CRUD
+    │   └── system.py        # Activity aggregation for the desktop Control Panel
     ├── services/
     │   └── campaign_service.py  # Draft rendering shared by campaign create/add-emails
     ├── crawler/
@@ -78,6 +81,9 @@ See [`.docs/directory-structure.md`](.docs/directory-structure.md) for a full an
 
 - Python 3.10+
 - Playwright Chromium browser (`playwright install chromium`)
+- The Tkinter Control Panel (`run.py`) runs on Windows, macOS, and Linux (see `.github/workflows/release.yaml` for
+  the build matrix). On Linux, the tray icon needs a desktop environment with a systray host (most have one; a
+  minimal window manager may not) — everything else works regardless.
 
 ## Installation from Source
 
@@ -114,12 +120,21 @@ See [`.docs/directory-structure.md`](.docs/directory-structure.md) for a full an
 python run.py
 ```
 
-Opens the **GovCrawler Control Panel** (`CrawlerLauncher`) with four buttons:
+Opens the **GovCrawler Control Panel** (`launcher.app.CrawlerLauncher`):
 
-1. **Download Browsers** — First-time setup; downloads ~600 MB Chromium.
-2. **Start Server** — Launches the FastAPI server on `http://127.0.0.1:8000`.
-3. **Open Web Interface** — Opens the browser UI.
-4. **Stop Server** — Gracefully shuts down Uvicorn.
+- **Playwright Browsers** — Detected automatically on launch; the download button only needs clicking once, on
+  first-time setup (~600 MB Chromium). Starting the server is disabled until browsers are present.
+- **Start / Stop Server** — A single toggle button launches the FastAPI server on `http://127.0.0.1:8000` (or stops
+  it). If a crawl job or email campaign is active when you click Stop, a confirmation dialog lists what's running;
+  confirming cancels everything first and waits for it to actually stop (up to ~90 s for email campaigns, since the
+  dispatch loop only re-checks its status once per send) before shutting the server down.
+- **Activity** — Live count of running crawl jobs / campaigns / test campaigns, polled every 1.5 s.
+- **Tray icon** — Closing the window minimizes it to the system tray instead of quitting; the server keeps running.
+  Use the tray menu's **Quit** (or the in-window **Stop Server**) to actually shut down.
+- **Notifications** — Desktop toast notifications (via `notifypy`, native on each OS) on server start/stop, crawl job
+  or campaign completion, and browser download results. If toasts don't appear on Windows, check Focus Assist / Do
+  Not Disturb; on Linux, a notification daemon (e.g. `dunst`, or your desktop environment's built-in one) must be
+  running. Notification failures are logged but never crash the app.
 
 ### CLI Usage
 
@@ -180,6 +195,11 @@ pyinstaller GovCrawler.spec
 ```
 
 Output: `dist/GovCrawler/GovCrawler.exe`
+
+`GovCrawler.spec` bakes `assets/favicon.ico` into the executable's icon and bundles it alongside the app for the
+window/taskbar and tray icons at runtime — make sure that file exists before building. To regenerate it from a new
+logo, convert the source image to a multi-resolution `.ico` (16/32/48/256 px) with Pillow and place it at
+`assets/favicon.ico`.
 
 ## Configuration
 

@@ -6,9 +6,23 @@ Annotated file tree for the GovCrawler project. Runtime artefacts (`__pycache__`
 ```
 GovCrawler/
 │
-├── run.py                          # Tkinter GUI Control Panel (CrawlerLauncher)
-│                                   # Also handles headless browser install via
-│                                   # "INSTALL_BROWSERS" argv sentinel
+├── run.py                          # Thin GUI entry point: SSL/cert fixes, the
+│                                   # "INSTALL_BROWSERS" argv sentinel (headless
+│                                   # browser install), and the __main__ block that
+│                                   # hands off to launcher.app.CrawlerLauncher
+│
+├── launcher/                        # Tkinter Control Panel (not part of portal/ —
+│   │                                 # this is the desktop wrapper, not the web app)
+│   ├── __init__.py
+│   ├── app.py                      # CrawlerLauncher: AppState machine, sv-ttk UI,
+│   │                               # HTTP polling of /api/system/activity, the
+│   │                               # confirm → cancel-all → drain → shutdown flow
+│   ├── tray.py                     # TrayController: pystray icon + its own thread
+│   └── notifications.py            # notify() — thin notifypy wrapper (cross-platform;
+│                                   # NOT winotify, which crashes on macOS/Linux)
+│
+├── assets/                          # Desktop app icon, shared by window/taskbar,
+│   └── favicon.ico                 # tray icon, and the compiled .exe (GovCrawler.spec)
 │
 ├── requirements.txt                # Python package dependencies
 ├── GovCrawler.spec                 # PyInstaller spec — builds Windows .exe
@@ -79,9 +93,9 @@ GovCrawler/
     ├── paths.py                    # Path resolution + first-run bootstrap
     │                               # get_app_dir(), get_bundle_dir(), bootstrap()
     │                               # APP_DIR, DATA_DIR, LOG_FILE_PATH, LIVE_CONFIG_PATH,
-    │                               # BROWSER_PATH, DEFAULT_CONFIG_PATH
+    │                               # BROWSER_PATH, DEFAULT_CONFIG_PATH, ICON_PATH
     │                               # Handles both dev and PyInstaller frozen modes;
-    │                               # shared by portal/main.py and run.py
+    │                               # shared by portal/main.py and launcher/app.py
     │
     ├── default_config.yaml         # Shipped defaults (read-only in .exe mode)
     ├── config.yaml                 # Live user config; overrides defaults (gitignored)
@@ -94,7 +108,7 @@ GovCrawler/
     │   │                           # - Playwright browser lifespan (start/stop)
     │   │                           # - Static file mount (/static)
     │   │                           # - Wires deps._db/_config/_config_path
-    │   │                           # - app.include_router(...) × 10
+    │   │                           # - app.include_router(...) × 11
     │   │
     │   ├── deps.py                 # Shared app state + FastAPI dependency providers
     │   │                           # _db, _config, _config_path, _browser,
@@ -149,7 +163,12 @@ GovCrawler/
     │   ├── templates.py            # Email template CRUD (APIRouter)
     │   │                           # - Jinja2 syntax validation on create/update
     │   │
-    │   └── blacklist.py            # Email/domain blacklist CRUD (APIRouter)
+    │   ├── blacklist.py            # Email/domain blacklist CRUD (APIRouter)
+    │   │
+    │   └── system.py               # Activity aggregation for the desktop Control Panel
+    │                               # GET /api/system/activity, POST /api/system/cancel-all
+    │                               # Reads deps._active_tasks + campaigns._active_campaign_tasks
+    │                               # directly (ground truth); test campaigns via DB status only
     │
     ├── services/                   # Business logic shared across route handlers
     │   ├── __init__.py
@@ -233,6 +252,8 @@ GovCrawler/
     │   ├── test-campaign.html      # Test campaign creation with dummy recipients
     │   ├── user-guide.html         # In-app user guide
     │   └── static/
+    │       ├── img/
+    │       │   └── favicon.ico     # Browser tab icon (same source as assets/favicon.ico)
     │       ├── css/
     │       │   ├── base.css        # CSS variables, layout, navbar, modals
     │       │   ├── leads.css       # Lead table, edit overlay
@@ -265,8 +286,11 @@ GovCrawler/
 | `portal/api/jobs.py`                  | ~140 lines | Crawl job routes + `_run_crawl` background task             |
 | `portal/db/mixins/domain_mixin.py`    | ~215 lines | Domain CRUD, stats, and metadata queries                     |
 | `GovScraper/api/api.py`               | ~110 lines | Three HTTP functions for india.gov.in API                   |
-| `portal/api/server.py`                | ~65 lines  | Pure app wiring — lifespan + `include_router` × 10          |
-| `run.py`                              | ~230 lines | Tkinter GUI + INSTALL_BROWSERS sentinel                     |
+| `launcher/app.py`                     | ~400 lines | CrawlerLauncher: state machine, polling, shutdown flow, UI  |
+| `portal/api/server.py`                | ~65 lines  | Pure app wiring — lifespan + `include_router` × 11          |
+| `portal/api/system.py`                | ~100 lines | Activity aggregation + cancel-all for the desktop GUI        |
+| `launcher/tray.py`                    | ~50 lines  | pystray icon lifecycle                                      |
+| `run.py`                              | ~50 lines  | Bootstrap only — SSL fix, INSTALL_BROWSERS sentinel, entry  |
 
 ## Generated / Ignored Paths
 

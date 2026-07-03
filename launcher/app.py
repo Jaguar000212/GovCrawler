@@ -27,8 +27,10 @@ log = logging.getLogger(__name__)
 
 
 def browsers_installed() -> bool:
-    """Heuristic check: does a Chromium executable already exist under BROWSER_PATH?"""
-    return BROWSER_PATH.exists() and any(BROWSER_PATH.rglob("chrome.exe"))
+    """Heuristic check: has Playwright already installed a chromium build under
+    BROWSER_PATH? Checks for the chromium-<rev> folder rather than a specific
+    executable name, since that differs per OS (chrome.exe / chrome / Chromium.app)."""
+    return BROWSER_PATH.exists() and any(BROWSER_PATH.glob("chromium-*"))
 
 
 class AppState(Enum):

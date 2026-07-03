@@ -10,15 +10,16 @@ process and SQLite/PostgreSQL database.
 │                    GovCrawler Process                    │
 │                                                          │
 │  ┌─────────────┐   ┌─────────────────────────────────┐  │
-│  │  Tkinter GUI │   │        FastAPI / Uvicorn         │  │
-│  │  (run.py)   │──▶│  (portal/api/server.py)          │  │
-│  └─────────────┘   │                                  │  │
-│                    │  Frontend routes  API routes      │  │
-│                    │  /  /leads        /api/domains    │  │
-│                    │  /campaigns       /api/jobs       │  │
-│                    │  /settings        /api/leads      │  │
-│                    │                   /api/campaigns  │  │
-│                    └──────────┬──────────────┬─────────┘  │
+│  │ Tkinter GUI  │   │        FastAPI / Uvicorn         │  │
+│  │ (run.py +   │──▶│  (portal/api/server.py)          │  │
+│  │  launcher/) │◀──│                                  │  │
+│  └──────┬──────┘   │  Frontend routes  API routes      │  │
+│         │          │  /  /leads        /api/domains    │  │
+│  ┌──────▼──────┐   │  /campaigns       /api/jobs       │  │
+│  │ Tray + Toast │   │  /settings        /api/leads      │  │
+│  │ (pystray,   │   │                   /api/campaigns  │  │
+│  │  notifypy)  │   │                   /api/system     │  │
+│  └─────────────┘   └──────────┬──────────────┬─────────┘  │
 │                               │              │            │
 │                    ┌──────────▼──────┐  ┌────▼─────────┐ │
 │                    │  CrawlerEngine  │  │  SMTP        │ │
@@ -36,11 +37,30 @@ process and SQLite/PostgreSQL database.
 
 ## Subsystems
 
-### 1. Control Plane — `run.py` (Tkinter GUI)
+### 1. Control Plane — `run.py` + `launcher/` (Tkinter GUI)
 
-The entry point for end users running the Windows executable. Tkinter renders a four-button control panel in the main OS
-thread. Server start/stop is managed on a background daemon thread so the GUI stays responsive. Uvicorn is started
-programmatically (`uvicorn.Server`) so `should_exit = True` can be set for graceful shutdown.
+The entry point for end users running the packaged executable — built and shipped for Windows, macOS, and Linux
+(`.github/workflows/release.yaml`). `run.py` itself is a thin bootstrap (SSL/cert fixes, the `INSTALL_BROWSERS` argv
+sentinel, and the `__main__` block) — the actual GUI lives in the `launcher/` package:
+
+- `launcher/app.py` — `CrawlerLauncher`, an explicit state machine (`AppState`: IDLE → STARTING → RUNNING →
+  CHECKING → CANCELLING → DRAINING → STOPPING) driving an sv-ttk-themed UI. Server start/stop runs on a background
+  daemon thread so Tkinter's mainloop stays responsive. Uvicorn is started programmatically (`uvicorn.Server`) so
+  `should_exit = True` can be set for graceful shutdown.
+- `launcher/tray.py` — `TrayController`, a `pystray` icon on its own thread. `pystray` auto-selects a backend per OS
+  (win32 / darwin / appindicator→gtk→xorg on Linux) at import time, so this is safe cross-platform; Linux tray
+  *visibility* still depends on the desktop having a systray host. Closing the window minimizes to tray; only the
+  Stop Server button or the tray's Quit item run the real shutdown flow.
+- `launcher/notifications.py` — thin `notifypy` wrapper for cross-platform toast notifications (server start/stop,
+  job/campaign completion, crashes). Deliberately not `winotify`, which imports the Windows-only `winreg` stdlib
+  module at load time and crashes the whole GUI on macOS/Linux.
+
+Because the GUI's Tkinter thread and the Uvicorn/asyncio event loop run on different OS threads,
+`CrawlerLauncher` never reaches into crawler/dispatcher task dicts directly (`asyncio.Task.cancel()` isn't
+thread-safe to call cross-thread) — it talks to its own local server over plain HTTP instead, the same way the web
+frontend does. Before stopping the server it polls `GET /api/system/activity`; if anything is active, it confirms
+with the user, calls `POST /api/system/cancel-all`, and waits for everything to actually drain before shutting
+Uvicorn down. See [`api-reference.md`](api-reference.md#system) for both endpoints.
 
 ### 2. Web Application — `portal/`
 
@@ -167,8 +187,12 @@ Thread pool: parse_pool (cpu_count threads)
 Thread pool: asyncio.to_thread (import)
   └── import_from_json() / import_all()
 
-Thread: Tkinter main loop (only in GUI mode, run.py)
-  └── trigger_start_server() → starts server on daemon thread
+Thread: Tkinter main loop (only in GUI mode, launcher/app.py)
+  ├── trigger_start_server() → starts Uvicorn on its own daemon thread
+  ├── background threads per HTTP call → httpx.Client, results marshaled
+  │   back via root.after(0, ...)
+  └── TrayController.start() → pystray icon on its own daemon thread
+      (callbacks marshal back to the Tkinter thread the same way)
 ```
 
 The DB write pool uses exactly **1 thread** to serialize writes, avoiding SQLite WAL contention. The parse pool uses all
@@ -181,10 +205,12 @@ are parsed concurrently.
 
 | Component  | Entry Point                                      | State it Owns                                 |
 |------------|--------------------------------------------------|-----------------------------------------------|
-| GUI        | `run.py:CrawlerLauncher`                         | Uvicorn server handle, thread references      |
+| GUI        | `launcher/app.py:CrawlerLauncher`                | `AppState`, Uvicorn server handle, thread references, `httpx.Client` |
+| Tray/Toast | `launcher/tray.py:TrayController`, `launcher/notifications.py` | pystray icon + thread; stateless notification calls |
 | Web App    | `portal/api/server.py:create_app`                | `portal/api/deps.py` (`_db`, `_config`, `_browser`, `_active_tasks`) |
 | Crawler    | `portal/crawler/engine.py:CrawlerEngine`         | `_queue`, `_visited`, `_domain_locks`         |
 | Dispatcher | `portal/api/dispatcher.py:run_campaign_dispatch` | In-loop locals only; state persisted in DB    |
+| System     | `portal/api/system.py`                           | No state of its own — aggregates `_active_tasks` + `campaigns._active_campaign_tasks` + DB status for the GUI |
 | Importer   | `portal/scraper/importer.py`                     | `import_status` module-level dict             |
 | DB         | `portal/db/database.py:Database`                 | SQLAlchemy engine + session factory           |
 
@@ -201,3 +227,5 @@ are parsed concurrently.
 | Per-domain lock + delay                | Politeness spacing prevents hammering a single server while allowing workers serving other domains to proceed freely                                        |
 | Recrawl protection                     | URLs visited within `recrawl_days` are pre-populated into `_visited` before crawl starts, advancing the frontier on re-runs without re-crawling fresh pages |
 | Seed domains bypass recrawl            | Seeds are always re-crawled entry points; their child pages inherit recrawl protection so reruns pick up only new links                                     |
+| GUI talks to its own server over HTTP  | The Tkinter thread and the Uvicorn/asyncio event loop are different OS threads; `asyncio.Task.cancel()` isn't thread-safe cross-thread, so the launcher polls `GET /api/system/activity` / calls `POST /api/system/cancel-all` instead of touching task dicts directly |
+| Confirm-then-drain shutdown            | Stopping the server while jobs/campaigns are active first confirms with the user, then cancels everything and polls until it actually stops (up to a 3-minute timeout with a force-stop escape hatch) before killing Uvicorn — avoids silently orphaning in-flight email sends |
