@@ -39,6 +39,9 @@ jobs:
           pip install pyinstaller
           pip install -r requirements.txt 
 
+      - name: Generate version info from tag
+        run: python scripts/generate_version_info.py "${{ github.ref_name }}"
+
       - name: Build executable from .spec
         run: pyinstaller GovCrawler.spec --clean
 
