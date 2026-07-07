@@ -215,7 +215,8 @@ function clearLeadsFilters() {
     leadsSortDir = 'desc';
     updateLeadsSortHeaders();
     leadsPage = 1;
-    reloadLeadsStateOptions([]).then(() => loadLeads());
+    Promise.all([reloadLeadsCategoryOptions(), reloadLeadsOrgOptions(), reloadLeadsStateOptions([])])
+        .then(() => loadLeads());
 }
 
 async function loadLeadsFilters() {
@@ -225,7 +226,7 @@ async function loadLeadsFilters() {
         const urlJobId = urlParams.get('job_id') || '';
 
         // Populate Job multi-select dropdown
-        createMsDropdown('leads-job-msdropdown', {allLabel: 'All Jobs', onChange: onLeadsFilterChange});
+        createMsDropdown('leads-job-msdropdown', {allLabel: 'All Jobs', onChange: onLeadsJobFilterChange});
         try {
             const jobs = await apiFetch('/api/jobs?limit=100');
             const options = jobs.map(j => {
@@ -256,30 +257,52 @@ async function loadLeadsFilters() {
         leadsSortDir = saved.sortDir || 'desc';
         updateLeadsSortHeaders();
 
-        const jobIdParams = new URLSearchParams();
-        getMsDropdownValues('leads-job-msdropdown').forEach(id => jobIdParams.append('job_id', id));
-        const jobIdParam = jobIdParams.toString() ? `?${jobIdParams.toString()}` : '';
-
         createMsDropdown('leads-cat-msdropdown', {allLabel: 'All Categories', onChange: onLeadsFilterChange});
-        const cats = await apiFetch(`/api/leads/categories${jobIdParam}`);
-        setMsDropdownOptions('leads-cat-msdropdown', cats.map(c => (
-            {value: c.code, label: `${c.title} (${c.count.toLocaleString()})`}
-        )));
+        await reloadLeadsCategoryOptions();
         if (saved.cats && saved.cats.length) setMsDropdownValues('leads-cat-msdropdown', saved.cats);
 
         createMsDropdown('leads-state-msdropdown', {allLabel: 'All States', onChange: onLeadsFilterChange});
         await reloadLeadsStateOptions(getMsDropdownValues('leads-cat-msdropdown'));
         if (saved.states && saved.states.length) setMsDropdownValues('leads-state-msdropdown', saved.states);
 
-        try {
-            createMsDropdown('leads-org-msdropdown', {allLabel: 'All Organizations', onChange: onLeadsFilterChange});
-            const orgs = await apiFetch(`/api/leads/org-types${jobIdParam}`);
-            setMsDropdownOptions('leads-org-msdropdown', orgs.map(o => (
-                {value: o.code, label: `${o.title} (${o.count.toLocaleString()})`}
-            )));
-            if (saved.orgs && saved.orgs.length) setMsDropdownValues('leads-org-msdropdown', saved.orgs);
-        } catch (e) {
-        }
+        createMsDropdown('leads-org-msdropdown', {allLabel: 'All Organizations', onChange: onLeadsFilterChange});
+        await reloadLeadsOrgOptions();
+        if (saved.orgs && saved.orgs.length) setMsDropdownValues('leads-org-msdropdown', saved.orgs);
+    } catch (e) {
+    }
+}
+
+// Category and org-type options are scoped by job only (see /api/leads/categories,
+// /api/leads/org-types) — re-fetched whenever the job selection changes so their
+// counts stay job-scoped instead of going stale after a job switch.
+async function reloadLeadsCategoryOptions() {
+    try {
+        const prev = getMsDropdownValues('leads-cat-msdropdown');
+        const jobIdParams = new URLSearchParams();
+        getMsDropdownValues('leads-job-msdropdown').forEach(id => jobIdParams.append('job_id', id));
+        const qs = jobIdParams.toString() ? `?${jobIdParams.toString()}` : '';
+        const cats = await apiFetch(`/api/leads/categories${qs}`);
+        setMsDropdownOptions('leads-cat-msdropdown', cats.map(c => (
+            {value: c.code, label: `${c.title} (${c.count.toLocaleString()})`}
+        )));
+        const validCodes = cats.map(c => String(c.code));
+        setMsDropdownValues('leads-cat-msdropdown', prev.filter(c => validCodes.includes(c)));
+    } catch (e) {
+    }
+}
+
+async function reloadLeadsOrgOptions() {
+    try {
+        const prev = getMsDropdownValues('leads-org-msdropdown');
+        const jobIdParams = new URLSearchParams();
+        getMsDropdownValues('leads-job-msdropdown').forEach(id => jobIdParams.append('job_id', id));
+        const qs = jobIdParams.toString() ? `?${jobIdParams.toString()}` : '';
+        const orgs = await apiFetch(`/api/leads/org-types${qs}`);
+        setMsDropdownOptions('leads-org-msdropdown', orgs.map(o => (
+            {value: o.code, label: `${o.title} (${o.count.toLocaleString()})`}
+        )));
+        const validCodes = orgs.map(o => String(o.code));
+        setMsDropdownValues('leads-org-msdropdown', prev.filter(o => validCodes.includes(o)));
     } catch (e) {
     }
 }
@@ -305,6 +328,15 @@ async function onLeadsFilterChange() {
     await reloadLeadsStateOptions(getMsDropdownValues('leads-cat-msdropdown'));
     saveLeadsFilters();
     await loadLeads();
+}
+
+// Job selection changes the scope for categories/org-types too (both are
+// job-scoped queries) — refresh them first so onLeadsFilterChange's state
+// reload and lead count read the current job's data, not the previous one.
+async function onLeadsJobFilterChange() {
+    await reloadLeadsCategoryOptions();
+    await reloadLeadsOrgOptions();
+    await onLeadsFilterChange();
 }
 
 function debounceLeadsSearch() {
