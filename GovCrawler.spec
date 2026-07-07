@@ -12,7 +12,7 @@ a = Analysis(
     ['run.py'],
     pathex=[],
     binaries=[],
-    datas=[('portal/frontend', 'portal/frontend'), ('portal/default_config.yaml', 'portal'), (cert_file, 'certifi'),
+    datas=[('cloud/frontend', 'cloud/frontend'), ('portal/default_config.yaml', 'portal'), (cert_file, 'certifi'),
           ('assets', 'assets'), ('alembic', 'alembic'), ('alembic.ini', '.')],
     hiddenimports=[],
     hookspath=[],

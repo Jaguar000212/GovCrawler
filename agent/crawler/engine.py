@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from urllib.parse import parse_qs, urlparse, urlsplit
 
 from .parser import parse_for_engine
-from ..db import Database
+from ..cloud_client import CloudApiClient
 
 log = logging.getLogger(__name__)
 
@@ -62,12 +62,12 @@ class _QueueItem:
 
 
 class CrawlerEngine:
-    def __init__(self, config: dict, db: Database, job_id: int, browser=None):
+    def __init__(self, config: dict, cloud: CloudApiClient, job_id: int, browser=None):
         self._cfg = config["crawler"]
         self._excfg = config["extraction"]
         # Ships disabled by default; absent in older config.yaml files is safe.
         self._pag = self._cfg.get("pagination", {})
-        self._db = db
+        self._cloud = cloud
         self._job_id = job_id
         self._browser = browser
 
@@ -80,6 +80,10 @@ class CrawlerEngine:
         self._session_visited_count = 0
         self._max_depth_seen = 0
         self._active_workers = 0
+        # Wholesale counters sent on every heartbeat (the coordination API has
+        # no per-write increment call anymore — save_lead is outboxed/async).
+        self._leads_found = 0
+        self._crawled_domains = 0
 
         self._netloc_to_domain: dict[str, int] = {}
 
@@ -88,6 +92,7 @@ class CrawlerEngine:
         self._client: httpx.AsyncClient | None = None
         self._db_pool: ThreadPoolExecutor | None = None
         self._parse_pool: ThreadPoolExecutor | None = None
+        self._run_task: asyncio.Task | None = None
 
     # ── Small helpers ───────────────────────────────────────────────────────────
 
@@ -180,43 +185,26 @@ class CrawlerEngine:
 
     # ── Run ───────────────────────────────────────────────────────────────────
 
-    async def run(self, seeds: list[tuple[str, int | None]]):
-        """seeds: list of (url, domain_id) tuples."""
+    async def run(self, seeds: list[tuple[str, int | None]], visited_bootstrap: list[str] = None):
+        """seeds: list of (url, domain_id) tuples. visited_bootstrap: URLs the
+        coordination API already computed as pre-visited for this job (own
+        prior-run history + global recrawl protection, minus this job's own
+        seed domains) — see portal/api/coordination.py:_visited_bootstrap."""
         self._loop = asyncio.get_running_loop()
+        self._run_task = asyncio.current_task()
 
-        # Build netloc → domain_id map AND collect seed root domains for recrawl filtering.
-        # We track root domains (e.g. "example.gov.in") rather than exact netlocs so that
-        # subdomains discovered during crawling ("sub.example.gov.in") are also excluded
-        # from recrawl protection and remain re-crawlable on reruns.
-        seed_netlocs: set[str] = set()
-        seed_root_domains: set[str] = set()
+        # Build netloc → domain_id map so mid-crawl link discovery can resolve
+        # a discovered page's snapshot id back from its netloc.
         for url, did in seeds:
             parsed_url = url if "://" in url else "http://" + url
             netloc = urlparse(parsed_url).netloc.lower()
             root = self._strip_www(netloc)
-            seed_netlocs.add(netloc)
-            seed_netlocs.add(root)
-            seed_root_domains.add(root)
             if did is not None:
                 self._netloc_to_domain[netloc] = did
                 self._netloc_to_domain[root] = did
 
-        # Resume: URLs already visited in THIS job (handles mid-run restarts).
-        for v in self._db.get_visited_urls(self._job_id):
+        for v in (visited_bootstrap or []):
             self._visited.add(self._url_key(v))
-
-        # Recrawl protection: skip non-seed-domain URLs visited within recrawl_days.
-        # Any URL whose registered domain matches (or is a subdomain of) a seed domain
-        # is excluded — so reruns always re-crawl the full seed-domain frontier fresh.
-        for v in self._db.get_recently_visited_global():
-            v_netloc = urlparse(v).netloc.lower()
-            v_root = self._strip_www(v_netloc)
-            is_seed_related = any(
-                v_root == r or v_root.endswith("." + r)
-                for r in seed_root_domains
-            )
-            if not is_seed_related:
-                self._visited.add(self._url_key(v))
 
         workers = self._cfg["workers"]
         parse_workers = self._cfg.get("parse_workers") or (os.cpu_count() or 4)
@@ -296,24 +284,33 @@ class CrawlerEngine:
             if self._parse_pool:
                 self._parse_pool.shutdown(wait=False)
 
-            # Final metric update (direct sync call — crawl is over).
+            # Final heartbeat (crawl is over — active_workers=0).
             try:
-                self._db.update_job_metrics(
-                    self._job_id, self._queue.qsize(),
-                    self._session_visited_count, self._skipped,
-                    self._max_depth_seen, 0)
+                await self._cloud.send_heartbeat(self._metrics_snapshot(active_workers=0))
             except Exception:
                 pass
+
+    def _metrics_snapshot(self, active_workers: int) -> dict:
+        return {
+            "queued_urls": self._queue.qsize(),
+            "visited_urls": self._session_visited_count,
+            "skipped_urls": self._skipped,
+            "leads_found": self._leads_found,
+            "crawled_domains": self._crawled_domains,
+            "current_depth": self._max_depth_seen,
+            "active_workers": active_workers,
+        }
 
     async def _reporter(self):
         try:
             while True:
                 await asyncio.sleep(2)
-                await self._loop.run_in_executor(
-                    self._db_pool, self._db.update_job_metrics,
-                    self._job_id, self._queue.qsize(),
-                    self._session_visited_count, self._skipped,
-                    self._max_depth_seen, self._active_workers)
+                cancel_requested = await self._cloud.send_heartbeat(
+                    self._metrics_snapshot(active_workers=self._active_workers))
+                if cancel_requested and self._run_task:
+                    log.info(f"Job {self._job_id}: cancel_requested seen on heartbeat, stopping.")
+                    self._run_task.cancel()
+                    return
         except asyncio.CancelledError:
             pass
 
@@ -363,13 +360,12 @@ class CrawlerEngine:
         # Child pages ARE marked visited so recrawl protection and dedup work.
         if not item.is_seed:
             await self._loop.run_in_executor(
-                self._db_pool, self._db.mark_visited, url, self._job_id)
+                self._db_pool, self._cloud.mark_visited, url, self._job_id)
 
         html = await self._fetch(url, browser_context)
         if not html:
             if item.is_seed:
-                await self._loop.run_in_executor(
-                    self._db_pool, self._inc_progress, 0, True)
+                self._crawled_domains += 1
             return
 
         leads, raw_links = await self._loop.run_in_executor(
@@ -393,17 +389,20 @@ class CrawlerEngine:
                                       page_hops=item.page_hops,
                                       chain_budget=item.chain_budget)
 
-    # ── DB writer-pool callables (run on the single DB thread) ──────────────────
-
-    def _inc_progress(self, new_leads: int, domain_done: bool):
-        self._db.increment_job_progress(self._job_id, new_leads=new_leads,
-                                        domain_done=domain_done)
+    # ── Outbox-writer-pool callable (run on the single DB thread) ────────────────
 
     def _save_leads(self, leads, snapshot_id, is_seed, depth: int = 0) -> int:
-        new_leads = 0
+        """Enqueues each lead into the local outbox — fire-and-forget, so the
+        return count is an ATTEMPT count, not a confirmed-novel count (the
+        outbox model means we no longer learn synchronously whether the cloud
+        found it a duplicate). `leads_found`/`crawled_domains` become local
+        running totals sent wholesale on the next heartbeat, since there's no
+        per-write increment call anymore."""
+        attempted = 0
         for lead in leads:
-            saved = self._db.save_lead(
-                job_id=self._job_id,
+            if not lead.email:
+                continue
+            self._cloud.save_lead(
                 snapshot_id=snapshot_id,
                 email=lead.email,
                 person_name=lead.person_name,
@@ -419,12 +418,11 @@ class CrawlerEngine:
                 field_provenance=lead.field_provenance,
                 depth=depth,
             )
-            if saved:
-                new_leads += 1
-        # One progress increment per page; domain_done only for the seed page.
-        self._db.increment_job_progress(self._job_id, new_leads=new_leads,
-                                        domain_done=is_seed)
-        return new_leads
+            attempted += 1
+        self._leads_found += attempted
+        if is_seed:
+            self._crawled_domains += 1
+        return attempted
 
     # ── Fetching ──────────────────────────────────────────────────────────────
 

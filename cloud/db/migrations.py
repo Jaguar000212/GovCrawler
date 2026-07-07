@@ -3,7 +3,7 @@ from alembic.config import Config
 from sqlalchemy import create_engine, inspect as sa_inspect
 
 from alembic import command
-from ..paths import ALEMBIC_DIR, ALEMBIC_INI_PATH
+from portal.paths import ALEMBIC_DIR, ALEMBIC_INI_PATH
 
 log = logging.getLogger(__name__)
 

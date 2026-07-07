@@ -1,5 +1,5 @@
 import datetime
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 
 from ..base import Base
 
@@ -64,6 +64,9 @@ class CrawlJob(Base):
     active_workers = Column(Integer, default=0)
     error_message = Column(String)
     owner_id = Column(Integer, ForeignKey("users.id"))
+    cancel_requested = Column(Boolean, nullable=False, default=False)
+    agent_hostname = Column(String)
+    last_heartbeat_at = Column(DateTime)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     started_at = Column(DateTime)
     finished_at = Column(DateTime)

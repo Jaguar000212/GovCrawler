@@ -10,6 +10,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY portal/ portal/
+COPY cloud/ cloud/
+COPY agent/ agent/
 COPY shared/ shared/
 COPY GovScraper/ GovScraper/
 COPY alembic/ alembic/

@@ -47,7 +47,7 @@ if len(sys.argv) > 1 and sys.argv[1] == "INSTALL_BROWSERS":
         sys.exit(e.code)
 
 if __name__ == "__main__":
-    from launcher.app import CrawlerLauncher
+    from agent.launcher.app import CrawlerLauncher
 
     root = tk.Tk()
     app = CrawlerLauncher(root, config, entry_script=__file__)

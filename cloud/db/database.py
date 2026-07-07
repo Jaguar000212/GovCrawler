@@ -11,8 +11,8 @@ from .mixins.job_mixin import JobMixin
 from .mixins.lead_mixin import LeadMixin
 from .mixins.outreach_mixin import OutreachMixin
 from .mixins.visited_mixin import VisitedUrlMixin
-from ..paths import LIVE_CONFIG_PATH
 from ..security.crypto import ensure_credential_enc_key
+from portal.paths import LIVE_CONFIG_PATH
 from shared.scoring import DEFAULT_WEIGHTS, compute_lead_score
 
 log = logging.getLogger(__name__)

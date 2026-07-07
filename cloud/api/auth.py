@@ -2,20 +2,25 @@
 Authentication endpoints.
 
 Registers routes:
-  POST /auth/login    → verify credentials, issue access+refresh tokens (cookies + JSON body)
-  POST /auth/refresh   → rotate refresh token; revokes the session family on reuse
-  POST /auth/logout    → revoke session, clear cookies
-  GET  /auth/me        → current user + effective permissions
+  POST /auth/login      → verify credentials, issue access+refresh tokens (cookies + JSON body)
+  POST /auth/refresh     → rotate refresh token; revokes the session family on reuse
+  POST /auth/logout      → revoke session, clear cookies
+  GET  /auth/me          → current user + effective permissions
+  GET  /auth/bootstrap   → hand the launcher's already-obtained access token to a freshly
+                           opened browser tab as a cookie (loopback-only), so the operator
+                           doesn't have to log in twice — once in Tkinter, once in the browser
 """
 import datetime
 import logging
 
+import jwt as pyjwt
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import RedirectResponse
 
-from .deps import CurrentUser, get_config, get_current_user, get_db
+from .deps import CurrentUser, get_config, get_current_user, get_db, require_loopback
 from ..db import Database, User
 from ..security.hashing import verify_password
-from ..security.jwt import create_access_token, generate_refresh_token, hash_refresh_token
+from ..security.jwt import create_access_token, decode_token, generate_refresh_token, hash_refresh_token
 from shared.schemas.auth import LoginRequest, RefreshRequest, TokenResponse, UserOut
 
 log = logging.getLogger(__name__)
@@ -139,3 +144,27 @@ async def logout(request: Request, response: Response, db: Database = Depends(ge
 async def me(user: CurrentUser = Depends(get_current_user), db: Database = Depends(get_db)):
     db_user = db.get_user_by_id(user.id)
     return _user_out(db, db_user)
+
+
+@router.get("/auth/bootstrap", dependencies=[Depends(require_loopback)])
+async def bootstrap(token: str, db: Database = Depends(get_db), config: dict = Depends(get_config)):
+    """The launcher already holds a valid access token from its own login —
+    this lets the browser tab it opens inherit that session via a cookie
+    instead of prompting the operator to log in a second time. Loopback-only
+    (same trust boundary as /api/system/*) and re-validates the token itself
+    rather than trusting the query string blindly."""
+    try:
+        payload = decode_token(token, config["auth"]["jwt_secret"])
+    except pyjwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    if payload.get("type") != "access":
+        raise HTTPException(status_code=401, detail="Invalid token type")
+    user = db.get_user_by_id(int(payload["sub"]))
+    if not user or not user["is_active"] or payload.get("tv") != user["token_version"]:
+        raise HTTPException(status_code=401, detail="Token has been revoked")
+
+    response = RedirectResponse(url="/")
+    secure = config["auth"].get("cookie_secure", False)
+    response.set_cookie("access", token, httponly=True, secure=secure, samesite="strict",
+                        max_age=config["auth"]["access_ttl_minutes"] * 60)
+    return response

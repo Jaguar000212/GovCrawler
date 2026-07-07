@@ -80,7 +80,15 @@ def upgrade():
         ")"
     ))
 
-    with op.batch_alter_table('leads') as batch_op:
+    # naming_convention: dropping a column can force a full table recreate on
+    # SQLite, and `leads` already has unnamed FKs (job_id, snapshot_id) from
+    # earlier migrations — without this, recreate hits the same "Constraint
+    # must have a name" error 0014 did for a freshly-added FK, just for a
+    # pre-existing one instead. See 0014/0016 for the same fix.
+    with op.batch_alter_table(
+        'leads',
+        naming_convention={"fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s"},
+    ) as batch_op:
         if 'domain_id' in lead_columns:
             batch_op.drop_column('domain_id')
         if 'domain_state' in lead_columns:

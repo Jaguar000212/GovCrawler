@@ -29,8 +29,8 @@ bootstrap()
 # ==========================================
 import yaml
 import uvicorn
-from .db import Database
-from .api.server import create_app
+from cloud.db import Database
+from cloud.api.server import create_app
 
 # ==========================================
 # 3. LOGGING SETUP (Using Absolute Path)
@@ -89,7 +89,7 @@ def cmd_serve(config: dict):
 
 
 def cmd_import_json(config: dict, json_path: str = "gov_domains.json"):
-    from .scraper.importer import import_from_json
+    from cloud.scraper.importer import import_from_json
     db = Database(config)
     log.info(f"Importing from {json_path} — zero API calls…")
     import_from_json(db, json_path, config)
@@ -118,7 +118,7 @@ def cmd_create_admin(config: dict, email: str, password: str | None = None):
 
 
 def cmd_import(config: dict):
-    from .scraper.importer import import_all
+    from cloud.scraper.importer import import_all
     db = Database(config)
     log.info("Starting live API import…")
     import_all(db, config)
@@ -127,8 +127,18 @@ def cmd_import(config: dict):
 
 
 async def cmd_crawl(config: dict, job_id: int):
+    """Debug re-run of an existing job. No uvicorn server needs to already be
+    running — coordination calls go in-process via httpx.ASGITransport
+    against a throwaway app instance instead of a real network hop, since the
+    engine only speaks CloudApiClient now (see plan.md §8)."""
+    import httpx
     from playwright.async_api import async_playwright
-    from .crawler.engine import CrawlerEngine
+
+    from agent.cloud_client import CloudApiClient, resume_remote_job
+    from agent.crawler.engine import CrawlerEngine
+    from cloud.api.server import create_app
+    from cloud.security.jwt import create_access_token
+    from .paths import DATA_DIR
 
     db = Database(config)
     job = db.get_job(job_id, view_all=True)
@@ -137,41 +147,44 @@ async def cmd_crawl(config: dict, job_id: int):
         db.close()
         return
 
-    engine_config = config
-    if job.get("source_type") == "custom_urls":
-        urls = [u["main_url"] for u in db.get_job_custom_urls(job_id)]
-        seeds = [(url, None) for url in urls]
-        engine_config = {**config, "crawler": {**config["crawler"], "target_suffixes": []}}
-    else:
-        # Resolve seeds from the frozen per-job snapshots (refresh-immune). The
-        # snapshot id is threaded to the engine and stored on leads.snapshot_id.
-        snaps = db.get_crawl_snapshots(job_id)
-        if not snaps:
-            # Pre-feature job that never produced snapshots: build them now from
-            # the catalog (get-or-insert, idempotent), then re-read.
-            domain_ids = db.get_job_domain_ids(job_id)
-            for d in db.get_domains_by_ids(domain_ids):
-                if d["contact_url"] or d["main_url"]:
-                    db.create_crawl_snapshot(job_id, d)
-            snaps = db.get_crawl_snapshots(job_id)
-        seeds = [(s["contact_url"] or s["main_url"], s["id"])
-                 for s in snaps if (s["contact_url"] or s["main_url"])]
+    owner_id = job.get("owner_id")
+    if owner_id is None:
+        admin = next((u for u in db.list_users() if u["is_admin"]), None)
+        if not admin:
+            log.error("No user to attribute this debug run to (job has no owner_id and no admin exists).")
+            db.close()
+            return
+        owner_id = admin["id"]
+    token_version = db.get_user_by_id(owner_id)["token_version"]
+    secret = config["auth"]["jwt_secret"]
+    ttl = config["auth"].get("access_ttl_minutes", 15)
+    token_provider = lambda: create_access_token(owner_id, token_version, secret, ttl)
+
+    app = create_app(config, db)
+    transport = httpx.ASGITransport(app=app)
+
+    resumed = await resume_remote_job("http://local", token_provider, job_id, transport=transport)
+    seeds = [(s[0], s[1]) for s in resumed["seeds"]]
+    engine_config = resumed["policy"]
 
     log.info(f"Running job {job_id} with {len(seeds)} seeds…")
-    db.start_job(job_id)
+
+    outbox_path = DATA_DIR / f"outbox_job_{job_id}.db"
+    cloud = CloudApiClient("http://local", token_provider, job_id, outbox_path, transport=transport)
+    cloud.start()
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         try:
-            engine = CrawlerEngine(config=engine_config, db=db,
-                                   job_id=job_id, browser=browser)
-            await engine.run(seeds)
-            db.finish_job(job_id, status="done")
+            engine = CrawlerEngine(config=engine_config, cloud=cloud, job_id=job_id, browser=browser)
+            await engine.run(seeds, visited_bootstrap=resumed["visited_bootstrap"])
+            await cloud.finish_job(status="done")
         except Exception as e:
             log.error(f"Job {job_id} failed: {e}", exc_info=True)
-            db.finish_job(job_id, status="failed", error=str(e))
+            await cloud.finish_job(status="failed", error=str(e))
         finally:
             await browser.close()
+            await cloud.aclose()
 
     updated = db.get_job(job_id, view_all=True)
     log.info(f"Job {job_id} finished. Leads: {updated['leads_found']}")

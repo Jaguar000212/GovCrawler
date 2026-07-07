@@ -33,6 +33,12 @@ class LeadMixin:
     def get_lead_score_weights(self) -> dict:
         return self._lead_score_weights
 
+    def bulk_save_leads(self, items: list[dict], captured_by: int | None = None) -> list[bool]:
+        """Batch wrapper for the coordination `/leads` endpoint — one save_lead
+        call per item, in submission order, so the caller can report per-item
+        accepted/duplicate flags back to the agent."""
+        return [self.save_lead(captured_by=captured_by, **item) for item in items]
+
     def _record_occurrence(self, s, lead_id: int, job_id: int, source_url: str | None,
                            captured_by: int | None = None) -> None:
         """Get-or-create a lead_occurrences row (unique lead_id+job_id). Tolerates

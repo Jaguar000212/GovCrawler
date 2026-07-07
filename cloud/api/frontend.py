@@ -20,7 +20,7 @@ from pathlib import Path
 
 from .deps import CurrentUser, current_user_or_redirect, get_current_user, get_db, require
 from ..db import Database
-from ..paths import LOG_FILE_PATH
+from portal.paths import LOG_FILE_PATH
 
 router = APIRouter(tags=["frontend"])
 

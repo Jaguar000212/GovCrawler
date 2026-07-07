@@ -1,7 +1,11 @@
 import datetime
 import json
 
+from shared.enums import JobStatus
+
 from ..tables.crawl import CrawlJob, CrawlJobDomain, JobCustomUrl
+
+_TERMINAL_STATUSES = {JobStatus.DONE.value, JobStatus.FAILED.value, JobStatus.CANCELLED.value}
 
 
 class JobMixin:
@@ -62,6 +66,11 @@ class JobMixin:
 
     def finish_job(self, job_id: int, status: str = "done", error: str = None):
         with self._Session() as s:
+            job = s.query(CrawlJob).filter_by(id=job_id).first()
+            if job is None or job.status in _TERMINAL_STATUSES:
+                # Already finished by a racing path (in-memory cancel vs. a
+                # heartbeat-driven finish) — a no-op, not an error.
+                return
             s.query(CrawlJob).filter_by(id=job_id).update({
                 "status": status,
                 "finished_at": datetime.datetime.utcnow(),
@@ -69,25 +78,33 @@ class JobMixin:
             })
             s.commit()
 
-    def increment_job_progress(self, job_id: int, new_leads: int = 0,
-                               domain_done: bool = False):
+    def set_cancel_requested(self, job_id: int) -> None:
         with self._Session() as s:
-            s.query(CrawlJob).filter_by(id=job_id).update({
-                "leads_found": CrawlJob.leads_found + new_leads,
-                "crawled_domains": CrawlJob.crawled_domains + (1 if domain_done else 0),
-            })
+            s.query(CrawlJob).filter_by(id=job_id).update({"cancel_requested": True})
             s.commit()
 
-    def update_job_metrics(self, job_id: int, queued_urls: int, visited_urls: int,
-                           skipped_urls: int, current_depth: int = 0,
-                           active_workers: int = 0):
+    def heartbeat(self, job_id: int, metrics: dict) -> bool:
+        """Records a liveness pulse + the latest metrics; returns cancel_requested."""
         with self._Session() as s:
             s.query(CrawlJob).filter_by(id=job_id).update({
-                "queued_urls": queued_urls,
-                "visited_urls": visited_urls,
-                "skipped_urls": skipped_urls,
-                "current_depth": current_depth,
-                "active_workers": active_workers,
+                "queued_urls": metrics.get("queued_urls", 0),
+                "visited_urls": metrics.get("visited_urls", 0),
+                "skipped_urls": metrics.get("skipped_urls", 0),
+                "leads_found": metrics.get("leads_found", 0),
+                "crawled_domains": metrics.get("crawled_domains", 0),
+                "current_depth": metrics.get("current_depth", 0),
+                "active_workers": metrics.get("active_workers", 0),
+                "last_heartbeat_at": datetime.datetime.utcnow(),
+            })
+            s.commit()
+            job = s.query(CrawlJob).filter_by(id=job_id).first()
+            return bool(job.cancel_requested) if job else False
+
+    def resume_job(self, job_id: int) -> None:
+        with self._Session() as s:
+            s.query(CrawlJob).filter_by(id=job_id).update({
+                "status": JobStatus.RUNNING.value,
+                "cancel_requested": False,
             })
             s.commit()
 
@@ -135,6 +152,9 @@ class JobMixin:
             "active_workers": j.active_workers or 0,
             "error_message": j.error_message,
             "owner_id": j.owner_id,
+            "cancel_requested": bool(j.cancel_requested),
+            "agent_hostname": j.agent_hostname,
+            "last_heartbeat_at": j.last_heartbeat_at.isoformat() if j.last_heartbeat_at else None,
             "category_filter": j.category_filter,
             "title_filter": j.title_filter,
             "created_at": j.created_at.isoformat() if j.created_at else None,

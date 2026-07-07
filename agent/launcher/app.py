@@ -4,6 +4,7 @@ safe shutdown, and the sv-ttk UI.
 """
 
 import httpx
+import keyring
 import logging
 import os
 import subprocess
@@ -15,13 +16,16 @@ import tkinter as tk
 import uvicorn
 import webbrowser
 from enum import Enum, auto
-from tkinter import messagebox, ttk
+from tkinter import messagebox, simpledialog, ttk
 
 from portal.paths import BROWSER_PATH, ICON_PATH
 from .notifications import notify
 from .tray import TrayController
 
 log = logging.getLogger(__name__)
+
+_KEYRING_SERVICE = "govcrawler"
+_KEYRING_LAST_EMAIL_KEY = "_last_email"
 
 
 def browsers_installed() -> bool:
@@ -55,6 +59,32 @@ DRAIN_TIMEOUT_SECONDS = 180
 POLL_INTERVAL_MS = 1500
 
 
+class LoginDialog(simpledialog.Dialog):
+    """Blocking modal collecting email/password. `self.result` is
+    (email, password) on OK, None on cancel."""
+
+    def __init__(self, parent, initial_email: str = ""):
+        self._initial_email = initial_email
+        self.result = None
+        super().__init__(parent, title="Sign in — GovCrawler")
+
+    def body(self, master):
+        ttk.Label(master, text="Email").grid(row=0, column=0, sticky="w", pady=(4, 2))
+        self.email_var = tk.StringVar(value=self._initial_email)
+        self.email_entry = ttk.Entry(master, textvariable=self.email_var, width=32)
+        self.email_entry.grid(row=1, column=0, pady=(0, 8))
+
+        ttk.Label(master, text="Password").grid(row=2, column=0, sticky="w", pady=(4, 2))
+        self.password_var = tk.StringVar()
+        self.password_entry = ttk.Entry(master, textvariable=self.password_var, show="*", width=32)
+        self.password_entry.grid(row=3, column=0, pady=(0, 8))
+
+        return self.password_entry if self._initial_email else self.email_entry
+
+    def apply(self):
+        self.result = (self.email_var.get().strip(), self.password_var.get())
+
+
 class CrawlerLauncher:
     def __init__(self, root, config: dict, entry_script: str):
         self.root = root
@@ -83,6 +113,8 @@ class CrawlerLauncher:
         self._drain_deadline: float | None = None
         self._prev_jobs: set[int] = set()
         self._prev_campaigns: set[int] = set()
+        self._access_token: str | None = None
+        self._login_email: str | None = None
 
         self._build_ui()
         self._render_state()
@@ -175,10 +207,21 @@ class CrawlerLauncher:
         display_host = "127.0.0.1" if host == "0.0.0.0" else host
         return f"http://{display_host}:{self.config['api']['port']}"
 
+    def _auth_headers(self) -> dict:
+        if self._access_token:
+            return {"Authorization": f"Bearer {self._access_token}"}
+        return {}
+
     def _api_async(self, method: str, path: str, on_done, **kwargs):
+        extra_headers = kwargs.pop("headers", {})
+
         def task():
             try:
-                resp = self.http.request(method, path, timeout=5, **kwargs)
+                resp = self.http.request(method, path, timeout=5,
+                                         headers={**self._auth_headers(), **extra_headers}, **kwargs)
+                if resp.status_code == 401 and self._try_refresh_sync():
+                    resp = self.http.request(method, path, timeout=5,
+                                             headers={**self._auth_headers(), **extra_headers}, **kwargs)
                 resp.raise_for_status()
                 data = resp.json()
                 self.root.after(0, on_done, data, None)
@@ -186,6 +229,26 @@ class CrawlerLauncher:
                 self.root.after(0, on_done, None, e)
 
         threading.Thread(target=task, daemon=True).start()
+
+    def _try_refresh_sync(self) -> bool:
+        """Best-effort access-token refresh using the keyring-stored refresh
+        token. Runs synchronously on the calling (background) thread — called
+        only from inside an _api_async task, never the Tk main thread."""
+        if not self._login_email:
+            return False
+        refresh_token = keyring.get_password(_KEYRING_SERVICE, self._login_email)
+        if not refresh_token:
+            return False
+        try:
+            resp = self.http.post("/auth/refresh", json={"refresh_token": refresh_token}, timeout=5)
+            resp.raise_for_status()
+            data = resp.json()
+            self._access_token = data["access_token"]
+            keyring.set_password(_KEYRING_SERVICE, self._login_email, data["refresh_token"])
+            return True
+        except Exception as e:
+            log.warning(f"Token refresh failed: {e}")
+            return False
 
     # --- ACTION: Download Browsers ------------------------------------------
 
@@ -253,8 +316,8 @@ class CrawlerLauncher:
         self._wait_for_server_ready(attempts=15)
 
     def _run_server_task(self):
-        from portal.db import Database
-        from portal.api.server import create_app
+        from cloud.db import Database
+        from cloud.api.server import create_app
 
         try:
             db = Database(self.config)
@@ -296,10 +359,46 @@ class CrawlerLauncher:
     def _on_server_ready(self):
         if self.state != AppState.STARTING:
             return
+        self._prompt_login()
+
+    # --- Login (keyring-backed) -----------------------------------------------
+
+    def _prompt_login(self):
+        remembered_email = keyring.get_password(_KEYRING_SERVICE, _KEYRING_LAST_EMAIL_KEY) or ""
+        dialog = LoginDialog(self.root, initial_email=remembered_email)
+        if not dialog.result or not dialog.result[0] or not dialog.result[1]:
+            self._abort_start("Sign-in is required to start the server.")
+            return
+        email, password = dialog.result
+        threading.Thread(target=self._login_task, args=(email, password), daemon=True).start()
+
+    def _login_task(self, email: str, password: str):
+        try:
+            resp = self.http.post("/auth/login", json={"email": email, "password": password}, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+            self.root.after(0, self._on_login_success, email, data)
+        except Exception as e:
+            self.root.after(0, self._on_login_failed, str(e))
+
+    def _on_login_success(self, email: str, data: dict):
+        self._access_token = data["access_token"]
+        self._login_email = email
+        keyring.set_password(_KEYRING_SERVICE, _KEYRING_LAST_EMAIL_KEY, email)
+        keyring.set_password(_KEYRING_SERVICE, email, data["refresh_token"])
+
         self.state = AppState.RUNNING
         self._render_state()
         self._toast("GovCrawler", "Server started.")
         self._schedule_poll()
+
+    def _on_login_failed(self, error: str):
+        messagebox.showerror("Sign-in failed", f"Could not sign in:\n{error}")
+        self._prompt_login()
+
+    def _abort_start(self, message: str):
+        messagebox.showwarning("Sign-in required", message)
+        self._begin_graceful_shutdown()
 
     # --- Live activity polling ----------------------------------------------
 
@@ -459,6 +558,8 @@ class CrawlerLauncher:
     def _on_server_stopped(self):
         self.uvicorn_server = None
         self.http = None
+        self._access_token = None
+        self._login_email = None
         self._toast("GovCrawler", "Server stopped.")
         if self._full_quit_requested:
             self._hard_exit()
@@ -476,6 +577,10 @@ class CrawlerLauncher:
 
     def open_browser(self):
         uri = self._base_url()
+        if self._access_token:
+            # Hands the browser tab the launcher's own session via a cookie so
+            # the operator isn't asked to log in a second time in-browser.
+            uri = f"{uri}/auth/bootstrap?token={self._access_token}"
 
         if sys.platform.startswith("linux"):
             # PyInstaller overrides LD_LIBRARY_PATH with bundled libs; child processes

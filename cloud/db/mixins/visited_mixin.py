@@ -13,6 +13,10 @@ class VisitedUrlMixin:
             except IntegrityError:
                 s.rollback()
 
+    def bulk_mark_visited(self, job_id: int, urls: list[str]) -> None:
+        for url in urls:
+            self.mark_visited(url, job_id)
+
     def get_visited_urls(self, job_id: int) -> set[str]:
         with self._Session() as s:
             rows = s.query(VisitedUrl.url).filter_by(job_id=job_id).all()

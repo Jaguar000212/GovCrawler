@@ -34,7 +34,7 @@ import sqlalchemy as sa
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from portal.db import Base, Database  # noqa: E402
+from cloud.db import Base, Database  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)

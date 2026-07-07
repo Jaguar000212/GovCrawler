@@ -33,7 +33,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 
 def _resolve_key():
     from portal.paths import LIVE_CONFIG_PATH
-    from portal.security.crypto import ensure_credential_enc_key
+    from cloud.security.crypto import ensure_credential_enc_key
 
     config_dict = {}
     if LIVE_CONFIG_PATH.exists():
@@ -43,7 +43,7 @@ def _resolve_key():
 
 
 def upgrade():
-    from portal.security.crypto import encrypt_password
+    from cloud.security.crypto import encrypt_password
 
     bind = op.get_bind()
     inspector = sa.inspect(bind)
@@ -75,7 +75,7 @@ def upgrade():
 
 
 def downgrade():
-    from portal.security.crypto import decrypt_password
+    from cloud.security.crypto import decrypt_password
 
     bind = op.get_bind()
     with op.batch_alter_table('smtp_credentials') as batch_op:

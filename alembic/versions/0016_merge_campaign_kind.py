@@ -40,7 +40,13 @@ def upgrade():
         with op.batch_alter_table('campaigns') as batch_op:
             batch_op.add_column(sa.Column('kind', sa.String(), nullable=False, server_default='production'))
     if 'test_credential_id' not in campaign_columns:
-        with op.batch_alter_table('campaigns') as batch_op:
+        # batch_alter_table + naming_convention, not plain add_column — see
+        # 0014: Alembic's SQLite dialect has no support at all for adding a
+        # column with an inline FK outside batch mode.
+        with op.batch_alter_table(
+            'campaigns',
+            naming_convention={"fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s"},
+        ) as batch_op:
             batch_op.add_column(sa.Column('test_credential_id', sa.Integer(),
                                           sa.ForeignKey('smtp_credentials.id')))
 
@@ -48,7 +54,17 @@ def upgrade():
         email_columns = {c['name'] for c in inspector.get_columns('campaign_emails')}
         lead_id_col = next((c for c in inspector.get_columns('campaign_emails') if c['name'] == 'lead_id'), None)
         if lead_id_col is not None and not lead_id_col.get('nullable', True):
-            with op.batch_alter_table('campaign_emails') as batch_op:
+            # alter_column (nullable change) has no non-batch equivalent on
+            # SQLite, so this DOES need a recreate — campaign_emails already
+            # has unnamed FKs (campaign_id/lead_id/credential_id) from
+            # earlier migrations, so an explicit naming_convention is
+            # required here (without it, batch mode hits the same
+            # "Constraint must have a name" error 0014 did, but for
+            # PRE-EXISTING constraints rather than a new one).
+            with op.batch_alter_table(
+                'campaign_emails',
+                naming_convention={"fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s"},
+            ) as batch_op:
                 batch_op.alter_column('lead_id', nullable=True)
 
     if 'test_campaigns' not in tables:
@@ -149,8 +165,9 @@ def downgrade():
         sa.Column('sent_at', sa.DateTime()),
         sa.Column('credential_id', sa.Integer(), sa.ForeignKey('smtp_credentials.id')),
     )
-    with op.batch_alter_table('campaign_emails') as batch_op:
+    _fk_naming = {"fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s"}
+    with op.batch_alter_table('campaign_emails', naming_convention=_fk_naming) as batch_op:
         batch_op.alter_column('lead_id', nullable=False)
-    with op.batch_alter_table('campaigns') as batch_op:
+    with op.batch_alter_table('campaigns', naming_convention=_fk_naming) as batch_op:
         batch_op.drop_column('test_credential_id')
         batch_op.drop_column('kind')

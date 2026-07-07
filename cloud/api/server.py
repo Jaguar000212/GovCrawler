@@ -4,7 +4,11 @@ FastAPI app factory for the GovCrawler Portal.
 Route definitions live in per-concern modules (frontend, domains, config,
 imports, jobs, leads, templates, blacklist, campaigns, credentials); this
 module only builds the FastAPI app, mounts static files, manages the
-Playwright browser lifespan, and wires shared state into portal.api.deps.
+Playwright browser lifespan, and wires shared state into cloud.api.deps.
+
+Also mounts `agent.api.router` — today both tiers still run in one process
+(see agent/api.py's docstring), so this is the one place a cloud-tier module
+imports from `agent/` at all.
 
 See each route module's docstring for its endpoint list.
 """
@@ -21,11 +25,13 @@ from pathlib import Path
 from playwright.async_api import async_playwright
 
 from . import (
-    admin, auth, blacklist, campaigns, config, credentials, deps, domains, frontend, imports, jobs, leads, system,
-    templates,
+    admin, auth, blacklist, campaigns, config, coordination, credentials, deps, domains, frontend, imports, jobs,
+    leads, system, templates,
 )
 from .deps import RedirectException, get_current_user
 from ..db import Database
+from agent import api as agent_api
+from portal.paths import LIVE_CONFIG_PATH
 
 log = logging.getLogger(__name__)
 
@@ -65,7 +71,7 @@ async def lifespan(app: FastAPI):
 def create_app(config_dict: dict, db: Database) -> FastAPI:
     deps._db = db
     deps._config = config_dict
-    deps._config_path = Path(__file__).parent.parent / "config.yaml"
+    deps._config_path = LIVE_CONFIG_PATH
 
     _ensure_jwt_secret(config_dict, deps._config_path)
 
@@ -87,6 +93,8 @@ def create_app(config_dict: dict, db: Database) -> FastAPI:
     app.include_router(config.router, dependencies=[Depends(get_current_user)])
     app.include_router(imports.router, dependencies=[Depends(get_current_user)])
     app.include_router(jobs.router, dependencies=[Depends(get_current_user)])
+    app.include_router(agent_api.router, dependencies=[Depends(get_current_user)])
+    app.include_router(coordination.router, dependencies=[Depends(get_current_user)])
     app.include_router(leads.router, dependencies=[Depends(get_current_user)])
     app.include_router(templates.router, dependencies=[Depends(get_current_user)])
     app.include_router(blacklist.router, dependencies=[Depends(get_current_user)])

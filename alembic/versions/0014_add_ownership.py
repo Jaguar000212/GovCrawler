@@ -34,7 +34,18 @@ def upgrade():
             continue
         columns = {c['name'] for c in inspector.get_columns(table)}
         if 'owner_id' not in columns:
-            with op.batch_alter_table(table) as batch_op:
+            # Plain add_column() with an inline ForeignKey is NOT supported
+            # by Alembic's SQLite dialect at all outside batch mode
+            # ("No support for ALTER of constraints in SQLite dialect") — it
+            # must go through batch_alter_table's copy-and-move recreate,
+            # which in turn requires every constraint on the table to have
+            # an explicit name (this table already carries other unnamed
+            # FKs from earlier migrations). Postgres needs neither the batch
+            # wrapper nor the naming_convention — this only matters on SQLite.
+            with op.batch_alter_table(
+                table,
+                naming_convention={"fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s"},
+            ) as batch_op:
                 batch_op.add_column(sa.Column('owner_id', sa.Integer(), sa.ForeignKey('users.id')))
 
     if 'users' not in inspector.get_table_names():
@@ -58,5 +69,8 @@ def upgrade():
 
 def downgrade():
     for table in _TABLES:
-        with op.batch_alter_table(table) as batch_op:
+        with op.batch_alter_table(
+            table,
+            naming_convention={"fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s"},
+        ) as batch_op:
             batch_op.drop_column('owner_id')

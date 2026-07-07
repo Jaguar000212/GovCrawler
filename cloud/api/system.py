@@ -15,8 +15,8 @@ from fastapi import APIRouter, Depends
 
 from . import campaigns as campaigns_module
 from .deps import get_active_tasks, get_db, require_loopback
-from .jobs import cancel_job_if_running
 from ..db import Campaign, CampaignStatus, Database
+from agent.api import cancel_job_if_running
 
 log = logging.getLogger(__name__)
 
@@ -72,11 +72,18 @@ async def get_activity(db: Database = Depends(get_db), active_tasks: dict = Depe
 
 @router.post("/api/system/cancel-all", dependencies=[Depends(require_loopback)])
 async def cancel_all(db: Database = Depends(get_db), active_tasks: dict = Depends(get_active_tasks)):
+    """Loopback-only emergency stop for local shutdown — unlike the
+    coordination cancel endpoint, this flips status to 'cancelled' directly
+    rather than waiting for the engine to drain and self-report, since the
+    whole point is "the server is about to go away right now"."""
     activity = _get_activity(db, active_tasks)
 
-    cancelled_jobs = sum(
-        1 for job in activity["crawl_jobs"] if cancel_job_if_running(job["id"], db, active_tasks)
-    )
+    cancelled_jobs = 0
+    for job in activity["crawl_jobs"]:
+        db.set_cancel_requested(job["id"])
+        if cancel_job_if_running(job["id"], active_tasks):
+            db.finish_job(job["id"], status="cancelled")
+            cancelled_jobs += 1
 
     for campaign in activity["campaigns"]:
         db.update_campaign_status(campaign["id"], CampaignStatus.CANCELLED)
