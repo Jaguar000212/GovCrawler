@@ -66,6 +66,7 @@ class CampaignEmail(Base):
     missing_fields = Column(String, nullable=True)  # comma-separated list of missing template vars
     error_message = Column(String, nullable=True)
     sent_at = Column(DateTime, nullable=True)
+    sending_since = Column(DateTime, nullable=True)
     credential_id = Column(Integer, ForeignKey("smtp_credentials.id"), nullable=True)
 
 

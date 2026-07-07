@@ -345,17 +345,61 @@ class OutreachMixin:
                 campaign_id=campaign_id, status=EmailStatus.DRAFT
             ).first() is not None
 
-    def get_next_queued_email(self, campaign_id: int) -> dict | None:
-        """Fetch one QUEUED email for processing. Returns None when done."""
+    def has_queued_email(self, campaign_id: int) -> bool:
+        """Read-only existence check — use claim_next_queued_email() to actually
+        take one for sending."""
         with self._Session() as s:
-            e = s.query(CampaignEmail).filter_by(
+            return s.query(CampaignEmail).filter_by(
                 campaign_id=campaign_id, status=EmailStatus.QUEUED
-            ).order_by(CampaignEmail.id).first()
-            if not e:
-                return None
-            return {"id": e.id, "campaign_id": e.campaign_id,
-                    "recipient_email": e.recipient_email, "subject": e.subject,
-                    "body": e.body}
+            ).first() is not None
+
+    def claim_next_queued_email(self, campaign_id: int) -> dict | None:
+        """Atomically claim one QUEUED email (flips it to SENDING) so a crash
+        between a successful SMTP send and mark_email_sent doesn't leave the
+        row QUEUED for a resend to duplicate. The UPDATE's WHERE status=QUEUED
+        guard makes the claim safe even if something else raced for the same
+        row; a lost race just means this call retries against the next row
+        instead of surfacing a false "nothing left" to the dispatcher loop."""
+        with self._Session() as s:
+            for _ in range(5):
+                e = s.query(CampaignEmail).filter_by(
+                    campaign_id=campaign_id, status=EmailStatus.QUEUED
+                ).order_by(CampaignEmail.id).first()
+                if not e:
+                    return None
+                claimed = s.query(CampaignEmail).filter_by(
+                    id=e.id, status=EmailStatus.QUEUED
+                ).update({"status": EmailStatus.SENDING, "sending_since": datetime.datetime.utcnow()})
+                s.commit()
+                if claimed:
+                    return {"id": e.id, "campaign_id": e.campaign_id,
+                            "recipient_email": e.recipient_email, "subject": e.subject,
+                            "body": e.body}
+            return None
+
+    def recover_stuck_sending(self, threshold_seconds: int) -> list[int]:
+        """Requeues any email left SENDING past threshold_seconds — a crash
+        between claim_next_queued_email() and mark_email_sent/mark_email_failed.
+        Non-destructive by design (same shape as job_mixin.reap_stale_jobs):
+        if the crash happened AFTER the real SMTP send but BEFORE the DB
+        write, this requeue causes a duplicate send. That's the accepted
+        tradeoff over losing/stalling the email forever — the threshold (far
+        above the ~30s SMTP timeout) keeps the false-positive window rare."""
+        cutoff = datetime.datetime.utcnow() - datetime.timedelta(seconds=threshold_seconds)
+        with self._Session() as s:
+            stuck = (
+                s.query(CampaignEmail.id)
+                .filter(CampaignEmail.status == EmailStatus.SENDING)
+                .filter(CampaignEmail.sending_since < cutoff)
+                .all()
+            )
+            ids = [r[0] for r in stuck]
+            if ids:
+                s.query(CampaignEmail).filter(CampaignEmail.id.in_(ids)).update(
+                    {"status": EmailStatus.QUEUED, "sending_since": None}, synchronize_session=False
+                )
+                s.commit()
+            return ids
 
     def mark_email_sent(self, email_id: int, credential_id: int | None = None) -> None:
         """Mark as SENT with current timestamp."""

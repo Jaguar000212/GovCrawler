@@ -5,13 +5,15 @@ Registers routes:
   GET  /api/system/activity     → live counts of crawl jobs / campaigns
                                    (production or test) currently running
   POST /api/system/cancel-all   → cancel everything currently active
+  GET  /healthz                 → liveness/readiness probe (public, no auth)
 
 Exists so the Tkinter launcher can ask "is it safe to stop the server?" over
 plain HTTP instead of reaching into asyncio task dicts from another thread.
 """
 
 import logging
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
+from sqlalchemy import text
 
 from . import campaigns as campaigns_module
 from .deps import get_active_tasks, get_db, require_loopback
@@ -21,6 +23,21 @@ from agent.api import cancel_job_if_running
 log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["system"])
+
+
+@router.get("/healthz")
+async def healthz(response: Response, db: Database = Depends(get_db)):
+    """Public liveness/readiness probe for the proxy/orchestrator — no auth,
+    no loopback restriction (deploy/docker-compose.yml's api healthcheck and
+    any external uptime monitor both need to reach this)."""
+    try:
+        with db._Session() as s:
+            s.execute(text("SELECT 1"))
+        return {"status": "ok"}
+    except Exception:
+        log.error("Health check failed — DB unreachable", exc_info=True)
+        response.status_code = 503
+        return {"status": "db_unreachable"}
 
 
 def _running_campaigns_without_task(db: Database, known_ids: set[int]) -> list[dict]:

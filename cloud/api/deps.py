@@ -24,6 +24,24 @@ _playwright_instance = None
 _active_tasks: dict[int, asyncio.Task] = {}
 
 
+def decode_token_with_rotation(token: str, config: dict) -> dict | None:
+    """Tries auth.jwt_secret first, then auth.jwt_secret_prev if set — lets a
+    JWT_SECRET rotation take effect without invalidating every live access
+    token at once (see server._ensure_jwt_secret). Returns None on failure
+    against both."""
+    auth_cfg = config["auth"]
+    try:
+        return decode_token(token, auth_cfg["jwt_secret"])
+    except pyjwt.PyJWTError:
+        prev = auth_cfg.get("jwt_secret_prev")
+        if not prev:
+            return None
+        try:
+            return decode_token(token, prev)
+        except pyjwt.PyJWTError:
+            return None
+
+
 def get_db() -> Database:
     return _db
 
@@ -81,10 +99,8 @@ def get_current_user(request: Request) -> CurrentUser:
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    secret = _config["auth"]["jwt_secret"]
-    try:
-        payload = decode_token(token, secret)
-    except pyjwt.PyJWTError:
+    payload = decode_token_with_rotation(token, _config)
+    if payload is None:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
     if payload.get("type") != "access":
@@ -122,3 +138,22 @@ def require_loopback(request: Request):
     host = request.client.host if request.client else None
     if host not in _LOOPBACK_HOSTS:
         raise HTTPException(status_code=403, detail="This endpoint is only reachable from localhost")
+
+
+_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
+def verify_csrf(request: Request):
+    """Double-submit CSRF check for mutating requests. Only enforced when the
+    request is cookie-authenticated (no Authorization header) — a Bearer
+    token isn't sent automatically by the browser, so it isn't CSRF-able.
+    SameSite=Strict on the auth cookies already blocks most CSRF vectors;
+    this is defense-in-depth per plan.md §13."""
+    if request.method in _SAFE_METHODS:
+        return
+    if request.headers.get("Authorization"):
+        return
+    cookie_token = request.cookies.get("csrf")
+    header_token = request.headers.get("X-CSRF-Token")
+    if not cookie_token or not header_token or cookie_token != header_token:
+        raise HTTPException(status_code=403, detail="Missing or invalid CSRF token")

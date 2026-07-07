@@ -1,3 +1,22 @@
+// ── CSRF (double-submit cookie) ────────────────────────────────────────────────
+// Single chokepoint for every fetch() call across every page script (campaigns.js,
+// leads.js, settings.js, etc. all call the raw fetch(), not just apiFetch below) —
+// patching window.fetch here covers all of them without touching each call site.
+// See cloud/api/deps.py's verify_csrf for the server-side check.
+(function () {
+    const nativeFetch = window.fetch.bind(window);
+    window.fetch = function (input, init = {}) {
+        const method = (init.method || 'GET').toUpperCase();
+        if (method !== 'GET' && method !== 'HEAD') {
+            const match = document.cookie.match(/(?:^|; )csrf=([^;]*)/);
+            if (match) {
+                init = {...init, headers: {...(init.headers || {}), 'X-CSRF-Token': decodeURIComponent(match[1])}};
+            }
+        }
+        return nativeFetch(input, init);
+    };
+})();
+
 // ── Defaults (shown in config panel even before server restart) ───────────────
 const CFG_DEFAULTS = {
     workers: 5, max_depth: 3, recrawl_days: 30,

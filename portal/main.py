@@ -69,8 +69,19 @@ def load_config() -> dict:
 
     # Container deployments (deploy/docker-compose.yml) point at Postgres via
     # env var rather than baking a second config.yaml into the image.
-    if os.environ.get("DATABASE_URL"):
+    # DATABASE_URL_APP (the least-privilege govcrawler_app role, see Alembic
+    # 0020) takes precedence for runtime traffic when set; the `migrate`
+    # service never sets it, so it always runs migrations with DATABASE_URL's
+    # (superuser-ish) DDL rights. Local/dev/desktop installs without the
+    # split role keep working on plain DATABASE_URL or the sqlite default.
+    if os.environ.get("DATABASE_URL_APP"):
+        config["database"]["uri"] = os.environ["DATABASE_URL_APP"]
+    elif os.environ.get("DATABASE_URL"):
         config["database"]["uri"] = os.environ["DATABASE_URL"]
+    if os.environ.get("DISPATCH_MODE"):
+        config.setdefault("dispatch", {})["mode"] = os.environ["DISPATCH_MODE"]
+    if os.environ.get("ADMIN_ORIGIN"):
+        config.setdefault("auth", {})["admin_origin"] = os.environ["ADMIN_ORIGIN"]
     return config
 
 

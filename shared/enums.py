@@ -19,6 +19,7 @@ class CampaignKind(enum.Enum):
 class EmailStatus(enum.Enum):
     DRAFT = "DRAFT"
     QUEUED = "QUEUED"
+    SENDING = "SENDING"
     SENT = "SENT"
     FAILED = "FAILED"
 

@@ -15,6 +15,7 @@ Registers routes:
 
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
+from urllib.parse import urlsplit
 
 from .deps import CurrentUser, get_current_user, get_db
 from ..db import Database
@@ -22,6 +23,37 @@ from ..db import Database
 log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["jobs"])
+
+
+def _normalize_custom_urls(urls: list[str], max_urls: int) -> list[str]:
+    """Dedupes, defaults to http:// when no scheme is given, and validates —
+    used by cloud/api/coordination.py's job-creation route for custom_urls
+    jobs (imported locally there to avoid a jobs<->coordination cycle)."""
+    normalized = []
+    seen = set()
+    invalid = []
+    for raw in urls:
+        candidate = raw.strip()
+        if not candidate:
+            continue
+        if "://" not in candidate:
+            candidate = "http://" + candidate
+        netloc = urlsplit(candidate).netloc
+        if not netloc:
+            invalid.append(raw)
+            continue
+        if candidate not in seen:
+            seen.add(candidate)
+            normalized.append(candidate)
+    if invalid:
+        raise HTTPException(status_code=422,
+                            detail=f"Invalid URL(s): {', '.join(invalid)}")
+    if not normalized:
+        raise HTTPException(status_code=422, detail="No valid custom URLs provided")
+    if len(normalized) > max_urls:
+        raise HTTPException(status_code=422,
+                            detail=f"Too many custom URLs ({len(normalized)}); max is {max_urls}")
+    return normalized
 
 
 @router.get("/api/jobs")

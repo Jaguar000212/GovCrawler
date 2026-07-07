@@ -12,15 +12,15 @@ Registers routes:
 """
 import datetime
 import logging
+import secrets
 
-import jwt as pyjwt
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 
-from .deps import CurrentUser, get_config, get_current_user, get_db, require_loopback
+from .deps import CurrentUser, decode_token_with_rotation, get_config, get_current_user, get_db, require_loopback
 from ..db import Database, User
 from ..security.hashing import verify_password
-from ..security.jwt import create_access_token, decode_token, generate_refresh_token, hash_refresh_token
+from ..security.jwt import create_access_token, generate_refresh_token, hash_refresh_token
 from shared.schemas.auth import LoginRequest, RefreshRequest, TokenResponse, UserOut
 
 log = logging.getLogger(__name__)
@@ -39,6 +39,11 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str,
                         max_age=auth_cfg["access_ttl_minutes"] * 60)
     response.set_cookie("refresh", refresh_token, httponly=True, secure=secure, samesite="strict",
                         max_age=auth_cfg["refresh_ttl_days"] * 86400)
+    # Double-submit CSRF token — deliberately NOT httponly, base.js's apiFetch
+    # reads it and echoes it back as X-CSRF-Token on mutating requests (see
+    # deps.verify_csrf). Same TTL as the access cookie it accompanies.
+    response.set_cookie("csrf", secrets.token_urlsafe(32), httponly=False, secure=secure, samesite="strict",
+                        max_age=auth_cfg["access_ttl_minutes"] * 60)
 
 
 def _issue_tokens(db: Database, user: dict, config: dict, request: Request) -> tuple[str, str]:
@@ -137,6 +142,7 @@ async def logout(request: Request, response: Response, db: Database = Depends(ge
             db.write_audit(session["user_id"], "user.logout", "session", session["id"])
     response.delete_cookie("access")
     response.delete_cookie("refresh")
+    response.delete_cookie("csrf")
     return {"message": "Logged out"}
 
 
@@ -153,9 +159,8 @@ async def bootstrap(token: str, db: Database = Depends(get_db), config: dict = D
     instead of prompting the operator to log in a second time. Loopback-only
     (same trust boundary as /api/system/*) and re-validates the token itself
     rather than trusting the query string blindly."""
-    try:
-        payload = decode_token(token, config["auth"]["jwt_secret"])
-    except pyjwt.PyJWTError:
+    payload = decode_token_with_rotation(token, config)
+    if payload is None:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
     if payload.get("type") != "access":
         raise HTTPException(status_code=401, detail="Invalid token type")
@@ -166,5 +171,7 @@ async def bootstrap(token: str, db: Database = Depends(get_db), config: dict = D
     response = RedirectResponse(url="/")
     secure = config["auth"].get("cookie_secure", False)
     response.set_cookie("access", token, httponly=True, secure=secure, samesite="strict",
+                        max_age=config["auth"]["access_ttl_minutes"] * 60)
+    response.set_cookie("csrf", secrets.token_urlsafe(32), httponly=False, secure=secure, samesite="strict",
                         max_age=config["auth"]["access_ttl_minutes"] * 60)
     return response

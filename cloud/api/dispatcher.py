@@ -94,7 +94,7 @@ async def run_campaign_dispatch(campaign_id: int, db: Database) -> None:
     queued_count = db.queue_campaign_emails(campaign_id)
     log.info(f"Campaign {campaign_id}: {queued_count} drafts moved to QUEUED")
 
-    if queued_count == 0 and not db.get_next_queued_email(campaign_id):
+    if queued_count == 0 and not db.has_queued_email(campaign_id):
         db.update_campaign_status(campaign_id, CampaignStatus.COMPLETED)
         log.info(f"Campaign {campaign_id} completed: No emails to send.")
         return
@@ -126,8 +126,8 @@ async def run_campaign_dispatch(campaign_id: int, db: Database) -> None:
             log.info(f"Campaign {campaign_id} cancelled. {cancelled_count} remaining queued emails marked FAILED.")
             break
 
-        # b. Get next queued email
-        email = db.get_next_queued_email(campaign_id)
+        # b. Claim next queued email (atomic QUEUED->SENDING, crash-safe)
+        email = db.claim_next_queued_email(campaign_id)
 
         # c. If no more QUEUED emails remain
         if not email:

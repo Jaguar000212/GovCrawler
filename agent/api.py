@@ -29,7 +29,6 @@ import httpx
 import logging
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, model_validator
-from urllib.parse import urlsplit
 
 from .cloud_client import CloudApiClient, create_remote_job, resume_remote_job
 from .crawler.engine import CrawlerEngine
@@ -54,34 +53,6 @@ class StartJobRequest(BaseModel):
         if bool(self.domain_ids) == bool(self.custom_urls):
             raise ValueError("Provide exactly one of domain_ids or custom_urls")
         return self
-
-
-def _normalize_custom_urls(urls: list[str], max_urls: int) -> list[str]:
-    normalized = []
-    seen = set()
-    invalid = []
-    for raw in urls:
-        candidate = raw.strip()
-        if not candidate:
-            continue
-        if "://" not in candidate:
-            candidate = "http://" + candidate
-        netloc = urlsplit(candidate).netloc
-        if not netloc:
-            invalid.append(raw)
-            continue
-        if candidate not in seen:
-            seen.add(candidate)
-            normalized.append(candidate)
-    if invalid:
-        raise HTTPException(status_code=422,
-                            detail=f"Invalid URL(s): {', '.join(invalid)}")
-    if not normalized:
-        raise HTTPException(status_code=422, detail="No valid custom URLs provided")
-    if len(normalized) > max_urls:
-        raise HTTPException(status_code=422,
-                            detail=f"Too many custom URLs ({len(normalized)}); max is {max_urls}")
-    return normalized
 
 
 def _cloud_base_url(config: dict) -> str:

@@ -18,6 +18,7 @@ import logging
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, model_validator
 
+from . import deps
 from .deps import CurrentUser, get_current_user, get_db, require
 from .dispatcher import resolve_credential_pool, run_campaign_dispatch
 from ..db import Database, CampaignKind, CampaignStatus, Lead
@@ -203,7 +204,11 @@ async def create_campaign(req: CampaignCreate, db: Database = Depends(get_db),
 @router.post("/api/campaigns/{campaign_id}/dispatch")
 async def dispatch_campaign(campaign_id: int, db: Database = Depends(get_db),
                             user: CurrentUser = Depends(require("campaigns.dispatch"))):
-    """Start the background dispatch worker for a campaign (production or test)."""
+    """Start dispatch for a campaign (production or test). In `dispatch.mode:
+    embedded` (default — desktop/dev, one process) this spawns the dispatch
+    task directly; in `external` (VPS docker-compose) it only flips the
+    campaign to RUNNING and a separate `cloud/dispatch_service.py` process
+    picks it up on its next poll — see plan.md §19."""
     campaign = _get_owned_campaign(db, campaign_id, user)
 
     stats = db.get_campaign_stats(campaign_id)
@@ -212,10 +217,8 @@ async def dispatch_campaign(campaign_id: int, db: Database = Depends(get_db),
         raise HTTPException(status_code=400,
                             detail="No selected draft or queued emails to dispatch. Select at least one email first.")
 
-    if campaign["status"] == CampaignStatus.RUNNING.value and campaign_id in _active_campaign_tasks:
-        task = _active_campaign_tasks[campaign_id]
-        if not task.done():
-            raise HTTPException(status_code=409, detail="Campaign is already running")
+    if campaign["status"] == CampaignStatus.RUNNING.value:
+        raise HTTPException(status_code=409, detail="Campaign is already running")
 
     assigned_ids = db.get_campaign_credential_ids(campaign_id)
     raw_creds = db.get_credentials_by_ids(assigned_ids) if assigned_ids else db.get_active_credentials()
@@ -228,8 +231,11 @@ async def dispatch_campaign(campaign_id: int, db: Database = Depends(get_db),
                       "are cooling down, or are disabled. Try again later, or adjust the limit in Settings.")
         raise HTTPException(status_code=400, detail=detail)
 
-    if campaign["status"] != CampaignStatus.RUNNING.value:
-        db.update_campaign_status(campaign_id, CampaignStatus.RUNNING)
+    db.update_campaign_status(campaign_id, CampaignStatus.RUNNING)
+
+    dispatch_mode = deps._config.get("dispatch", {}).get("mode", "embedded")
+    if dispatch_mode == "external":
+        return {"message": "Dispatch queued (external dispatcher process will pick it up)"}
 
     async def _run_and_clean():
         try:
