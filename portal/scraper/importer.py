@@ -170,9 +170,14 @@ def import_from_json(db: Database, json_path: str | Path, config: dict):
         log.info(f"JSON import: {len(data)} categories from {json_path}")
 
         db.clear_domains()
+        seen_categories: set[str] = set()
+        seen_org_types: set[str] = set()
 
         for cat_title, states in data.items():
             cat_code = _CAT_CODE.get(cat_title, cat_title.lower().replace(" ", "_")[:20])
+            if cat_code not in seen_categories:
+                db.upsert_category(cat_code, cat_title)
+                seen_categories.add(cat_code)
             inserted_this_cat = 0
 
             for state_name, org_types in states.items():
@@ -181,6 +186,9 @@ def import_from_json(db: Database, json_path: str | Path, config: dict):
                 for org_type_title, urls in org_types.items():
                     # Use org_type_title as the code too (JSON has no separate code)
                     org_code = org_type_title.lower().replace(" ", "_").replace("/", "_")[:30]
+                    if org_code not in seen_org_types:
+                        db.upsert_org_type(org_code, org_type_title)
+                        seen_org_types.add(org_code)
 
                     import_status["total_entries"] += len(urls)
 
@@ -252,6 +260,8 @@ def import_all(db: Database, config: dict):
             log.info(f"Found {len(categories)} categories")
 
             db.clear_domains()
+            seen_categories: set[str] = set()
+            seen_org_types: set[str] = set()
 
             for cat in categories:
                 code = cat["category"]
@@ -260,6 +270,10 @@ def import_all(db: Database, config: dict):
                 if cat_filter and code != cat_filter:
                     import_status["done_categories"] += 1
                     continue
+
+                if code not in seen_categories:
+                    db.upsert_category(code, title)
+                    seen_categories.add(code)
 
                 # Build org_type code → title mapping for this category
                 try:
@@ -293,6 +307,10 @@ def import_all(db: Database, config: dict):
                     org_code = entry.get("organization_type") or "UNKNOWN"
                     org_t_title = org_map.get(org_code, org_code)
                     external_id = entry.get("npi_sanitized_id") or None
+
+                    if org_code not in seen_org_types:
+                        db.upsert_org_type(org_code, org_t_title)
+                        seen_org_types.add(org_code)
 
                     # Entries with no crawlable URL (main or contact) are kept
                     # with main_url=None rather than dropped — the frontend

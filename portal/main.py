@@ -65,7 +65,13 @@ def load_config() -> dict:
         os.makedirs(target_config.parent, exist_ok=True)
         shutil.copy(DEFAULT_CONFIG_PATH, target_config)
     with open(target_config) as f:
-        return yaml.safe_load(f)
+        config = yaml.safe_load(f)
+
+    # Container deployments (deploy/docker-compose.yml) point at Postgres via
+    # env var rather than baking a second config.yaml into the image.
+    if os.environ.get("DATABASE_URL"):
+        config["database"]["uri"] = os.environ["DATABASE_URL"]
+    return config
 
 
 def cmd_serve(config: dict):
@@ -121,7 +127,6 @@ def cmd_import(config: dict):
 
 
 async def cmd_crawl(config: dict, job_id: int):
-    import json
     from playwright.async_api import async_playwright
     from .crawler.engine import CrawlerEngine
 
@@ -144,7 +149,7 @@ async def cmd_crawl(config: dict, job_id: int):
         if not snaps:
             # Pre-feature job that never produced snapshots: build them now from
             # the catalog (get-or-insert, idempotent), then re-read.
-            domain_ids = json.loads(job.get("domain_ids") or "[]")
+            domain_ids = db.get_job_domain_ids(job_id)
             for d in db.get_domains_by_ids(domain_ids):
                 if d["contact_url"] or d["main_url"]:
                     db.create_crawl_snapshot(job_id, d)

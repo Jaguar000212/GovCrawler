@@ -30,6 +30,12 @@ from portal.db import Base
 
 target_metadata = Base.metadata
 
+# The bare `alembic upgrade head` CLI (deploy/docker-compose.yml's one-shot
+# `migrate` service) has no app config to read from — point it at Postgres
+# via env var instead of the SQLite URL baked into alembic.ini.
+if os.environ.get("DATABASE_URL"):
+    config.set_main_option("sqlalchemy.url", os.environ["DATABASE_URL"])
+
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired here.

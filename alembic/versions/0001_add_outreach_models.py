@@ -6,7 +6,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "0001_add_outreach_models"
-down_revision = None
+down_revision = "0000_add_core_tables"
 branch_labels = None
 depends_on = None
 
@@ -42,7 +42,7 @@ def upgrade():
         sa.Column("port", sa.Integer(), nullable=False),
         sa.Column("username", sa.String(), nullable=False),
         sa.Column("password", sa.String(), nullable=False),
-        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("cooldown_until", sa.DateTime(), nullable=True),
     )
     op.create_table(

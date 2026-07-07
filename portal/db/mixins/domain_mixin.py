@@ -1,9 +1,28 @@
 from sqlalchemy import case, func, or_
 
 from ..tables.crawl import Domain
+from ..tables.lookups import Category, OrgType
 
 
 class DomainMixin:
+    def upsert_category(self, code: str, title: str) -> None:
+        with self._Session() as s:
+            existing = s.query(Category).filter_by(code=code).first()
+            if existing:
+                existing.title = title
+            else:
+                s.add(Category(code=code, title=title))
+            s.commit()
+
+    def upsert_org_type(self, code: str, title: str) -> None:
+        with self._Session() as s:
+            existing = s.query(OrgType).filter_by(code=code).first()
+            if existing:
+                existing.title = title
+            else:
+                s.add(OrgType(code=code, title=title))
+            s.commit()
+
     def upsert_domain(self, category_code: str, category_title: str,
                       state: str, org_type: str, org_type_title: str,
                       title: str, main_url: str | None, contact_url: str | None,

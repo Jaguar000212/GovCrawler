@@ -34,12 +34,12 @@ class Database(DomainMixin, JobMixin, CrawlSnapshotMixin, LeadMixin, VisitedUrlM
         inspector = sa_inspect(self.engine)
         tables_to_patch = {
             "campaign_emails": [
-                ("is_selected", "BOOLEAN NOT NULL DEFAULT 1"),
+                ("is_selected", "BOOLEAN NOT NULL DEFAULT TRUE"),
                 ("missing_fields", "VARCHAR"),
                 ("credential_id", "INTEGER"),
             ],
             "test_campaign_emails": [
-                ("is_selected", "BOOLEAN NOT NULL DEFAULT 1"),
+                ("is_selected", "BOOLEAN NOT NULL DEFAULT TRUE"),
                 ("missing_fields", "VARCHAR"),
                 ("credential_id", "INTEGER"),
             ],

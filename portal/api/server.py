@@ -10,6 +10,7 @@ See each route module's docstring for its endpoint list.
 """
 
 import logging
+import os
 import secrets
 import yaml
 from contextlib import asynccontextmanager
@@ -30,7 +31,14 @@ log = logging.getLogger(__name__)
 
 
 def _ensure_jwt_secret(config_dict: dict, config_path: Path) -> None:
-    """Generate + persist a random JWT secret on first run so it survives restarts."""
+    """Generate + persist a random JWT secret on first run so it survives restarts.
+
+    Containers (deploy/docker-compose.yml) supply JWT_SECRET via env instead —
+    skip the file write there, since config.yaml isn't guaranteed writable/
+    persistent inside the image."""
+    if os.environ.get("JWT_SECRET"):
+        config_dict.setdefault("auth", {})["jwt_secret"] = os.environ["JWT_SECRET"]
+        return
     if config_dict.get("auth", {}).get("jwt_secret"):
         return
     config_dict.setdefault("auth", {})["jwt_secret"] = secrets.token_urlsafe(48)

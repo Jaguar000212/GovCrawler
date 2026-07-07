@@ -16,7 +16,7 @@ depends_on = None
 def upgrade():
     op.add_column(
         'campaign_emails',
-        sa.Column('is_selected', sa.Boolean(), nullable=False, server_default='1')
+        sa.Column('is_selected', sa.Boolean(), nullable=False, server_default=sa.true())
     )
     op.add_column(
         'campaign_emails',
@@ -24,7 +24,7 @@ def upgrade():
     )
     op.add_column(
         'test_campaign_emails',
-        sa.Column('is_selected', sa.Boolean(), nullable=False, server_default='1')
+        sa.Column('is_selected', sa.Boolean(), nullable=False, server_default=sa.true())
     )
     op.add_column(
         'test_campaign_emails',

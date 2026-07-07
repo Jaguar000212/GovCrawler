@@ -68,6 +68,14 @@ class CrawlJob(Base):
     finished_at = Column(DateTime)
 
 
+class CrawlJobDomain(Base):
+    """Junction replacing the JSON crawl_jobs.domain_ids array as the read path
+    going forward (domain_ids itself stays for one more phase — see plan.md)."""
+    __tablename__ = "crawl_job_domains"
+    job_id = Column(Integer, ForeignKey("crawl_jobs.id", ondelete="CASCADE"), primary_key=True)
+    domain_id = Column(Integer, ForeignKey("domains.id"), primary_key=True)
+
+
 class JobCustomUrl(Base):
     __tablename__ = "job_custom_urls"
     id = Column(Integer, primary_key=True, autoincrement=True)

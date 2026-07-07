@@ -1,7 +1,7 @@
 import datetime
 import json
 
-from ..tables.crawl import CrawlJob, JobCustomUrl
+from ..tables.crawl import CrawlJob, CrawlJobDomain, JobCustomUrl
 
 
 class JobMixin:
@@ -21,7 +21,14 @@ class JobMixin:
             )
             s.add(job)
             s.commit()
+            if domain_ids:
+                s.add_all([CrawlJobDomain(job_id=job.id, domain_id=d) for d in domain_ids])
+                s.commit()
             return job.id
+
+    def get_job_domain_ids(self, job_id: int) -> list[int]:
+        with self._Session() as s:
+            return [r[0] for r in s.query(CrawlJobDomain.domain_id).filter_by(job_id=job_id).all()]
 
     def add_job_custom_urls(self, job_id: int, urls: list[str]) -> None:
         with self._Session() as s:
