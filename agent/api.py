@@ -21,6 +21,7 @@ would fully close this gap; today both tiers still share one process.
 Registers routes:
   POST /api/jobs                 → create + start a crawl job
   POST /api/jobs/{id}/cancel     → cancel a running job
+  POST /api/jobs/{id}/resume     → resume an interrupted job from its local frontier checkpoint
 """
 
 import asyncio
@@ -30,7 +31,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, model_validator
 from urllib.parse import urlsplit
 
-from .cloud_client import CloudApiClient, create_remote_job
+from .cloud_client import CloudApiClient, create_remote_job, resume_remote_job
 from .crawler.engine import CrawlerEngine
 from cloud.api.deps import CurrentUser, get_active_tasks, get_browser, get_config as get_app_config, get_db, require
 from cloud.db import Database
@@ -107,13 +108,15 @@ def _make_token_provider(db: Database, config: dict, user: CurrentUser):
 
 async def _run_crawl(job_id: int, seeds: list[tuple[str, int | None]], visited_bootstrap: list[str],
                      cloud: CloudApiClient, config: dict, browser,
-                     active_tasks: dict[int, asyncio.Task]):
-    log.info(f"Crawl job {job_id} starting with {len(seeds)} seeds")
+                     active_tasks: dict[int, asyncio.Task], frontier: dict | None = None):
+    log.info(f"Crawl job {job_id} starting with {len(seeds)} seeds"
+            + (" (resumed from checkpoint)" if frontier else ""))
     cloud.start()
     try:
         engine = CrawlerEngine(config=config, cloud=cloud, job_id=job_id, browser=browser)
-        await engine.run(seeds, visited_bootstrap=visited_bootstrap)
+        await engine.run(seeds, visited_bootstrap=visited_bootstrap, frontier=frontier)
         await cloud.finish_job(status="done")
+        cloud.clear_frontier()
         log.info(f"Crawl job {job_id} done.")
     except asyncio.CancelledError:
         log.info(f"Crawl job {job_id} cancelled.")
@@ -159,6 +162,46 @@ async def create_job(
 
     return {"id": job_id,
             "message": f"Crawl started for {len(seeds)} seed URL(s)"}
+
+
+@router.post("/api/jobs/{job_id}/resume")
+async def resume_job(
+        job_id: int,
+        db: Database = Depends(get_db),
+        config: dict = Depends(get_app_config),
+        browser=Depends(get_browser),
+        active_tasks: dict = Depends(get_active_tasks),
+        user: CurrentUser = Depends(require("crawl.run")),
+):
+    """Manual resume of an `interrupted` job — reloads the local frontier
+    checkpoint (if this machine has one) and continues the queue instead of
+    re-crawling from seeds. Automatic resume-on-process-restart (scanning for
+    orphaned frontier files at startup) is a follow-up, not attempted here."""
+    if job_id in active_tasks and not active_tasks[job_id].done():
+        raise HTTPException(status_code=409, detail="Job is already running")
+
+    base_url = _cloud_base_url(config)
+    token_provider = _make_token_provider(db, config, user)
+
+    try:
+        resumed = await resume_remote_job(base_url, token_provider, job_id)
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+
+    outbox_path = DATA_DIR / f"outbox_job_{job_id}.db"
+    cloud = CloudApiClient(base_url, token_provider, job_id, outbox_path)
+    frontier = cloud.load_frontier()
+    if frontier is None:
+        log.warning(f"Job {job_id}: no local frontier checkpoint found — resuming from seeds instead")
+
+    seeds = [(s[0], s[1]) for s in resumed["seeds"]]
+    task = asyncio.create_task(_run_crawl(job_id, seeds, resumed["visited_bootstrap"],
+                                          cloud, resumed["policy"], browser, active_tasks,
+                                          frontier=frontier))
+    active_tasks[job_id] = task
+
+    return {"id": job_id,
+            "message": "Crawl resumed" + (" from checkpoint" if frontier else " from seeds (no checkpoint found)")}
 
 
 def cancel_job_if_running(job_id: int, active_tasks: dict[int, asyncio.Task]) -> bool:

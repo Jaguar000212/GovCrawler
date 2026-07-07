@@ -16,7 +16,7 @@ Registers routes:
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from .deps import CurrentUser, get_active_tasks, get_current_user, get_db
+from .deps import CurrentUser, get_current_user, get_db
 from ..db import Database
 
 log = logging.getLogger(__name__)
@@ -31,14 +31,17 @@ async def list_jobs(limit: int = Query(20, ge=1, le=100), db: Database = Depends
 
 
 @router.get("/api/jobs/{job_id}")
-async def get_job(job_id: int, db: Database = Depends(get_db), active_tasks: dict = Depends(get_active_tasks),
+async def get_job(job_id: int, db: Database = Depends(get_db),
                   user: CurrentUser = Depends(get_current_user)):
+    """Status is read straight from the DB — no more `active_tasks`-based
+    override. Heartbeat-driven status (updated by job_mixin.heartbeat/
+    reap_stale_jobs) is now the single source of truth for both this and
+    list_jobs, so the two can no longer disagree the way a live-task-only
+    override could (e.g. a hung task that stopped heartbeating but whose
+    asyncio.Task object was still alive)."""
     job = db.get_job(job_id, owner_id=user.id, view_all=user.can("jobs.view_all"))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    task = active_tasks.get(job_id)
-    if task and not task.done():
-        job["status"] = "running"
     return job
 
 

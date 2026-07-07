@@ -84,9 +84,14 @@ class JobMixin:
             s.commit()
 
     def heartbeat(self, job_id: int, metrics: dict) -> bool:
-        """Records a liveness pulse + the latest metrics; returns cancel_requested."""
+        """Records a liveness pulse + the latest metrics; returns cancel_requested.
+
+        Also reconciles a job the reaper marked `interrupted` back to
+        `running` — a late heartbeat proves the agent wasn't actually dead,
+        just slow, so this must be non-destructive (no data touched, just
+        the status flip) per plan.md §10.6."""
         with self._Session() as s:
-            s.query(CrawlJob).filter_by(id=job_id).update({
+            updates = {
                 "queued_urls": metrics.get("queued_urls", 0),
                 "visited_urls": metrics.get("visited_urls", 0),
                 "skipped_urls": metrics.get("skipped_urls", 0),
@@ -95,10 +100,39 @@ class JobMixin:
                 "current_depth": metrics.get("current_depth", 0),
                 "active_workers": metrics.get("active_workers", 0),
                 "last_heartbeat_at": datetime.datetime.utcnow(),
-            })
+            }
+            job = s.query(CrawlJob).filter_by(id=job_id).first()
+            if job and job.status == JobStatus.INTERRUPTED.value:
+                updates["status"] = JobStatus.RUNNING.value
+            s.query(CrawlJob).filter_by(id=job_id).update(updates)
             s.commit()
             job = s.query(CrawlJob).filter_by(id=job_id).first()
             return bool(job.cancel_requested) if job else False
+
+    def reap_stale_jobs(self, threshold_seconds: int) -> list[int]:
+        """Flips any 'running' job silent for longer than threshold_seconds to
+        'interrupted' — non-destructive (heartbeat() revives it on a late
+        pulse; a real resume also just clears cancel_requested/re-runs).
+        Covers both a job with a stale last_heartbeat_at and one that never
+        got a single heartbeat (started_at is the only signal there)."""
+        cutoff = datetime.datetime.utcnow() - datetime.timedelta(seconds=threshold_seconds)
+        with self._Session() as s:
+            stale = (
+                s.query(CrawlJob.id)
+                .filter(CrawlJob.status == JobStatus.RUNNING.value)
+                .filter(
+                    ((CrawlJob.last_heartbeat_at.isnot(None)) & (CrawlJob.last_heartbeat_at < cutoff)) |
+                    ((CrawlJob.last_heartbeat_at.is_(None)) & (CrawlJob.started_at < cutoff))
+                )
+                .all()
+            )
+            ids = [r[0] for r in stale]
+            if ids:
+                s.query(CrawlJob).filter(CrawlJob.id.in_(ids)).update(
+                    {"status": JobStatus.INTERRUPTED.value}, synchronize_session=False
+                )
+                s.commit()
+            return ids
 
     def resume_job(self, job_id: int) -> None:
         with self._Session() as s:

@@ -13,6 +13,7 @@ imports from `agent/` at all.
 See each route module's docstring for its endpoint list.
 """
 
+import asyncio
 import logging
 import os
 import secrets
@@ -53,13 +54,35 @@ def _ensure_jwt_secret(config_dict: dict, config_path: Path) -> None:
     log.info("Generated and persisted a new auth.jwt_secret")
 
 
+_REAP_INTERVAL_SECONDS = 60
+_REAP_THRESHOLD_SECONDS = 150  # lenient vs. per_url_timeout (~100s) + jitter, per plan.md §10.6
+
+
+async def _reap_loop():
+    while True:
+        await asyncio.sleep(_REAP_INTERVAL_SECONDS)
+        try:
+            reaped = deps._db.reap_stale_jobs(_REAP_THRESHOLD_SECONDS)
+            if reaped:
+                log.warning(f"Reaped {len(reaped)} stale job(s) (no heartbeat for "
+                           f"{_REAP_THRESHOLD_SECONDS}s+): {reaped}")
+        except Exception:
+            log.error("Stale-job reaper sweep failed", exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log.info("Starting Playwright browser…")
     deps._playwright_instance = await async_playwright().start()
     deps._browser = await deps._playwright_instance.chromium.launch(headless=True)
     log.info("Browser ready.")
+    reap_task = asyncio.create_task(_reap_loop())
     yield
+    reap_task.cancel()
+    try:
+        await reap_task
+    except asyncio.CancelledError:
+        pass
     log.info("Shutting down browser…")
     try:
         await deps._browser.close()

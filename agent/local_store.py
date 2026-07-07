@@ -42,6 +42,12 @@ CREATE TABLE IF NOT EXISTS outbox_dead (
     last_error TEXT,
     died_at REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS frontier (
+    job_id INTEGER PRIMARY KEY,
+    snapshot_json TEXT NOT NULL,
+    saved_at REAL NOT NULL
+);
 """
 
 
@@ -111,6 +117,34 @@ class LocalOutbox:
                 "SELECT COUNT(*) FROM outbox WHERE job_id = ?", (job_id,)
             ).fetchone()
             return row[0] == 0
+
+    def pending_count(self) -> int:
+        """Total rows across all jobs — used for outbox backpressure, which
+        cares about total local backlog, not any one job's share of it."""
+        with self._lock:
+            return self._conn.execute("SELECT COUNT(*) FROM outbox").fetchone()[0]
+
+    def save_frontier(self, job_id: int, snapshot: dict) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO frontier (job_id, snapshot_json, saved_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(job_id) DO UPDATE SET snapshot_json = excluded.snapshot_json, "
+                "saved_at = excluded.saved_at",
+                (job_id, json.dumps(snapshot), time.time()),
+            )
+            self._conn.commit()
+
+    def load_frontier(self, job_id: int) -> dict | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT snapshot_json FROM frontier WHERE job_id = ?", (job_id,)
+            ).fetchone()
+            return json.loads(row[0]) if row else None
+
+    def clear_frontier(self, job_id: int) -> None:
+        with self._lock:
+            self._conn.execute("DELETE FROM frontier WHERE job_id = ?", (job_id,))
+            self._conn.commit()
 
     def close(self) -> None:
         with self._lock:

@@ -1,9 +1,9 @@
 """
 CloudApiClient — mirrors the `Database` method surface the crawler engine used
 to call directly, so engine call sites barely change (plan.md §8). Talks HTTP
-to the coordination endpoints (`portal/api/coordination.py`) instead of the DB;
+to the coordination endpoints (`cloud/api/coordination.py`) instead of the DB;
 `save_lead`/`mark_visited` are fire-and-forget writes into a durable local
-outbox (`portal/local/outbox.py`) instead of synchronous DB calls — a crash or
+outbox (`agent/local_store.py`) instead of synchronous DB calls — a crash or
 network blip never loses a lead. `send_heartbeat`/`finish_job` talk to the
 API directly (not outboxed) since they need to be timely/ordered.
 
@@ -26,6 +26,7 @@ log = logging.getLogger(__name__)
 _BATCH_SIZE = 100
 _FLUSH_IDLE_SLEEP = 2.0
 _FLUSH_BUSY_SLEEP = 0.5
+_BACKPRESSURE_THRESHOLD = 5000
 
 
 async def create_remote_job(base_url: str, token_provider, transport=None, **body) -> dict:
@@ -92,6 +93,26 @@ class CloudApiClient:
 
     def mark_visited(self, url: str, job_id: int) -> None:
         self._outbox.enqueue(job_id, "visited", {"url": url})
+
+    # ── Frontier checkpoint (survives a crash so a resume isn't a restart) ───
+
+    def save_frontier(self, snapshot: dict) -> None:
+        self._outbox.save_frontier(self._job_id, snapshot)
+
+    def load_frontier(self) -> dict | None:
+        return self._outbox.load_frontier(self._job_id)
+
+    def clear_frontier(self) -> None:
+        self._outbox.clear_frontier(self._job_id)
+
+    # ── Backpressure ─────────────────────────────────────────────────────────
+
+    @property
+    def is_backpressured(self) -> bool:
+        """True once the LOCAL outbox backlog (across all jobs on this
+        machine) exceeds a fixed threshold — a long cloud outage should slow
+        new link discovery, not grow this file without bound."""
+        return self._outbox.pending_count() > _BACKPRESSURE_THRESHOLD
 
     # ── Flusher ───────────────────────────────────────────────────────────────
 

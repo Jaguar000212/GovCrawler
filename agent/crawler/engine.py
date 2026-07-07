@@ -23,10 +23,17 @@ Key properties:
   - Dedicated DB writer pool (1 thread) → serialized, off-loop persistence
   - Parse pool              → BeautifulSoup off the event loop
   - recrawl_days            → global visited URL set prevents re-crawling fresh URLs
+  - Frontier checkpoint     → the pending/in-flight queue is snapshotted every 5s
+    (see _save_checkpoint/_rehydrate_frontier) so a crash resumes from where it
+    left off rather than restarting from seeds (plan.md §10.4).
+  - Outbox backpressure     → new link discovery pauses (not the whole crawl)
+    once the local write-ahead outbox backs up past its threshold.
 
-Public API (unchanged — drop-in replacement):
-  - CrawlerEngine(config, db, job_id, browser=None)
-  - await engine.run(seeds)   where seeds: list[tuple[str, int | None]]
+Public API:
+  - CrawlerEngine(config, cloud: CloudApiClient, job_id, browser=None)
+  - await engine.run(seeds, visited_bootstrap=None, frontier=None)
+    seeds: list[tuple[str, int | None]]; frontier: a prior checkpoint snapshot
+    to resume from instead of enqueueing seeds fresh.
 """
 
 import asyncio
@@ -72,6 +79,10 @@ class CrawlerEngine:
         self._browser = browser
 
         self._queue: asyncio.PriorityQueue[_QueueItem] = asyncio.PriorityQueue()
+        # Everything queued OR currently in-flight (removed only once a
+        # worker fully finishes with it) — the frontier checkpoint snapshot
+        # source. Keyed by counter since that's already a stable per-item id.
+        self._pending: dict[int, _QueueItem] = {}
         self._visited: set[str] = set()
         self._domain_locks: dict[str, asyncio.Lock] = {}
         self._domain_next: dict[str, float] = {}  # netloc → earliest next-request time
@@ -134,7 +145,7 @@ class CrawlerEngine:
 
         if not is_seed:
             self._visited.add(key)
-        await self._queue.put(_QueueItem(
+        item = _QueueItem(
             priority=self._url_priority(url),
             counter=self._next_counter(),
             url=url,
@@ -143,7 +154,9 @@ class CrawlerEngine:
             is_seed=is_seed,
             page_hops=page_hops,
             chain_budget=chain_budget,
-        ))
+        )
+        self._pending[item.counter] = item
+        await self._queue.put(item)
 
     def _url_priority(self, url: str) -> int:
         kws = self._cfg.get("priority_keywords", [])
@@ -185,11 +198,17 @@ class CrawlerEngine:
 
     # ── Run ───────────────────────────────────────────────────────────────────
 
-    async def run(self, seeds: list[tuple[str, int | None]], visited_bootstrap: list[str] = None):
+    async def run(self, seeds: list[tuple[str, int | None]], visited_bootstrap: list[str] = None,
+                  frontier: dict | None = None):
         """seeds: list of (url, domain_id) tuples. visited_bootstrap: URLs the
         coordination API already computed as pre-visited for this job (own
         prior-run history + global recrawl protection, minus this job's own
-        seed domains) — see portal/api/coordination.py:_visited_bootstrap."""
+        seed domains) — see cloud/api/coordination.py:_visited_bootstrap.
+        frontier: a previous _save_checkpoint() snapshot (from agent/api.py's
+        resume route) — when given, the queue is rehydrated from it instead
+        of enqueueing `seeds` fresh, so a resumed run continues rather than
+        restarts. `visited_bootstrap` is still applied (unioned) even on a
+        resume, since it may have grown since the checkpoint was taken."""
         self._loop = asyncio.get_running_loop()
         self._run_task = asyncio.current_task()
 
@@ -205,6 +224,9 @@ class CrawlerEngine:
 
         for v in (visited_bootstrap or []):
             self._visited.add(self._url_key(v))
+
+        if frontier:
+            await self._rehydrate_frontier(frontier)
 
         workers = self._cfg["workers"]
         parse_workers = self._cfg.get("parse_workers") or (os.cpu_count() or 4)
@@ -233,8 +255,9 @@ class CrawlerEngine:
         self._parse_pool = ThreadPoolExecutor(max_workers=parse_workers,
                                               thread_name_prefix="parse")
 
-        for url, did in seeds:
-            await self._enqueue(url, depth=0, domain_id=did, is_seed=True, page_hops=0)
+        if not frontier:
+            for url, did in seeds:
+                await self._enqueue(url, depth=0, domain_id=did, is_seed=True, page_hops=0)
 
         # One Playwright context per worker (None if disabled / no browser).
         if self._cfg.get("playwright_fallback") and self._browser:
@@ -256,14 +279,16 @@ class CrawlerEngine:
             for i in range(workers)
         ]
         reporter_task = asyncio.create_task(self._reporter())
+        checkpoint_task = asyncio.create_task(self._checkpoint_loop())
 
         try:
             await self._queue.join()
         finally:
             reporter_task.cancel()
+            checkpoint_task.cancel()
             for t in tasks:
                 t.cancel()
-            await asyncio.gather(reporter_task, *tasks, return_exceptions=True)
+            await asyncio.gather(reporter_task, checkpoint_task, *tasks, return_exceptions=True)
 
             for ctx in contexts:
                 if ctx:
@@ -314,6 +339,73 @@ class CrawlerEngine:
         except asyncio.CancelledError:
             pass
 
+    async def _checkpoint_loop(self):
+        """Periodically persists the in-progress frontier (§10.4) — checkpointed
+        every 5s, same shape as `_reporter`'s heartbeat loop. A crash between
+        checkpoints loses at most 5s of queue progress, never more (already-
+        flushed leads/visited are unaffected — this only concerns the queue)."""
+        try:
+            while True:
+                await asyncio.sleep(5)
+                await self._loop.run_in_executor(self._db_pool, self._save_checkpoint)
+        except asyncio.CancelledError:
+            pass
+
+    def _save_checkpoint(self):
+        chain_keys: dict[int, str] = {}  # id(chain_budget list) -> chain_key
+        chains: dict[str, int] = {}      # chain_key -> current budget value
+        items = []
+        for item in self._pending.values():
+            chain_key = None
+            if item.chain_budget is not None:
+                obj_id = id(item.chain_budget)
+                if obj_id not in chain_keys:
+                    chain_keys[obj_id] = str(len(chain_keys))
+                    chains[chain_keys[obj_id]] = item.chain_budget[0]
+                chain_key = chain_keys[obj_id]
+            items.append({
+                "priority": item.priority, "counter": item.counter, "url": item.url,
+                "depth": item.depth, "domain_id": item.domain_id, "is_seed": item.is_seed,
+                "page_hops": item.page_hops, "chain_key": chain_key,
+            })
+        self._cloud.save_frontier({
+            "visited": list(self._visited),
+            "counter": self._counter,
+            "skipped": self._skipped,
+            "max_depth_seen": self._max_depth_seen,
+            "session_visited_count": self._session_visited_count,
+            "chains": chains,
+            "items": items,
+        })
+
+    async def _rehydrate_frontier(self, frontier: dict):
+        """Inverse of `_save_checkpoint` — rebuilds one shared chain_budget
+        list per chain_key FIRST, then points every item referencing that key
+        at the SAME object, preserving the aliasing `_enqueue_links` depends
+        on to bound a chain's total fan-out (see module research: naively
+        restoring one independent [value] list per item would silently
+        defeat that cap)."""
+        self._visited |= set(frontier.get("visited", []))
+        self._counter = max(self._counter, frontier.get("counter", 0))
+        self._skipped = frontier.get("skipped", 0)
+        self._max_depth_seen = frontier.get("max_depth_seen", 0)
+        self._session_visited_count = frontier.get("session_visited_count", 0)
+
+        chain_objs: dict[str, list[int]] = {
+            key: [budget] for key, budget in frontier.get("chains", {}).items()
+        }
+        for it in frontier.get("items", []):
+            chain_budget = chain_objs.get(it["chain_key"]) if it.get("chain_key") is not None else None
+            item = _QueueItem(
+                priority=it["priority"], counter=it["counter"], url=it["url"], depth=it["depth"],
+                domain_id=it.get("domain_id"), is_seed=it.get("is_seed", False),
+                page_hops=it.get("page_hops", 0), chain_budget=chain_budget,
+            )
+            self._pending[item.counter] = item
+            await self._queue.put(item)
+        log.info(f"Job {self._job_id}: rehydrated {len(frontier.get('items', []))} frontier item(s) "
+                 f"across {len(chain_objs)} pagination chain(s)")
+
     # ── Worker loop ───────────────────────────────────────────────────────────
 
     async def _worker(self, worker_id: int, browser_context):
@@ -332,13 +424,17 @@ class CrawlerEngine:
                 log.warning(f"[w{worker_id}] stall killed: {item.url}")
             except asyncio.CancelledError:
                 self._active_workers -= 1
+                self._pending.pop(item.counter, None)
                 self._queue.task_done()
                 raise  # propagate so the task actually stops
             except Exception as e:
                 log.error(f"[w{worker_id}] unhandled error on {item.url}: {e}")
             self._active_workers -= 1
             # Exactly one task_done per dequeued item (the CancelledError branch
-            # above already acked-and-raised, so we never double-count).
+            # above already acked-and-raised, so we never double-count). Popped
+            # from _pending here too — this item is now fully finished, whether
+            # it succeeded, timed out, or errored.
+            self._pending.pop(item.counter, None)
             self._queue.task_done()
 
     # ── URL processing ────────────────────────────────────────────────────────
@@ -597,6 +693,15 @@ class CrawlerEngine:
                              base_url: str, depth: int, domain_id: int | None,
                              is_seed_page: bool = False, page_hops: int = 0,
                              chain_budget: list[int] | None = None):
+        if self._cloud.is_backpressured:
+            # The local outbox is backed up past its threshold (a long cloud
+            # outage) — pause NEW discovery from this page entirely.
+            # Already-queued/in-flight items keep draining normally; nothing
+            # already found is dropped, per plan.md §10.3.
+            log.debug(f"outbox backpressured — skipping link discovery from {base_url}")
+            self._skipped += len(raw_links)
+            return
+
         depth_limits = self._cfg.get("max_links_per_page", {})
         max_links = depth_limits.get(str(depth),
                                      depth_limits.get(depth,
