@@ -959,14 +959,35 @@ They are ordered by dependency — 7 unblocks 9 — and each is independently sh
   every-startup recompute as *the* backfill mechanism for a freshly-added `lead_score` column on an old DB
   (server-default 0) — so `_ensure_columns()` now fires a narrower, one-time recompute specifically when
   that column is newly added in the current run, preserving the upgrade path without the unconditional cost.
-- **Phase 9 — True agent/process split (§2.2, §8, §15).** Make the agent its own process with **zero
-  `cloud.*` imports**: the agent forwards the operator's real access token (from the keyring flow, §8) instead
-  of `_make_token_provider`'s `db.get_user_by_id` read, so it needs no DB URI, no `cloud.security`, no
-  `cloud.db`; move any genuinely-shared helpers into `shared/`; have the launcher start the agent against a
-  configurable `cloud_api_base_url` (loopback for desktop, the VPS for a remote operator). Add an
-  `import-linter` CI contract enforcing `agent ⊥ cloud`. *Prereq:* Phase 7 (shared/ hoisting). *Risk:* highest —
-  touches the run model, token lifetime for long crawls, and the desktop single-process assumption; stage behind
-  a flag and keep the in-process path working until the split is proven.
+- **Phase 9 — True agent/process split (§2.2, §8, §15). Part 1 shipped 2026-07-08; Part 2 not started.**
+  The user's actual target is the full §2.2 vision — a VPS runs cloud independently; an operator runs their
+  launcher anywhere and connects to it remotely, neither side aware of how the other was started. Tracing
+  the real code showed reaching that needs a local BFF that proxies *every* operator-facing router
+  (domains/leads/campaigns/settings/templates/credentials/blacklist, not just job lifecycle) to a remote
+  cloud — a large, separately-planned undertaking (**Part 2**, not designed yet).
+  - **Part 1 (shipped): zero `cloud.*` imports in the agent tier's job-lifecycle runtime.**
+    `agent/api.py`'s three routes (create/resume/cancel) no longer import `cloud.db`, `cloud.security`, or
+    `cloud.api.deps` — replaced by: `agent/identity.py` (the operator's standing session — a
+    self-refreshing token via `/auth/refresh` + the OS keyring, the same mechanism the launcher already
+    used for its own polling, now shared) and `agent/state.py` (agent-owned config/browser/active-tasks,
+    wired once by `cloud/api/server.py`'s existing lifespan — the one remaining, deliberate `cloud → agent`
+    direction, unchanged from before). A real correctness trap surfaced and was fixed here: the old
+    `_make_token_provider` minted a fresh JWT via direct DB access on *every* call, which is why a
+    multi-hour crawl's heartbeats never 401'd — naively forwarding one browser request's token instead
+    would have silently broken any crawl outliving the access-token TTL. `CloudApiClient`'s
+    `token_provider` is now async with a retry-once-on-401-then-refresh wrapper, verified against a mock
+    401 response (not just import-checked). The `crawl.run` permission check moved to
+    `cloud/api/coordination.py` (now the only place it's checked, not a duplicate) since the local route no
+    longer has a `CurrentUser` to check it against — a bare loopback restriction is the route's remaining
+    gate, matching `/api/system/activity`'s existing posture. An `import-linter` CI contract
+    (`pyproject.toml`) enforces `agent ⊥ cloud` going forward, with one documented `ignore_imports`
+    exception for `agent/launcher/app.py` (the desktop process entrypoint — it still has to construct the
+    combined app until Part 2 genuinely separates the processes).
+  - **Part 2 (not started): agent as a genuinely separate, remotely-reachable process.** The local BFF
+    proxy layer described above, `cloud_api_base_url` pointing at a real VPS, CORS between two origins (or
+    just no shared origin at all once truly remote), the launcher managing its own standalone process, and
+    `GovCrawler.spec`/packaging changes. *Prereq:* Part 1 (done). *Risk:* highest of anything in this
+    roadmap — deserves its own dedicated plan, not a bullet here.
 
 > Redis-based real-time dashboard push (§11) remains a documented, deliberately-deferred upgrade — not planned
 > here. The current 3 s polling is adequate and the dispatcher's separate-process model would need Redis for

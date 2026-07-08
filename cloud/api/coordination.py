@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from shared.urls import strip_www
 
-from .deps import CurrentUser, forbid_unless_owner, get_config as get_app_config, get_current_user, get_db
+from .deps import CurrentUser, forbid_unless_owner, get_config as get_app_config, get_current_user, get_db, require
 from ..db import Database
 
 log = logging.getLogger(__name__)
@@ -86,7 +86,7 @@ async def coordination_create_job(
         req: CoordinationJobCreate,
         db: Database = Depends(get_db),
         config: dict = Depends(get_app_config),
-        user: CurrentUser = Depends(get_current_user),
+        user: CurrentUser = Depends(require("crawl.run")),
 ):
     from .jobs import _normalize_custom_urls  # local import: avoids a jobs<->coordination import cycle
 
@@ -239,7 +239,7 @@ async def coordination_resume_job(
         job_id: int,
         db: Database = Depends(get_db),
         config: dict = Depends(get_app_config),
-        user: CurrentUser = Depends(get_current_user),
+        user: CurrentUser = Depends(require("crawl.run")),
 ):
     job = _authorized_job(db, job_id, user)
     db.resume_job(job_id)

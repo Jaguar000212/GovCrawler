@@ -1,8 +1,11 @@
 """CloudApiClient — mirrors the Database method surface the engine used to call,
 but talks HTTP to cloud/api/coordination.py. `save_lead`/`mark_visited` are
 fire-and-forget writes into the durable local outbox (agent/local_store.py);
-`send_heartbeat`/`finish_job` go to the API directly. `token_provider` returns
-a fresh bearer token per call. See .docs/resilience.md."""
+`send_heartbeat`/`finish_job` go to the API directly. `token_provider` is an
+async callable returning a currently-valid bearer token — on a 401 it's
+refreshed and the call retried once, so a crawl outliving one access token's
+TTL (the norm, not the exception, at hours-long crawl durations) never stalls
+partway through. See .docs/resilience.md."""
 
 import asyncio
 import logging
@@ -20,40 +23,69 @@ _FLUSH_BUSY_SLEEP = 0.5
 _BACKPRESSURE_THRESHOLD = 5000
 
 
-async def create_remote_job(base_url: str, token_provider, transport=None, **body) -> dict:
+async def _post_with_retry(http: httpx.AsyncClient, url: str, token_provider, refresh, **kwargs) -> httpx.Response:
+    """POST with one retry-on-401 via `refresh()` — the shared shape every
+    direct coordination call needs, since `token_provider` alone only ever
+    returns the last-cached token."""
+    r = await http.post(url, headers={"Authorization": f"Bearer {await token_provider()}"}, **kwargs)
+    if r.status_code == 401:
+        await refresh()
+        r = await http.post(url, headers={"Authorization": f"Bearer {await token_provider()}"}, **kwargs)
+    return r
+
+
+async def _get_with_retry(http: httpx.AsyncClient, url: str, token_provider, refresh, **kwargs) -> httpx.Response:
+    """GET counterpart to _post_with_retry — used by load_frontier's
+    cross-machine fetch."""
+    r = await http.get(url, headers={"Authorization": f"Bearer {await token_provider()}"}, **kwargs)
+    if r.status_code == 401:
+        await refresh()
+        r = await http.get(url, headers={"Authorization": f"Bearer {await token_provider()}"}, **kwargs)
+    return r
+
+
+async def create_remote_job(base_url: str, token_provider, refresh, transport=None, **body) -> dict:
     """No job_id exists yet, so this can't go through a per-job CloudApiClient
     instance — a short-lived plain HTTP call instead. `transport` lets a
     caller with no live server (e.g. the `python -m portal crawl` debug CLI)
     hit the coordination routes in-process via httpx.ASGITransport instead of
     requiring uvicorn to already be running."""
     async with httpx.AsyncClient(base_url=base_url.rstrip("/"), timeout=15, transport=transport) as http:
-        r = await http.post("/api/coordination/jobs", json=body,
-                            headers={"Authorization": f"Bearer {token_provider()}"})
+        r = await _post_with_retry(http, "/api/coordination/jobs", token_provider, refresh, json=body)
         r.raise_for_status()
         return r.json()
 
 
-async def resume_remote_job(base_url: str, token_provider, job_id: int, transport=None) -> dict:
+async def resume_remote_job(base_url: str, token_provider, refresh, job_id: int, transport=None) -> dict:
     async with httpx.AsyncClient(base_url=base_url.rstrip("/"), timeout=15, transport=transport) as http:
-        r = await http.post(f"/api/coordination/jobs/{job_id}/resume",
-                            headers={"Authorization": f"Bearer {token_provider()}"})
+        r = await _post_with_retry(http, f"/api/coordination/jobs/{job_id}/resume", token_provider, refresh)
         r.raise_for_status()
         return r.json()
 
 
 class CloudApiClient:
     def __init__(self, base_url: str, token_provider, job_id: int, outbox_path, transport=None,
-                cross_machine_resume: bool = False):
+                cross_machine_resume: bool = False, refresh=None):
         self._base_url = base_url.rstrip("/")
-        self._token_provider = token_provider
+        # Best-effort cache for the one sync call site (save_frontier, called
+        # from a db_pool executor thread) — may be briefly stale, acceptable
+        # since that upload already swallows failures (local checkpoint stays
+        # authoritative regardless). Wrapping token_provider here means every
+        # caller (including _post_with_retry/_get_with_retry) updates it for
+        # free, with no extra call sites to remember.
+        self._last_token: str | None = None
+
+        async def _tracked_token_provider():
+            self._last_token = await token_provider()
+            return self._last_token
+
+        self._token_provider = _tracked_token_provider
+        self._refresh = refresh or (lambda: token_provider())
         self._job_id = job_id
         self._outbox = LocalOutbox(outbox_path)
         self._http = httpx.AsyncClient(base_url=self._base_url, timeout=15, transport=transport)
         self._flush_task: asyncio.Task | None = None
         self._cross_machine_resume = cross_machine_resume
-
-    def _headers(self) -> dict:
-        return {"Authorization": f"Bearer {self._token_provider()}"}
 
     def start(self) -> None:
         self._flush_task = asyncio.create_task(self._flush_loop())
@@ -61,8 +93,8 @@ class CloudApiClient:
     # ── Direct calls (not outboxed) ──────────────────────────────────────────
 
     async def send_heartbeat(self, metrics: dict) -> bool:
-        r = await self._http.post(f"/api/coordination/jobs/{self._job_id}/heartbeat",
-                                  json=metrics, headers=self._headers())
+        r = await _post_with_retry(self._http, f"/api/coordination/jobs/{self._job_id}/heartbeat",
+                                   self._token_provider, self._refresh, json=metrics)
         r.raise_for_status()
         return bool(r.json().get("cancel_requested"))
 
@@ -76,8 +108,9 @@ class CloudApiClient:
         if not self._outbox.is_drained(self._job_id):
             log.warning(f"job {self._job_id}: outbox did not fully drain before finish "
                        f"(dead-lettered rows may exist) — finishing anyway")
-        await self._http.post(f"/api/coordination/jobs/{self._job_id}/finish",
-                              json={"status": status, "error": error}, headers=self._headers())
+        r = await _post_with_retry(self._http, f"/api/coordination/jobs/{self._job_id}/finish",
+                                   self._token_provider, self._refresh, json={"status": status, "error": error})
+        r.raise_for_status()
 
     # ── Outboxed writes (fire-and-forget, matches the old sync call shape) ──
 
@@ -94,15 +127,20 @@ class CloudApiClient:
         When crawler.cross_machine_resume is on, also best-effort uploads to
         the cloud — called from a db_pool executor thread (see engine.py's
         `_save_checkpoint`), so a blocking sync HTTP call here doesn't block
-        the event loop. A failed upload is logged and otherwise ignored: the
-        local checkpoint is still authoritative for same-machine resume."""
+        the event loop. A failed upload (including a stale cached token — no
+        async refresh from a sync context) is logged and otherwise ignored:
+        the local checkpoint is still authoritative for same-machine resume."""
         self._outbox.save_frontier(self._job_id, snapshot)
         if not self._cross_machine_resume:
+            return
+        if not self._last_token:
+            log.warning(f"job {self._job_id}: no cached token yet — skipping cloud frontier upload")
             return
         try:
             with httpx.Client(base_url=self._base_url, timeout=15) as http:
                 r = http.post(f"/api/coordination/jobs/{self._job_id}/frontier",
-                              json={"snapshot": snapshot}, headers=self._headers())
+                              json={"snapshot": snapshot},
+                              headers={"Authorization": f"Bearer {self._last_token}"})
                 r.raise_for_status()
         except Exception as e:
             log.warning(f"job {self._job_id}: cloud frontier upload failed: {e}")
@@ -112,8 +150,8 @@ class CloudApiClient:
         if local is not None or not self._cross_machine_resume:
             return local
         try:
-            r = await self._http.get(f"/api/coordination/jobs/{self._job_id}/frontier",
-                                     headers=self._headers())
+            r = await _get_with_retry(self._http, f"/api/coordination/jobs/{self._job_id}/frontier",
+                                      self._token_provider, self._refresh)
             r.raise_for_status()
             return r.json().get("snapshot")
         except Exception as e:
@@ -151,8 +189,8 @@ class CloudApiClient:
         body = {"items": [b["payload"] for b in batch]} if kind == "lead" else \
                {"urls": [b["payload"]["url"] for b in batch]}
         try:
-            r = await self._http.post(f"/api/coordination/jobs/{self._job_id}/{path}",
-                                      json=body, headers=self._headers())
+            r = await _post_with_retry(self._http, f"/api/coordination/jobs/{self._job_id}/{path}",
+                                       self._token_provider, self._refresh, json=body)
             r.raise_for_status()
             self._outbox.ack([b["id"] for b in batch])
             return True

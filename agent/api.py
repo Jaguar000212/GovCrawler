@@ -1,27 +1,43 @@
 """Agent-tier BFF routes that own a running crawl (create / resume / cancel).
 
-These talk to the cloud over the coordination HTTP contract via cloud_client.py.
-Known, flagged exception: `_make_token_provider` and a few `cloud.*` imports
-still touch the cloud process directly because the agent isn't a separate
-process yet. See .docs/architecture.md ("Deployment reality vs. target").
+These talk to the cloud over the coordination HTTP contract via cloud_client.py,
+authenticated as the operator's own standing session (agent/identity.py) rather
+than whatever token happened to authenticate one browser request — a crawl can
+run far longer than one access token's TTL, and the identity module already
+knows how to refresh itself via /auth/refresh + the OS keyring. Zero cloud.*
+imports (plan.md §19.1 Phase 9): config/browser/active_tasks are agent-owned
+state (agent/state.py, wired by cloud/api/server.py's lifespan the same way it
+already mounts this router — see that module's docstring for the one remaining
+cloud -> agent exception).
+
+These routes no longer verify the caller's own permissions (that moved to
+cloud/api/coordination.py's require("crawl.run"), the one place that can still
+check it) — a bare loopback restriction is the remaining gate here, matching
+the same posture as /api/system/activity.
 """
 
 import asyncio
 import httpx
 import logging
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, model_validator
 
+from . import identity, state
 from .cloud_client import CloudApiClient, create_remote_job, resume_remote_job
 from .crawler.engine import CrawlerEngine
-from cloud.api.deps import CurrentUser, get_active_tasks, get_browser, get_config as get_app_config, get_db, require
-from cloud.db import Database
-from cloud.security.jwt import create_access_token
 from portal.paths import DATA_DIR
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["agent"])
+
+_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
+
+
+def _require_loopback(request: Request) -> None:
+    host = request.client.host if request.client else None
+    if host not in _LOOPBACK_HOSTS:
+        raise HTTPException(status_code=403, detail="This endpoint is only reachable from localhost")
 
 
 class StartJobRequest(BaseModel):
@@ -46,17 +62,6 @@ def _cloud_base_url(config: dict) -> str:
         return config["cloud_api_base_url"]
     port = config.get("api", {}).get("port", 8001)
     return f"http://127.0.0.1:{port}"
-
-
-def _make_token_provider(db: Database, config: dict, user: CurrentUser):
-    """Mints a fresh access token per call instead of caching one — a crawl
-    can run far longer than one token's TTL, and re-encoding a JWT is cheap
-    (no DB round trip), so there's nothing to refresh. See module docstring
-    for why this is the one DB touchpoint left in the agent tier."""
-    secret = config["auth"]["jwt_secret"]
-    ttl = config["auth"].get("access_ttl_minutes", 15)
-    token_version = db.get_user_by_id(user.id)["token_version"]
-    return lambda: create_access_token(user.id, token_version, secret, ttl)
 
 
 async def _run_crawl(job_id: int, seeds: list[tuple[str, int | None]], visited_bootstrap: list[str],
@@ -85,21 +90,17 @@ async def _run_crawl(job_id: int, seeds: list[tuple[str, int | None]], visited_b
 
 
 @router.post("/api/jobs")
-async def create_job(
-        req: StartJobRequest,
-        db: Database = Depends(get_db),
-        config: dict = Depends(get_app_config),
-        browser=Depends(get_browser),
-        active_tasks: dict = Depends(get_active_tasks),
-        user: CurrentUser = Depends(require("crawl.run")),
-):
+async def create_job(req: StartJobRequest, request: Request):
+    _require_loopback(request)
+    config = state.get_config()
+    browser = state.get_browser()
+    active_tasks = state.get_active_tasks()
     base_url = _cloud_base_url(config)
-    token_provider = _make_token_provider(db, config, user)
 
     body = {"domain_ids": req.domain_ids, "custom_urls": req.custom_urls,
            "category_filter": req.category_filter, "title_filter": req.title_filter}
     try:
-        created = await create_remote_job(base_url, token_provider, **body)
+        created = await create_remote_job(base_url, identity.get_valid_token, identity.refresh, **body)
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
@@ -109,8 +110,8 @@ async def create_job(
 
     outbox_path = DATA_DIR / f"outbox_job_{job_id}.db"
     cross_machine_resume = engine_config.get("crawler", {}).get("cross_machine_resume", False)
-    cloud = CloudApiClient(base_url, token_provider, job_id, outbox_path,
-                           cross_machine_resume=cross_machine_resume)
+    cloud = CloudApiClient(base_url, identity.get_valid_token, job_id, outbox_path,
+                           cross_machine_resume=cross_machine_resume, refresh=identity.refresh)
     task = asyncio.create_task(_run_crawl(job_id, seeds, created["visited_bootstrap"],
                                           cloud, engine_config, browser, active_tasks))
     active_tasks[job_id] = task
@@ -120,33 +121,30 @@ async def create_job(
 
 
 @router.post("/api/jobs/{job_id}/resume")
-async def resume_job(
-        job_id: int,
-        db: Database = Depends(get_db),
-        config: dict = Depends(get_app_config),
-        browser=Depends(get_browser),
-        active_tasks: dict = Depends(get_active_tasks),
-        user: CurrentUser = Depends(require("crawl.run")),
-):
+async def resume_job(job_id: int, request: Request):
     """Manual resume of an `interrupted` job — reloads the local frontier
     checkpoint (if this machine has one) and continues the queue instead of
     re-crawling from seeds. Automatic resume-on-process-restart (scanning for
     orphaned frontier files at startup) is a follow-up, not attempted here."""
+    _require_loopback(request)
+    config = state.get_config()
+    browser = state.get_browser()
+    active_tasks = state.get_active_tasks()
+
     if job_id in active_tasks and not active_tasks[job_id].done():
         raise HTTPException(status_code=409, detail="Job is already running")
 
     base_url = _cloud_base_url(config)
-    token_provider = _make_token_provider(db, config, user)
 
     try:
-        resumed = await resume_remote_job(base_url, token_provider, job_id)
+        resumed = await resume_remote_job(base_url, identity.get_valid_token, identity.refresh, job_id)
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
     outbox_path = DATA_DIR / f"outbox_job_{job_id}.db"
     cross_machine_resume = resumed["policy"].get("crawler", {}).get("cross_machine_resume", False)
-    cloud = CloudApiClient(base_url, token_provider, job_id, outbox_path,
-                           cross_machine_resume=cross_machine_resume)
+    cloud = CloudApiClient(base_url, identity.get_valid_token, job_id, outbox_path,
+                           cross_machine_resume=cross_machine_resume, refresh=identity.refresh)
     frontier = await cloud.load_frontier()
     if frontier is None:
         log.warning(f"Job {job_id}: no local frontier checkpoint found — resuming from seeds instead")
@@ -174,14 +172,18 @@ def cancel_job_if_running(job_id: int, active_tasks: dict[int, asyncio.Task]) ->
 
 
 @router.post("/api/jobs/{job_id}/cancel")
-async def cancel_job(job_id: int, db: Database = Depends(get_db), config: dict = Depends(get_app_config),
-                     active_tasks: dict = Depends(get_active_tasks),
-                     user: CurrentUser = Depends(require("crawl.run"))):
+async def cancel_job(job_id: int, request: Request):
+    _require_loopback(request)
+    config = state.get_config()
+    active_tasks = state.get_active_tasks()
     base_url = _cloud_base_url(config)
-    token_provider = _make_token_provider(db, config, user)
     async with httpx.AsyncClient(base_url=base_url, timeout=10) as http:
         r = await http.post(f"/api/coordination/jobs/{job_id}/cancel",
-                            headers={"Authorization": f"Bearer {token_provider()}"})
+                            headers={"Authorization": f"Bearer {await identity.get_valid_token()}"})
+        if r.status_code == 401:
+            await identity.refresh()
+            r = await http.post(f"/api/coordination/jobs/{job_id}/cancel",
+                                headers={"Authorization": f"Bearer {await identity.get_valid_token()}"})
     if r.status_code == 404:
         raise HTTPException(status_code=404, detail="Job not found")
     if r.status_code == 403:

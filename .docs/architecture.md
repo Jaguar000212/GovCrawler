@@ -11,8 +11,10 @@ The codebase is organized into three tiers plus a thin entry-point shim:
 | **Agent** | `agent/` | each operator's machine | the crawler engine + parser, a durable local outbox/frontier, the Tkinter launcher, and a local BFF that talks to the cloud |
 | **Entry shim** | `portal/` | both | `load_config()`, path resolution + first-run bootstrap, and the `python -m portal` CLI |
 
-> **Dependency direction:** `cloud → shared` and `agent → shared`, never `cloud ↔ agent` — with one
-> deliberate, flagged exception documented below. `shared/` imports neither tier.
+> **Dependency direction:** `cloud → shared` and `agent → shared`, `agent → cloud` is now **zero**
+> (plan.md §19.1 Phase 9, Part 1) and enforced by an `import-linter` CI contract (`pyproject.toml`); the one
+> remaining `cloud → agent` direction (mounting `agent.api.router` + wiring `agent.state`) is documented
+> below. `shared/` imports neither tier.
 
 ---
 
@@ -26,10 +28,20 @@ those live under `cloud/` and `agent/`). The **process/deployment split is parti
   production path.
 - **Desktop, single process:** `run.py` launches the Tkinter launcher, which starts **one** Uvicorn
   process hosting the cloud FastAPI app *and* the agent's crawl routes, and self-calls its own coordination
-  API over loopback. The crawler is not yet a physically separate process/port; `agent/api.py` still
-  imports a few `cloud.*` symbols directly (JWT minting, `DATA_DIR`). These residual couplings are marked in
-  code as intentional, not-yet-closed gaps — the design boundary they will eventually follow is the HTTP
-  coordination contract in `cloud/api/coordination.py`.
+  API over loopback. The crawler is not yet a physically separate process/port — `agent/launcher/app.py`
+  is the one place left that still constructs `cloud.db.Database`/`cloud.api.server.create_app` directly
+  (it's the process entrypoint responsible for standing up the combined app; explicitly exempted in the
+  import-linter contract, not an oversight). `agent/api.py` itself, though, has **zero** `cloud.*` imports
+  as of Phase 9 Part 1: its job-lifecycle routes authenticate coordination calls as the operator's own
+  standing session (`agent/identity.py` — a self-refreshing token via `/auth/refresh` + the OS keyring,
+  the same mechanism the launcher already used for its own polling) rather than minting a JWT via direct
+  DB access, and read config/browser/active-task state from `agent/state.py` (agent-owned) instead of
+  `cloud.api.deps`. The `crawl.run` permission check moved from the local route to
+  `cloud/api/coordination.py` accordingly — it's now the one place that checks it, not a defense-in-depth
+  duplicate. See [resilience.md](resilience.md) for why a self-refreshing token matters (a crawl reliably
+  outlives one access token's TTL). Part 2 — an agent that's a genuinely separate OS process, reachable
+  over a real network (not just loopback), proxying the *rest* of the operator UI's data calls to a remote
+  cloud — is planned but not started (plan.md §19.1).
 - **Dispatcher, independently deployable:** `dispatch.mode` (`embedded` vs `external`) decides whether the
   API process runs the SMTP send loop in-process or leaves it to the standalone `cloud/dispatch_service.py`.
   See [outreach.md](outreach.md#dispatch-modes).

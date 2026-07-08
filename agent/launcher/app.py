@@ -19,6 +19,7 @@ from enum import Enum, auto
 from tkinter import messagebox, simpledialog, ttk
 
 from portal.paths import BROWSER_PATH, ICON_PATH
+from .. import identity
 from .notifications import notify
 from .tray import TrayController
 
@@ -245,6 +246,7 @@ class CrawlerLauncher:
             data = resp.json()
             self._access_token = data["access_token"]
             keyring.set_password(_KEYRING_SERVICE, self._login_email, data["refresh_token"])
+            identity.update_access_token(data["access_token"])
             return True
         except Exception as e:
             log.warning(f"Token refresh failed: {e}")
@@ -386,6 +388,7 @@ class CrawlerLauncher:
         self._login_email = email
         keyring.set_password(_KEYRING_SERVICE, _KEYRING_LAST_EMAIL_KEY, email)
         keyring.set_password(_KEYRING_SERVICE, email, data["refresh_token"])
+        identity.set_session(email, data["access_token"], self._base_url())
 
         self.state = AppState.RUNNING
         self._render_state()
@@ -560,6 +563,7 @@ class CrawlerLauncher:
         self.http = None
         self._access_token = None
         self._login_email = None
+        identity.clear_session()
         self._toast("GovCrawler", "Server stopped.")
         if self._full_quit_requested:
             self._hard_exit()

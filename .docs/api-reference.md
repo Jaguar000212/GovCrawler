@@ -65,34 +65,43 @@ See [authentication.md](authentication.md) for the token model and permission ca
 ## Crawl jobs — read (`cloud/api/jobs.py`) + lifecycle (`agent/api.py`)
 
 Job **creation/resume/cancel** are the agent BFF's responsibility (they build the `CrawlerEngine`); the
-cloud router only exposes reads.
+cloud router only exposes reads. As of Phase 9 Part 1, these routes themselves check only that the caller
+is loopback (any-authenticated-user is still enforced one layer up, at the router mount in
+`cloud/api/server.py`) — the actual `crawl.run`/ownership authorization happens at
+`cloud/api/coordination.py`, using the operator's own standing session, not whichever token reached this
+route (see [api-reference.md](#agent-coordination--cloudapicoordinationpy-prefix-apicoordination) below).
 
 | Method | Path | Guard | Purpose |
 |--------|------|-------|---------|
-| POST | `/api/jobs` | `crawl.run` | **(agent)** Create + start a crawl (domain_ids XOR custom_urls) |
-| POST | `/api/jobs/{id}/resume` | `crawl.run` | **(agent)** Resume an interrupted job from its frontier checkpoint |
-| POST | `/api/jobs/{id}/cancel` | `crawl.run` | **(agent)** Cancel a running job (local or via coordination) |
+| POST | `/api/jobs` | auth + loopback (→ coordination checks `crawl.run`) | **(agent)** Create + start a crawl (domain_ids XOR custom_urls) |
+| POST | `/api/jobs/{id}/resume` | auth + loopback (→ coordination checks ownership + `crawl.run`) | **(agent)** Resume an interrupted job from its frontier checkpoint |
+| POST | `/api/jobs/{id}/cancel` | auth + loopback (→ coordination checks ownership/`crawl.cancel_all`) | **(agent)** Cancel a running job (local or via coordination) |
 | GET | `/api/jobs?limit=` | auth | List recent jobs (owner-filtered unless `jobs.view_all`) |
 | GET | `/api/jobs/{id}` | auth | Single job status + live metrics |
 | GET | `/api/jobs/{id}/seeds` | auth | Resolve seeds (custom URLs or frozen snapshots) |
 
 ## Agent coordination — `cloud/api/coordination.py` (prefix `/api/coordination`)
 
-The contract a `CloudApiClient` speaks. Every job-scoped route authorizes on **job ownership** (the owner,
-or an admin; `/cancel` also accepts `crawl.cancel_all`) — writes are decoupled from the volatile `crawl.run`
-grant so revoking a permission mid-crawl can't strand the outbox. See [resilience.md](resilience.md) for the
-durability guarantees.
+The contract a `CloudApiClient` speaks — as of Phase 9 Part 1 (plan.md §19.1), authenticated as the
+operator's own standing session (`agent/identity.py`), not a per-request browser token; `agent/api.py`
+itself no longer checks any permission locally (it only gates on loopback), so **every** check below
+happens here now. Writes on an **already-started** job (`leads`/`visited`/`heartbeat`/`frontier`/`finish`)
+authorize on **job ownership** only (the owner, or an admin; `/cancel` also accepts `crawl.cancel_all`) —
+decoupled from the volatile `crawl.run` grant, so revoking a permission mid-crawl can't strand the outbox.
+**Starting or resuming** a job (`/jobs`, `/jobs/{id}/resume`) additionally requires `crawl.run` — that's a
+deliberate user action, not an in-flight write, so it's fine (correct, even) for a revoked grant to block it.
+See [resilience.md](resilience.md) for the durability guarantees.
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| POST | `/jobs` | Create job; freeze snapshots; return `{job_id, seeds, policy, visited_bootstrap}` |
-| POST | `/jobs/{id}/leads` | Batch lead upsert (enrich-dedup + score + occurrence) |
-| POST | `/jobs/{id}/visited` | Batch visited-URL mark (idempotent) |
-| POST | `/jobs/{id}/heartbeat` | Push metrics; returns `{cancel_requested}` |
-| POST/GET | `/jobs/{id}/frontier` | Save / load the frontier snapshot (cross-machine resume) |
-| POST | `/jobs/{id}/finish` | Terminal status (`done`/`failed`/`cancelled`) |
-| POST | `/jobs/{id}/cancel` | Set the cancel signal (owner or `crawl.cancel_all`) |
-| POST | `/jobs/{id}/resume` | interrupted → running; rebuild seeds from custom URLs or snapshots |
+| Method | Path | Guard | Purpose |
+|--------|------|-------|---------|
+| POST | `/jobs` | `crawl.run` | Create job; freeze snapshots; return `{job_id, seeds, policy, visited_bootstrap}` |
+| POST | `/jobs/{id}/leads` | ownership | Batch lead upsert (enrich-dedup + score + occurrence) |
+| POST | `/jobs/{id}/visited` | ownership | Batch visited-URL mark (idempotent) |
+| POST | `/jobs/{id}/heartbeat` | ownership | Push metrics; returns `{cancel_requested}` |
+| POST/GET | `/jobs/{id}/frontier` | ownership | Save / load the frontier snapshot (cross-machine resume) |
+| POST | `/jobs/{id}/finish` | ownership | Terminal status (`done`/`failed`/`cancelled`) |
+| POST | `/jobs/{id}/cancel` | ownership or `crawl.cancel_all` | Set the cancel signal |
+| POST | `/jobs/{id}/resume` | ownership + `crawl.run` | interrupted → running; rebuild seeds from custom URLs or snapshots |
 
 ## Leads (shared pool) — `cloud/api/leads.py`
 

@@ -76,6 +76,7 @@ from a clean claim, never blindly re-sent mid-flight. See [outreach.md](outreach
 | VPS restart mid-dispatch | possible ambiguous send | QUEUED/SENT in Postgres | `SENDING` rows requeued at-most-once |
 | VPS disk loss | data since last backup / WAL | nightly `pg_dump` + WAL archive | restore ([deployment.md](deployment.md#backups--recovery)) |
 | Duplicate delivery to cloud | nothing | — | `ON CONFLICT` no-op / enrich |
+| Access token expires mid-crawl | nothing | outbox buffers during the one retry round-trip | `CloudApiClient` retries once on 401 via `agent/identity.py`'s self-refresh (`/auth/refresh` + keyring) |
 
 ## DR targets
 

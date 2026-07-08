@@ -13,3 +13,24 @@ extend-exclude = "alembic/versions"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.importlinter]
+root_packages = ["agent", "cloud", "shared", "portal"]
+
+[[tool.importlinter.contracts]]
+name = "Agent tier must not import the cloud tier"
+type = "forbidden"
+source_modules = ["agent"]
+forbidden_modules = ["cloud"]
+# agent.launcher.app is the ONE deliberate, temporary exception: it's the
+# desktop process's entrypoint, and Part 1 explicitly keeps the single-
+# process topology working (plan.md §19.1 Phase 9) — something still has to
+# construct cloud.db.Database + cloud.api.server.create_app to run them both
+# in one process. Part 2 (a genuine separate agent process/entrypoint) is
+# what removes this, not Part 1. agent.api/.cloud_client/.identity/.state —
+# the actual job-lifecycle runtime — are fully clean, which is what this
+# contract exists to guarantee and keep guaranteeing.
+ignore_imports = [
+    "agent.launcher.app -> cloud.api.server",
+    "agent.launcher.app -> cloud.db",
+]

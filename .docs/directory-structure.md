@@ -11,7 +11,7 @@ GovCrawler/
 │                              # then launches agent.launcher.app.CrawlerLauncher
 ├── GovCrawler.spec            # PyInstaller spec — bundles frontend, alembic, assets, config
 ├── alembic.ini                # Alembic config; env.py targets cloud.db.Base
-├── pyproject.toml             # ruff + black (line-length 120, py311) + pytest config
+├── pyproject.toml             # ruff + black (line-length 120, py311) + pytest + import-linter config
 ├── requirements.txt           # Desktop shim: -r requirements/cloud.txt + -r requirements/agent.txt
 ├── requirements/               # Per-tier pins — shared.txt, cloud.txt (+shared), agent.txt (+shared)
 ├── requirements-dev.txt       # -r requirements.txt + pytest/ruff/black
@@ -75,8 +75,13 @@ GovCrawler/
 │   └── static/{css,js,img}     # base + per-page assets; favicon
 │
 ├── agent/                     # THE LOCAL APP (per machine) — crawler + BFF + launcher
-│   ├── api.py                 # Local BFF: POST /api/jobs, /api/jobs/{id}/resume, .../cancel
-│   ├── cloud_client.py        # CloudApiClient + create_remote_job/resume_remote_job + outbox flusher
+│   ├── api.py                 # Local BFF: POST /api/jobs, /api/jobs/{id}/resume, .../cancel — zero
+│   │                          #   cloud.* imports (Phase 9 Part 1); loopback-gated, uses identity.py
+│   ├── identity.py            # The operator's standing session: self-refreshing token via /auth/refresh
+│   │                          #   + OS keyring, decoupled from any one browser request
+│   ├── state.py                # Agent-owned config/browser/active_tasks (replaces reading cloud.api.deps)
+│   ├── cloud_client.py        # CloudApiClient + create_remote_job/resume_remote_job + outbox flusher —
+│   │                          #   token_provider is async with retry-on-401-then-refresh
 │   ├── local_store.py         # LocalOutbox: durable SQLite (outbox, outbox_dead, frontier)
 │   ├── crawler/
 │   │   ├── engine.py          # CrawlerEngine: priority queue, httpx/playwright, checkpoint, orchestration
@@ -127,7 +132,7 @@ GovCrawler/
 │   └── agent/                 # test_imports.py (agent.api)
 │
 ├── .github/workflows/
-│   ├── ci.yaml                # lint (diff-scoped) · import-sanity · pytest · migration smoke test
+│   ├── ci.yaml                # lint (diff-scoped) · import-sanity · pytest · import-boundaries · migration smoke test
 │   └── release.yaml           # tag-triggered PyInstaller build/release (win/mac/linux)
 │
 ├── assets/favicon.ico

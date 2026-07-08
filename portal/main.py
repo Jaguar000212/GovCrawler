@@ -164,19 +164,27 @@ async def cmd_crawl(config: dict, job_id: int):
     token_version = db.get_user_by_id(owner_id)["token_version"]
     secret = config["auth"]["jwt_secret"]
     ttl = config["auth"].get("access_ttl_minutes", 15)
-    token_provider = lambda: create_access_token(owner_id, token_version, secret, ttl)
+
+    async def token_provider():
+        # Mints a fresh token per call via direct DB/JWT-secret access — fine
+        # here since portal.main is the debug-CLI entrypoint, not the agent
+        # runtime (which no longer has either, plan.md §19.1 Phase 9). Never
+        # actually expires from the crawl's perspective, so "refresh" is the
+        # same function: calling it again just re-mints.
+        return create_access_token(owner_id, token_version, secret, ttl)
 
     app = create_app(config, db)
     transport = httpx.ASGITransport(app=app)
 
-    resumed = await resume_remote_job("http://local", token_provider, job_id, transport=transport)
+    resumed = await resume_remote_job("http://local", token_provider, token_provider, job_id, transport=transport)
     seeds = [(s[0], s[1]) for s in resumed["seeds"]]
     engine_config = resumed["policy"]
 
     log.info(f"Running job {job_id} with {len(seeds)} seeds…")
 
     outbox_path = DATA_DIR / f"outbox_job_{job_id}.db"
-    cloud = CloudApiClient("http://local", token_provider, job_id, outbox_path, transport=transport)
+    cloud = CloudApiClient("http://local", token_provider, job_id, outbox_path, transport=transport,
+                          refresh=token_provider)
     cloud.start()
 
     async with async_playwright() as p:

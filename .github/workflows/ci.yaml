@@ -61,6 +61,19 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: pytest -q
 
+  import-boundaries:
+    # Structural invariant (agent ⊥ cloud, plan.md §19.1 Phase 9), not a style
+    # rule — full-repo like migration-smoke-test, not diff-scoped like lint.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install -r requirements-dev.txt
+      - run: lint-imports
+
   migration-smoke-test:
     runs-on: ubuntu-latest
     services:

@@ -23,6 +23,7 @@ from . import (
 from .deps import RedirectException, get_current_user, verify_csrf
 from ..db import Database
 from agent import api as agent_api
+from agent import state as agent_state
 from portal.paths import APP_DIR, LIVE_CONFIG_PATH
 
 log = logging.getLogger(__name__)
@@ -75,6 +76,7 @@ async def lifespan(app: FastAPI):
     log.info("Starting Playwright browser…")
     deps._playwright_instance = await async_playwright().start()
     deps._browser = await deps._playwright_instance.chromium.launch(headless=True)
+    agent_state.set_browser(deps._browser)
     log.info("Browser ready.")
 
     recovered = deps._db.recover_stuck_sending(_STUCK_SENDING_THRESHOLD_SECONDS)
@@ -101,6 +103,7 @@ def create_app(config_dict: dict, db: Database) -> FastAPI:
     deps._db = db
     deps._config = config_dict
     deps._config_path = LIVE_CONFIG_PATH
+    agent_state.set_config(config_dict)
 
     _ensure_jwt_secret(config_dict, deps._config_path)
 
