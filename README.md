@@ -101,7 +101,7 @@ pip install pyinstaller
 pyinstaller GovCrawler.spec        # output: dist/GovCrawler/GovCrawler(.exe)
 ```
 
-`GovCrawler.spec` bundles `cloud/frontend`, `alembic`, `assets/favicon.ico`, and the default config. The
+`GovCrawler.spec` bundles `frontend/`, `alembic`, `assets/favicon.ico`, and the default config. The
 tag-triggered `release.yaml` workflow builds this for Windows/macOS/Linux.
 
 ## Development

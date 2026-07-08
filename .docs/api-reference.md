@@ -140,7 +140,7 @@ durability guarantees.
 
 ## Frontend pages — `cloud/api/frontend.py`
 
-HTML routes rendered from `cloud/frontend/`. Unauthenticated access redirects to `/login`.
+HTML routes rendered from the top-level `frontend/` directory. Unauthenticated access redirects to `/login`.
 
 | Path | Guard | Page |
 |------|-------|------|

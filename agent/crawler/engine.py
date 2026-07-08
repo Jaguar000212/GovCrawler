@@ -13,10 +13,11 @@ import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from urllib.parse import parse_qs, urlparse, urlsplit
+from urllib.parse import urlparse, urlsplit
 
 from shared.urls import strip_www
 
+from . import pagination
 from .parser import parse_for_engine
 from ..cloud_client import CloudApiClient
 
@@ -574,78 +575,6 @@ class CrawlerEngine:
 
     # ── Link discovery ────────────────────────────────────────────────────────
 
-    @staticmethod
-    def _is_plain_int(value: str) -> bool:
-        """Strict base-10 integer check. `str.isdigit()` alone accepts
-        Unicode digit-look-alikes (e.g. superscripts) that aren't valid
-        `int()` input — `isascii()` closes that gap without loosening the
-        check to a substring/regex match."""
-        return bool(value) and value.isascii() and value.isdigit()
-
-    def _is_pagination_link(self, url: str, anchor_text: str, rel: list[str]) -> bool:
-        """Conservative pagination classifier — a pure rule (the
-        `pagination.enabled` gate lives at the call site). A paging query param,
-        when present, is the deciding signal: a plain-integer value = pagination,
-        anything else = not (fail closed; this is the firewall against session-URL
-        traps). Only with no configured param present do we fall back to
-        rel="next" / anchor-text. Never loosen the numeric check to a substring
-        match. See .docs/crawler.md#link-discovery--pagination."""
-        param_signals = self._pag.get("param_signals", [])
-        if isinstance(param_signals, str):
-            param_signals = [param_signals]
-        if param_signals:
-            query = parse_qs(urlparse(url).query, keep_blank_values=True)
-            query_lower = {k.lower(): v for k, v in query.items()}
-            matched_values = [
-                query_lower[p.lower()][0]
-                for p in param_signals
-                if p.lower() in query_lower
-            ]
-            if matched_values:
-                return all(self._is_plain_int(v) for v in matched_values)
-
-        if "next" in rel:
-            return True
-
-        text = (anchor_text or "").strip().lower()
-        text_signals = self._pag.get("text_signals", [])
-        if isinstance(text_signals, str):
-            text_signals = [text_signals]
-        return bool(text) and (text in text_signals or self._is_plain_int(text))
-
-    @staticmethod
-    def _safe_int(value, default: int) -> int:
-        """Defensive coercion for pagination config values — a YAML typo
-        (a string where an int belongs) must fall back safely, not crash
-        the worker's blanket except-and-swallow handler mid-crawl."""
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return default
-
-    def _elect_pagination_target(self, raw_links, pagination_on: bool) -> str | None:
-        """Pick AT MOST ONE pagination link per page — prefer an explicit
-        rel="next" signal, else the first classifier-accepted link in
-        document order. Without this, a normal numbered pager bar
-        ("1 2 3 4 5 Next Last") would classify EVERY matching link as
-        pagination independently, each bypassing the per-page cap and
-        minting its own fresh chain_budget — multiplying the intended
-        amplification bound by however many links the pager shows (code
-        review finding, 2026-07-02). Real "next page" progression is one
-        hop per page, matching how `page_hops` is defined as a linear counter.
-        """
-        if not pagination_on:
-            return None
-        first_match = None
-        for absolute, text, rel in raw_links:
-            if not self._is_pagination_link(absolute, text, rel):
-                continue
-            if "next" in rel:
-                return absolute
-            if first_match is None:
-                first_match = absolute
-        return first_match
-
     async def _enqueue_links(self, raw_links: list[tuple[str, str, list[str]]],
                              base_url: str, depth: int, domain_id: int | None,
                              is_seed_page: bool = False, page_hops: int = 0,
@@ -671,9 +600,9 @@ class CrawlerEngine:
         links_added = 0
 
         pagination_on = bool(self._pag.get("enabled"))
-        max_pagination_pages = self._safe_int(self._pag.get("max_pagination_pages", 50), 50)
-        max_chain_children = self._safe_int(self._pag.get("max_chain_children", 100), 100)
-        pagination_target = self._elect_pagination_target(raw_links, pagination_on)
+        max_pagination_pages = pagination.safe_int(self._pag.get("max_pagination_pages", 50), 50)
+        max_chain_children = pagination.safe_int(self._pag.get("max_chain_children", 100), 100)
+        pagination_target = pagination.elect_pagination_target(self._pag, raw_links, pagination_on)
 
         for absolute, text, rel in raw_links:
             is_pag = pagination_target is not None and absolute == pagination_target

@@ -55,12 +55,14 @@ jobs bypass the suffix filter). `_is_skippable` drops URLs whose path ends with 
 outbox is **backpressured** (`CloudApiClient.is_backpressured`, >5000 pending rows), it skips *new*
 discovery from the page so the outbox can drain — already-queued items keep going.
 
-Pagination (`crawler.pagination`, ships **disabled**) avoids the "numbered pager spawns N chains" trap:
+Pagination (`crawler.pagination`, ships **disabled**) avoids the "numbered pager spawns N chains" trap. The
+classifiers are stateless free functions in `agent/crawler/pagination.py` (extracted from the engine in
+Phase 7, plan.md §19.1 — they take the `pagination` config dict as a parameter instead of reading `self`):
 
-- `_is_pagination_link` — a `param_signals` query param (e.g. `page`, `offset`) is the deciding signal when
-  present: a plain-integer value = pagination, non-numeric = not (fail-closed). Falls back to `rel="next"`,
-  then `text_signals` / numeric anchor text.
-- `_elect_pagination_target` — picks **at most one** pagination link per page.
+- `pagination.is_pagination_link` — a `param_signals` query param (e.g. `page`, `offset`) is the deciding
+  signal when present: a plain-integer value = pagination, non-numeric = not (fail-closed). Falls back to
+  `rel="next"`, then `text_signals` / numeric anchor text.
+- `pagination.elect_pagination_target` — picks **at most one** pagination link per page.
 - A single shared `chain_budget` cell caps a chain's total structural fan-out (`max_chain_children`,
   default 100); `page_hops` caps chain length (`max_pagination_pages`, default 50). The shared cell is
   preserved across checkpoints so resume can't reset the budget.

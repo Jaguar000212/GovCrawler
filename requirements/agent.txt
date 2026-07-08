@@ -1,0 +1,17 @@
+-r shared.txt
+playwright>=1.40.0
+beautifulsoup4>=4.12.0
+lxml>=5.1.0
+fastapi>=0.110.0
+uvicorn>=0.29.0
+pystray>=0.19.5
+notify-py>=0.3.3
+sv-ttk>=2.6.0
+keyring>=24.3.0
+
+# agent/api.py still imports cloud.security.jwt + cloud.db.Database (the
+# flagged Phase-9 exception, plan.md §19.1) — until that split lands, an
+# agent-only install also needs the cloud stack's DB/JWT deps:
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0
+PyJWT>=2.8.0

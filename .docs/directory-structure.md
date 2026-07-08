@@ -9,10 +9,11 @@ GovCrawler/
 ├── run.py                     # Desktop entry point (PyInstaller target): SSL cert fix,
 │                              # "INSTALL_BROWSERS" argv sentinel, no-console stdio guard,
 │                              # then launches agent.launcher.app.CrawlerLauncher
-├── GovCrawler.spec            # PyInstaller spec — bundles cloud/frontend, alembic, assets, config
+├── GovCrawler.spec            # PyInstaller spec — bundles frontend, alembic, assets, config
 ├── alembic.ini                # Alembic config; env.py targets cloud.db.Base
 ├── pyproject.toml             # ruff + black (line-length 120, py311) + pytest config
-├── requirements.txt           # Runtime deps
+├── requirements.txt           # Desktop shim: -r requirements/cloud.txt + -r requirements/agent.txt
+├── requirements/               # Per-tier pins — shared.txt, cloud.txt (+shared), agent.txt (+shared)
 ├── requirements-dev.txt       # -r requirements.txt + pytest/ruff/black
 ├── README.md
 │
@@ -57,27 +58,29 @@ GovCrawler/
 │   │   └── crypto.py          # Fernet credential encryption + key rotation (MultiFernet)
 │   ├── services/
 │   │   ├── campaign_service.py # render_draft_emails() — blacklist filter + Jinja2 + missing-field detect
-│   │   └── csv_import.py      # parse_contacts_csv(), build_template_csv()
-│   ├── scraper/
-│   │   └── importer.py        # import_from_json() / import_all() into the domains catalog
-│   ├── dispatch_service.py    # `python -m cloud.dispatch_service` — standalone (external) dispatcher
-│   └── frontend/              # Jinja2 templates + vanilla JS/CSS (served by the cloud API)
-│       ├── base.html          # layout + permission-gated nav (incl. 🛡️ Admin link)
-│       ├── login.html
-│       ├── index.html         # domains browser + crawl job creation + live status
-│       ├── leads.html
-│       ├── campaigns.html
-│       ├── test-campaign.html
-│       ├── admin-dashboard.html   # /admin/dashboard (require jobs.view_all), 3 s poll
-│       ├── user-guide.html
-│       └── static/{css,js,img}    # base + per-page assets; favicon
+│   │   ├── csv_import.py      # parse_contacts_csv(), build_template_csv()
+│   │   └── importer.py        # import_from_json() / import_all() into the domains catalog (india.gov.in
+│   │                          #   Web Directory API calls inlined here — see GovScraper/ below)
+│   └── dispatch_service.py    # `python -m cloud.dispatch_service` — standalone (external) dispatcher
+│
+├── frontend/                   # SHARED UI — Jinja2 templates + vanilla JS/CSS (served by the cloud API)
+│   ├── base.html               # layout + permission-gated nav (incl. 🛡️ Admin link)
+│   ├── login.html
+│   ├── index.html              # domains browser + crawl job creation + live status
+│   ├── leads.html
+│   ├── campaigns.html
+│   ├── test-campaign.html
+│   ├── admin-dashboard.html    # /admin/dashboard (require jobs.view_all), 3 s poll
+│   ├── user-guide.html
+│   └── static/{css,js,img}     # base + per-page assets; favicon
 │
 ├── agent/                     # THE LOCAL APP (per machine) — crawler + BFF + launcher
 │   ├── api.py                 # Local BFF: POST /api/jobs, /api/jobs/{id}/resume, .../cancel
 │   ├── cloud_client.py        # CloudApiClient + create_remote_job/resume_remote_job + outbox flusher
 │   ├── local_store.py         # LocalOutbox: durable SQLite (outbox, outbox_dead, frontier)
 │   ├── crawler/
-│   │   ├── engine.py          # CrawlerEngine: priority queue, httpx/playwright, checkpoint, pagination
+│   │   ├── engine.py          # CrawlerEngine: priority queue, httpx/playwright, checkpoint, orchestration
+│   │   ├── pagination.py      # Stateless pagination-link classifiers (is_pagination_link, safe_int, ...)
 │   │   └── parser.py          # 6-stage lead-extraction pipeline + Lead dataclass + parse_for_engine
 │   └── launcher/
 │       ├── app.py             # CrawlerLauncher (AppState machine) + LoginDialog; keyring; drain shutdown
@@ -90,7 +93,9 @@ GovCrawler/
 │   ├── paths.py               # path resolution + first-run bootstrap (dev + PyInstaller frozen)
 │   └── default_config.yaml    # shipped config template (config.yaml is the gitignored live copy)
 │
-├── GovScraper/                # Standalone india.gov.in domain-discovery tool (no app/DB dependency)
+├── GovScraper/                # Standalone dev-time CLI, fully decoupled from cloud/agent/shared — its
+│   │                          # API-calling code is duplicated (inlined) into cloud/services/importer.py,
+│   │                          # this package is only for regenerating gov_domains.json by hand
 │   ├── runner.py              # CLI: `python runner.py [out.json] [--category] [--org-type]`
 │   ├── README.md
 │   └── api/                   # api.py, config.py, extractor.py, __init__.py, docs.md
@@ -116,9 +121,10 @@ GovCrawler/
 │   ├── generate_version_info.py       # PyInstaller Windows version resource from a git tag
 │   └── fault_injection_check.md       # manual resilience acceptance runbook
 │
-├── tests/
-│   ├── test_imports.py        # import-sanity: portal.main / cloud.api.server / agent.api
-│   └── test_config.py         # load_config() env-override behavior
+├── tests/                     # Split by tier, mirroring shared/cloud/agent
+│   ├── shared/                # test_imports.py (portal.main), test_config.py (env-override behavior)
+│   ├── cloud/                 # test_imports.py (cloud.api.server)
+│   └── agent/                 # test_imports.py (agent.api)
 │
 ├── .github/workflows/
 │   ├── ci.yaml                # lint (diff-scoped) · import-sanity · pytest · migration smoke test
@@ -141,7 +147,8 @@ The pre-overhaul monolith lived entirely under `portal/`. It was split by tier:
 | `portal/services/lead_scoring.py` | `shared/scoring.py` |
 | `portal/db/enums.py` | `shared/enums.py` (re-exported by `cloud/db/enums.py`) |
 | `launcher/` (repo root) | `agent/launcher/` |
-| `portal/frontend/` | `cloud/frontend/` |
+| `portal/frontend/` | `frontend/` (hoisted from `cloud/frontend/` in Phase 7, plan.md §19.1) |
+| `cloud/scraper/importer.py` | `cloud/services/importer.py` (Phase 7 — GovScraper's live-API calls inlined) |
 | `portal/main.py`, `portal/paths.py` | unchanged (the surviving shim) |
 
 ## Generated / ignored paths

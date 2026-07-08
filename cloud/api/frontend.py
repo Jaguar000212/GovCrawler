@@ -4,15 +4,14 @@
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from pathlib import Path
 
 from .deps import CurrentUser, current_user_or_redirect, get_current_user, get_db, require
 from ..db import Database
-from portal.paths import LOG_FILE_PATH
+from portal.paths import APP_DIR, LOG_FILE_PATH
 
 router = APIRouter(tags=["frontend"])
 
-_frontend_dir = Path(__file__).parent.parent / "frontend"
+_frontend_dir = APP_DIR / "frontend"
 _templates = Jinja2Templates(directory=str(_frontend_dir))
 
 

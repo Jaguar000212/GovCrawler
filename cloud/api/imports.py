@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .deps import CurrentUser, get_config as get_app_config, get_current_user, get_db, require
 from ..db import Database
-from ..scraper.importer import import_all, import_from_json, import_status
+from ..services.importer import import_all, import_from_json, import_status
 
 log = logging.getLogger(__name__)
 

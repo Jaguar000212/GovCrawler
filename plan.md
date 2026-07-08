@@ -923,17 +923,22 @@ the Phase-1/2 target — there's no separate "fix schema" phase.
 Phases 0–6 shipped. A 2026-07-08 docs/code audit surfaced deviations between §15's target layout and the built
 system, plus two latent flags (both now **fixed**: coordination writes authorize on job ownership, and the
 crawler marks a URL visited only after a successful fetch). The remaining, larger deviations are sequenced below.
-They are ordered by dependency — 7 unblocks 9 — and each is independently shippable. **Not started; planning only.**
+They are ordered by dependency — 7 unblocks 9 — and each is independently shippable.
 
-- **Phase 7 — Structural consolidation (mechanical, no behavior change).** Bring the tree in line with §15:
-  hoist `cloud/frontend/` to a top-level `frontend/` shared by both tiers; fold GovScraper's live pieces
-  (`get_categories`/`get_organization_types`/`get_entries_for_category` + `HEADERS`/`TARGET_SUFFIXES`) into
-  `cloud/scraper/` and retire the standalone package (or keep a thin `runner.py` shim — decide at build time);
-  split `requirements.txt` into `requirements/{shared,cloud,agent}.txt`; split `tests/` into
-  `tests/{shared,cloud,agent}`; extract the crawler's pagination logic (`_is_pagination_link`,
-  `_elect_pagination_target`, `_is_plain_int`, `_safe_int`) into `agent/crawler/pagination.py`. Update the
-  `Dockerfile`, `GovCrawler.spec`, `ci.yaml`, and all import sites. *Risk:* path churn; caught by import-sanity
-  + a green CI. *Prereq for:* Phase 9 (shared/ hoisting).
+- **Phase 7 — Structural consolidation (mechanical, no behavior change). Shipped 2026-07-08.** Brought the
+  tree in line with §15: hoisted `cloud/frontend/` to a top-level `frontend/`; folded GovScraper's live
+  pieces (`get_categories`/`get_organization_types`/`get_entries_for_category` + `HEADERS`/`TARGET_SUFFIXES`)
+  into `cloud/services/importer.py` (its only runtime caller) and retired `cloud/scraper/` — `GovScraper/`
+  itself stays as a standalone dev-time CLI, fully decoupled from `cloud`/`agent`/`shared`; split
+  `requirements.txt` into `requirements/{shared,cloud,agent}.txt` (top-level `requirements.txt` is now a
+  thin shim installing both cloud+agent, since the desktop still runs one process; the VPS `Dockerfile`
+  installs the same shim since it also runs the crawler in-process — see CLAUDE.md "Deployment reality");
+  split `tests/` into `tests/{shared,cloud,agent}/` (each a package via `__init__.py`, to avoid a pytest
+  basename collision across same-named `test_imports.py` files); extracted the crawler's pagination
+  classifiers (`_is_pagination_link`, `_elect_pagination_target`, `_is_plain_int`, `_safe_int`) into stateless
+  free functions in `agent/crawler/pagination.py`. Updated `Dockerfile`, `GovCrawler.spec`, and all import
+  sites; `ci.yaml` needed no changes (its `pip install -r requirements.txt` / `pytest -q` invocations already
+  work unchanged against the new layout). *Prereq for:* Phase 9 (shared/ hoisting).
 - **Phase 8 — DB-backed crawl policy (`app_settings`, §3.2).** Move the *policy* half of `config.yaml`
   (extraction, `lead_score.weights`, crawler policy knobs — NOT machine-local runtime: workers/timeouts/bind)
   into an `app_settings(key TEXT PK, value JSONB, updated_by, updated_at)` table. New Alembic revision +

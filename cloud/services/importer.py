@@ -10,7 +10,10 @@ Two import modes:
 
   2. Live API (for refreshing data only):
        import_all(db, config)
-       Uses GovScraper: get_categories → get_organization_types → get_entries_for_category
+       Uses the india.gov.in Web Directory API: get_categories →
+       get_organization_types → get_entries_for_category. This is the same
+       API the standalone GovScraper/ CLI talks to, inlined here since this
+       module is its only runtime caller.
 
 Both run as blocking calls inside asyncio.to_thread() from the API layer.
 Progress is tracked in import_status dict, polled by /api/import/status.
@@ -22,16 +25,124 @@ import logging
 from pathlib import Path
 from urllib.parse import urlparse
 
-from GovScraper.api import (
-    get_categories,
-    get_organization_types,
-    get_entries_for_category,
-    HEADERS,
-    TARGET_SUFFIXES,
-)
 from ..db import Database
 
 log = logging.getLogger(__name__)
+
+# ── india.gov.in Web Directory API (inlined from the standalone GovScraper
+#    package — this module is its only runtime caller; GovScraper/ itself
+#    stays as a standalone dev-time CLI for regenerating gov_domains.json) ──
+
+WEB_DIR_API = "https://www.india.gov.in/directory/web-directory/api"
+
+TARGET_SUFFIXES = (".gov.in", ".nic.in")
+
+# Page size for paginated queries — 100 is the safe maximum observed.
+PAGE_SIZE = 100
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json, text/plain, */*",
+    "Content-Type": "application/json",
+    "Referer": "https://www.india.gov.in/directory/web-directory",
+    "Origin": "https://www.india.gov.in",
+}
+
+
+def get_categories(client: httpx.Client) -> list[dict]:
+    """Fetch all directory categories and their entry counts.
+    Returns list of {category, count, title} dicts."""
+    r = client.post(
+        WEB_DIR_API,
+        json={"dataval": {"querytype": "Webdirectorycategorywithcounts"}},
+        timeout=15,
+    )
+    r.raise_for_status()
+    return (
+        r.json()
+        .get("resultdata", {})
+        .get("data", {})
+        .get("getIgodCategoryWithCount", {})
+        .get("results", [])
+    )
+
+
+def get_organization_types(client: httpx.Client, category_code: str) -> list[dict]:
+    """Fetch the available organization types for a given category.
+    Returns list of dicts with title, count, and organization_type codes."""
+    r = client.post(
+        WEB_DIR_API,
+        json={"dataval": {
+            "clientvalue": "client",
+            "mustvalue": category_code,
+            "querytype": "organizationtypewithCategory"
+        }},
+        timeout=15,
+    )
+    r.raise_for_status()
+    return (
+        r.json()
+        .get("resultdata", {})
+        .get("data", {})
+        .get("getIgodOrganizationByCategory", {})
+        .get("results", [])
+    )
+
+
+def get_entries_for_category(
+        client: httpx.Client,
+        category_code: str,
+        org_type_code: str = None,
+) -> list[dict]:
+    """Paginate through all entries for a given category code (e.g. 'ug', 'sg').
+    Optionally filter by organization type. Returns list of raw entry dicts."""
+    all_entries: list[dict] = []
+    page = 1
+
+    mustvalue = [{"fieldName": "category", "fieldValue": category_code}]
+    if org_type_code:
+        mustvalue.append({"fieldName": "organization_type", "fieldValue": org_type_code})
+
+    while True:
+        r = client.post(
+            WEB_DIR_API,
+            json={"dataval": {
+                "clientvalue": "client",
+                "mustvalue": mustvalue,
+                "shouldvalue": [],
+                "pageno": page,
+                "pageSize": PAGE_SIZE,
+                "querytype": "WebdirectoryCategorydetalsList",
+            }},
+            timeout=20,
+        )
+        r.raise_for_status()
+
+        payload = (
+            r.json()
+            .get("resultdata", {})
+            .get("data", {})
+            .get("getIgodWebDirectoryByFilters", {})
+        )
+        results = payload.get("results") or []
+        total = payload.get("total", 0)
+
+        all_entries.extend(results)
+        fetched = len(all_entries)
+
+        log.debug(
+            f"[{category_code}] page {page} -> {len(results)} entries ({fetched}/{total})"
+        )
+
+        if not results or fetched >= total:
+            break
+        page += 1
+
+    return all_entries
+
 
 # Maps category titles (as they appear in gov_domains.json) to stable short codes.
 _CAT_CODE = {

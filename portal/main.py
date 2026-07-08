@@ -95,7 +95,7 @@ def cmd_serve(config: dict):
 
 
 def cmd_import_json(config: dict, json_path: str = "gov_domains.json"):
-    from cloud.scraper.importer import import_from_json
+    from cloud.services.importer import import_from_json
     db = Database(config)
     log.info(f"Importing from {json_path} — zero API calls…")
     import_from_json(db, json_path, config)
@@ -124,7 +124,7 @@ def cmd_create_admin(config: dict, email: str, password: str | None = None):
 
 
 def cmd_import(config: dict):
-    from cloud.scraper.importer import import_all
+    from cloud.services.importer import import_all
     db = Database(config)
     log.info("Starting live API import…")
     import_all(db, config)

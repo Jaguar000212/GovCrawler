@@ -7,13 +7,14 @@ FROM mcr.microsoft.com/playwright/python:v1.61.0-jammy
 WORKDIR /app
 
 COPY requirements.txt .
+COPY requirements/ requirements/
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY portal/ portal/
 COPY cloud/ cloud/
 COPY agent/ agent/
 COPY shared/ shared/
-COPY GovScraper/ GovScraper/
+COPY frontend/ frontend/
 COPY alembic/ alembic/
 COPY alembic.ini .
 COPY deploy/config.docker.yaml portal/config.yaml

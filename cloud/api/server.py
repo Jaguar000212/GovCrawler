@@ -23,7 +23,7 @@ from . import (
 from .deps import RedirectException, get_current_user, verify_csrf
 from ..db import Database
 from agent import api as agent_api
-from portal.paths import LIVE_CONFIG_PATH
+from portal.paths import APP_DIR, LIVE_CONFIG_PATH
 
 log = logging.getLogger(__name__)
 
@@ -125,7 +125,7 @@ def create_app(config_dict: dict, db: Database) -> FastAPI:
         return RedirectResponse(url=exc.location, status_code=302)
 
     # Mount static files
-    static_dir = Path(__file__).parent.parent / "frontend" / "static"
+    static_dir = APP_DIR / "frontend" / "static"
     static_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 

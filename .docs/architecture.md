@@ -120,8 +120,8 @@ browser UI.
 
 A FastAPI app built by `create_app(config, db)` in `cloud/api/server.py`. It mounts ~15 routers, sets up a
 lifespan that owns the shared Playwright browser and a background **stale-job reaper**, configures CORS
-(only if `auth.admin_origin` is set) and double-submit CSRF, and serves the Jinja2 browser UI from
-`cloud/frontend/`. Every `/api/*` router carries `get_current_user` + `verify_csrf`; mutating routes add a
+(only if `auth.admin_origin` is set) and double-submit CSRF, and serves the Jinja2 browser UI from the
+top-level `frontend/` directory. Every `/api/*` router carries `get_current_user` + `verify_csrf`; mutating routes add a
 `require(<permission>)` dependency and write an audit-log row. See [api-reference.md](api-reference.md).
 
 ### 3. Crawler engine — `agent/crawler/engine.py`
@@ -148,11 +148,13 @@ from email confidence band plus the presence of name/designation/phone, weighted
 Manual (CSV) leads always score 0. `Database._recompute_lead_scores()` re-runs it for every lead on each
 startup, so a weight change applies retroactively. See [configuration.md](configuration.md#lead-scoring).
 
-### 6. Domain discovery — `GovScraper/` + `cloud/scraper/importer.py`
+### 6. Domain discovery — `GovScraper/` + `cloud/services/importer.py`
 
-`GovScraper/` is a standalone tool that reads the `india.gov.in` Web Directory API (no browser, no CAPTCHA)
-and emits `gov_domains.json`. `cloud/scraper/importer.py` imports that JSON (or hits the live API) into the
-`domains` catalog, keeping organizations with no listed URL as "not crawlable" rather than dropping them.
+`GovScraper/` is a standalone dev-time CLI that reads the `india.gov.in` Web Directory API (no browser, no
+CAPTCHA) and emits `gov_domains.json`; it has no runtime dependency on `cloud`/`agent`/`shared`.
+`cloud/services/importer.py` imports that JSON (or hits the live API directly, with the same API-calling
+code inlined — Phase 7, plan.md §19.1) into the `domains` catalog, keeping organizations with no listed URL
+as "not crawlable" rather than dropping them.
 
 ---
 
