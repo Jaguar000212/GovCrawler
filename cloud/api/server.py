@@ -12,18 +12,34 @@ import secrets
 import yaml
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
 from . import (
-    admin, audit, auth, blacklist, campaigns, config, coordination, credentials, deps, domains, frontend, imports,
-    jobs, leads, system, templates,
+    admin,
+    audit,
+    auth,
+    blacklist,
+    campaigns,
+    config,
+    coordination,
+    credentials,
+    deps,
+    domains,
+    frontend,
+    imports,
+    jobs,
+    leads,
+    system,
+    templates,
 )
 from .deps import RedirectException, get_current_user, verify_csrf
 from ..db import Database
 from portal.paths import APP_DIR, LIVE_CONFIG_PATH
+from shared.errors import format_validation_errors
 
 log = logging.getLogger(__name__)
 
@@ -64,8 +80,9 @@ async def _reap_loop():
         try:
             reaped = deps._db.reap_stale_jobs(_REAP_THRESHOLD_SECONDS)
             if reaped:
-                log.warning(f"Reaped {len(reaped)} stale job(s) (no heartbeat for "
-                           f"{_REAP_THRESHOLD_SECONDS}s+): {reaped}")
+                log.warning(
+                    f"Reaped {len(reaped)} stale job(s) (no heartbeat for " f"{_REAP_THRESHOLD_SECONDS}s+): {reaped}"
+                )
         except Exception:
             log.error("Stale-job reaper sweep failed", exc_info=True)
 
@@ -74,8 +91,10 @@ async def _reap_loop():
 async def lifespan(app: FastAPI):
     recovered = deps._db.recover_stuck_sending(_STUCK_SENDING_THRESHOLD_SECONDS)
     if recovered:
-        log.warning(f"Requeued {len(recovered)} email(s) stuck SENDING (no completion for "
-                   f"{_STUCK_SENDING_THRESHOLD_SECONDS}s+): {recovered}")
+        log.warning(
+            f"Requeued {len(recovered)} email(s) stuck SENDING (no completion for "
+            f"{_STUCK_SENDING_THRESHOLD_SECONDS}s+): {recovered}"
+        )
 
     reap_task = asyncio.create_task(_reap_loop())
     yield
@@ -113,10 +132,30 @@ def create_app(config_dict: dict, db: Database) -> FastAPI:
     async def _redirect_handler(request: Request, exc: RedirectException):
         return RedirectResponse(url=exc.location, status_code=302)
 
-    # Mount static files
-    static_dir = APP_DIR / "frontend" / "static"
+    # Every error response is guaranteed a plain-string `detail` — the
+    # frontend's shared apiFetch()/friendlyMessage() (frontend/shared/
+    # static/js/http.js) never has to render FastAPI's default
+    # `[{loc, msg, type}, ...]` 422 array or a raw traceback.
+    @app.exception_handler(RequestValidationError)
+    async def _validation_handler(request: Request, exc: RequestValidationError):
+        content = {"detail": format_validation_errors(exc), "code": "validation_error"}
+        return JSONResponse(status_code=422, content=content)
+
+    @app.exception_handler(Exception)
+    async def _unhandled_exception_handler(request: Request, exc: Exception):
+        log.error("Unhandled exception on %s %s", request.method, request.url.path, exc_info=True)
+        content = {"detail": "Something went wrong on the server.", "code": "internal_error"}
+        return JSONResponse(status_code=500, content=content)
+
+    # Mount static files: /static is this tier's own (frontend/cloud/static),
+    # /assets is the tier-agnostic shared tree (frontend/shared/static) — kept
+    # as distinct prefixes, not nested, so there's no StaticFiles mount-order
+    # ambiguity between the two.
+    static_dir = APP_DIR / "frontend" / "cloud" / "static"
     static_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+    shared_static_dir = APP_DIR / "frontend" / "shared" / "static"
+    app.mount("/assets", StaticFiles(directory=str(shared_static_dir)), name="assets")
 
     # verify_csrf alongside get_current_user on every mutation-capable router —
     # it only enforces on non-GET requests with no Authorization header (i.e.

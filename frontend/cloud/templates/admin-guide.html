@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Guide — GovCrawler{% endblock %}
+
+{% block extra_head %}
+<style>
+    main { scroll-behavior: smooth; overflow-y: auto; padding: 32px; max-width: 760px; margin: 0 auto; }
+    .guide-section { padding-bottom: 32px; border-bottom: 1px solid var(--border); margin-bottom: 32px; }
+    .guide-section:last-child { border-bottom: none; }
+    .guide-section h2 { font-size: 20px; font-weight: 600; margin: 0 0 6px; }
+    .guide-section h3 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
+    .guide-section p { line-height: 1.7; margin-bottom: 10px; font-size: 14px; }
+    .guide-section ul, .guide-section ol { padding-left: 22px; margin-bottom: 12px; }
+    .guide-section li { line-height: 1.7; margin-bottom: 4px; font-size: 14px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="guide-section">
+    <h2>Admin Dashboard Guide</h2>
+    <p>This is the cloud/VPS admin surface — it manages users, roles, and system oversight only. Crawling,
+        leads, and campaigns are handled entirely on each operator's own machine via the agent launcher; they
+        are not available here.</p>
+
+    <h3>Users</h3>
+    <p>Create a user with <strong>+ New User</strong>, assign one of the three built-in roles (Admin, Operator,
+        Viewer), and toggle their active status from the table. <strong>Permissions</strong> opens a per-user
+        grant/deny grid for fine-tuning beyond the role default — leave a permission on "Inherited from role"
+        unless you specifically need an exception for that one user.</p>
+
+    <h3>Roles</h3>
+    <p>Roles are fixed (Admin/Operator/Viewer) and cannot be created or edited here — this tab is a read-only
+        reference showing exactly what each role grants, so you know what you're assigning before you use the
+        per-user permission overrides.</p>
+
+    <h3>Audit Log</h3>
+    <p>Every mutating admin action (user changes, permission overrides, password resets) is recorded here with
+        the acting user, timestamp, and IP. Filter by an action prefix (e.g. <code>user.</code>) or a date
+        range.</p>
+
+    <h3>System</h3>
+    <p>A quick health check: whether the database is reachable, which dispatch mode the SMTP sender is running
+        in (<code>embedded</code> or <code>external</code>), and which agent machines have run a crawl job
+        here recently.</p>
+</div>
+{% endblock %}

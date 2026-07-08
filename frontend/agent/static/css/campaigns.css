@@ -235,19 +235,5 @@ tr.row-missing:hover td {
     flex-wrap: nowrap;
 }
 
-.btn-remove {
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--red);
-    border-radius: var(--radius);
-    padding: 3px 7px;
-    font-size: 12px;
-    cursor: pointer;
-    line-height: 1;
-    transition: background 0.12s;
-}
-
-.btn-remove:hover {
-    background: #f5e5e3;
-    border-color: var(--red);
-}
+/* .btn-remove now lives in frontend/shared/static/css/components.css —
+   admin-dashboard.html (cloud tier) uses it too. */

@@ -1,6 +1,6 @@
-/* Leads page — overrides and extensions on top of base.css */
+/* Leads page — overrides and extensions on top of the shared components.css */
 
-/* base.css .table-wrap has overflow-y:auto; add x-scroll for wide tables */
+/* components.css' .table-wrap has overflow-y:auto; add x-scroll for wide tables */
 .table-wrap {
     overflow-x: auto;
 }
@@ -75,12 +75,8 @@
 }
 
 
-.empty-state {
-    padding: 32px;
-    text-align: center;
-    color: var(--muted);
-    font-style: italic;
-}
+/* .empty-state now lives in frontend/shared/static/css/components.css —
+   admin-dashboard.html (cloud tier) needs it too. */
 
 /* ── Missing-data warning flag ── */
 tr.row-warn td:first-child {

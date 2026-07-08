@@ -255,9 +255,10 @@ address, e.g. `http://127.0.0.1:8001`), sign-in dialog, etc.
 
 | Symptom | Likely cause / fix |
 |---|---|
-| Agent's first-run prompt won't accept my URL | Make sure it includes `https://` (or `http://` for a local dev server) and has no trailing slash |
+| Agent's cloud-URL prompt won't accept my URL | Make sure it includes `https://` (or `http://` for a local dev server) and has no trailing slash |
+| Need to point the agent at a different cloud server later | Stop the server first — the main window's "Cloud Server" panel has a **Change…** button, disabled while running |
 | "Not logged in" errors right after signing in | Your server clock and the agent machine's clock may be too far apart, or your account may be disabled — check with your admin |
-| Sign-in works but every page shows an error | Your agent can't reach the cloud server over the network — check the URL, check the VPS is up (`/healthz`), check any local firewall/VPN |
+| Sign-in works but every page shows an error | Your agent can't reach the cloud server over the network — check the URL, check the VPS is up (`/healthz`), check any local firewall/VPN. The main window's "Cloud Server" status dot polls `/healthz` every 15 s and will show "Unreachable" |
 | "This job was started by a different agent" | Expected — a crawl can only be resumed from the exact machine that started it. Start a fresh job instead |
 | Admin dashboard link inside the agent app opens a blank/error page | It opens your cloud server's admin page in your normal browser, which requires **its own separate login** — sign in there directly |
 | Playwright/browser download fails | Check disk space (~600MB needed) and that the machine has internet access; retry via **Download Browsers** |

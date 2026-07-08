@@ -58,6 +58,7 @@ STATE_LABELS = {
 
 DRAIN_TIMEOUT_SECONDS = 180
 POLL_INTERVAL_MS = 1500
+CLOUD_HEALTH_POLL_MS = 15000
 
 
 class LoginDialog(simpledialog.Dialog):
@@ -93,7 +94,7 @@ class CrawlerLauncher:
         self.entry_script = entry_script  # path re-invoked as a subprocess for INSTALL_BROWSERS
 
         self.root.title("GovCrawler Control Panel")
-        self.root.geometry("440x480")
+        self.root.geometry("440x560")
         self.root.resizable(False, False)
         self.root.protocol("WM_DELETE_WINDOW", self.on_window_close)
 
@@ -121,6 +122,7 @@ class CrawlerLauncher:
 
         self._build_ui()
         self._render_state()
+        self._schedule_cloud_health_check()
 
     def _ensure_cloud_url_configured(self):
         """First-run only: plan.md §19.1 Phase 9 Part 2, 2.1 — the agent must
@@ -144,6 +146,52 @@ class CrawlerLauncher:
     def _cloud_base_url(self) -> str:
         return localdb.get_setting("cloud_api_base_url")
 
+    # --- Cloud URL: view/change + connection status --------------------------
+
+    def change_cloud_url(self):
+        """Only allowed while IDLE — changing the cloud mid-session would
+        invalidate the current login/identity and any in-flight job's cloud
+        target, per agent/identity.py's single cached session."""
+        current = self._cloud_base_url()
+        url = simpledialog.askstring(
+            "Cloud Server URL",
+            "Enter your GovCrawler cloud server's base URL\n(e.g. https://govcrawler.example.com):",
+            initialvalue=current,
+            parent=self.root,
+        )
+        url = (url or "").strip().rstrip("/")
+        if not url or url == current:
+            return
+        localdb.set_setting("cloud_api_base_url", url)
+        self.cloud_url_lbl.config(text=url)
+        self._check_cloud_health_now()
+
+    def _schedule_cloud_health_check(self):
+        self._check_cloud_health_now()
+        self.root.after(CLOUD_HEALTH_POLL_MS, self._schedule_cloud_health_check)
+
+    def _check_cloud_health_now(self):
+        url = self._cloud_base_url()
+        threading.Thread(target=self._check_cloud_health_task, args=(url,), daemon=True).start()
+
+    def _check_cloud_health_task(self, url: str):
+        try:
+            resp = httpx.get(f"{url}/healthz", timeout=5)
+            ok = resp.status_code == 200
+        except Exception:
+            ok = False
+        self.root.after(0, self._on_cloud_health_result, url, ok)
+
+    def _on_cloud_health_result(self, url: str, ok: bool):
+        if url != self._cloud_base_url():
+            return  # stale result from before a URL change
+        if ok:
+            self.cloud_status_dot.config(foreground="#4caf50")
+            self.cloud_status_lbl.config(text="Reachable", foreground="#4caf50")
+        else:
+            self.cloud_status_dot.config(foreground="#e05252")
+            self.cloud_status_lbl.config(text="Unreachable — check the URL or your connection", foreground="#e05252")
+
     # --- UI construction ------------------------------------------------
 
     def _build_ui(self):
@@ -159,6 +207,22 @@ class CrawlerLauncher:
         self.status_text = ttk.Label(status_frame, text="Idle")
         self.status_text.pack(side="left")
 
+        cloud_frame = ttk.LabelFrame(self.root, text="Cloud Server")
+        cloud_frame.pack(fill="x", **pad)
+        cloud_url_row = ttk.Frame(cloud_frame)
+        cloud_url_row.pack(fill="x", padx=10, pady=(8, 4))
+        self.cloud_status_dot = ttk.Label(cloud_url_row, text="●", foreground="#808080", font=("Segoe UI", 10))
+        self.cloud_status_dot.pack(side="left", padx=(0, 6))
+        self.cloud_url_lbl = ttk.Label(cloud_url_row, text=self._cloud_base_url(), wraplength=280)
+        self.cloud_url_lbl.pack(side="left", fill="x", expand=True)
+        self.cloud_status_lbl = ttk.Label(cloud_frame, text="Checking…", foreground="#808080")
+        self.cloud_status_lbl.pack(anchor="w", padx=10, pady=(0, 4))
+        self.btn_change_cloud_url = ttk.Button(cloud_frame, text="Change…", command=self.change_cloud_url)
+        self.btn_change_cloud_url.pack(anchor="w", padx=10, pady=(0, 2))
+        ttk.Label(
+            cloud_frame, text="Stop the server to change the cloud URL.", foreground="#808080", font=("Segoe UI", 8)
+        ).pack(anchor="w", padx=10, pady=(0, 10))
+
         pw_frame = ttk.LabelFrame(self.root, text="Playwright Browsers")
         pw_frame.pack(fill="x", **pad)
         self.pw_status_lbl = ttk.Label(pw_frame, text="")
@@ -170,11 +234,11 @@ class CrawlerLauncher:
         server_frame.pack(fill="x", **pad)
         btn_row = ttk.Frame(server_frame)
         btn_row.pack(fill="x", padx=10, pady=10)
-        self.btn_toggle = ttk.Button(btn_row, text="Start Server", command=self.on_toggle_server,
-                                     style="Accent.TButton")
+        self.btn_toggle = ttk.Button(
+            btn_row, text="Start Server", command=self.on_toggle_server, style="Accent.TButton"
+        )
         self.btn_toggle.pack(side="left")
-        self.btn_browser = ttk.Button(btn_row, text="Open Web Interface", command=self.open_browser,
-                                      state=tk.DISABLED)
+        self.btn_browser = ttk.Button(btn_row, text="Open Web Interface", command=self.open_browser, state=tk.DISABLED)
         self.btn_browser.pack(side="left", padx=(8, 0))
 
         activity_frame = ttk.LabelFrame(self.root, text="Activity")
@@ -187,13 +251,17 @@ class CrawlerLauncher:
         ttk.Label(
             self.root,
             text="Closing this window minimizes to the tray. Use Stop Server to fully quit.",
-            foreground="#808080", wraplength=400, justify="left",
+            foreground="#808080",
+            wraplength=400,
+            justify="left",
         ).pack(fill="x", padx=16, pady=(8, 16))
 
     def _render_state(self):
         text, color = STATE_LABELS[self.state]
         self.status_text.config(text=text)
         self.status_dot.config(foreground=color)
+
+        self.btn_change_cloud_url.config(state=tk.NORMAL if self.state == AppState.IDLE else tk.DISABLED)
 
         if self._browsers_ok:
             self.pw_status_lbl.config(text="Browsers installed", foreground="#4caf50")
@@ -203,8 +271,9 @@ class CrawlerLauncher:
             self.btn_download.config(text="Download Browsers (~600MB)")
         self.btn_download.config(state=tk.NORMAL if self.state == AppState.IDLE else tk.DISABLED)
 
-        can_toggle = self.state in (AppState.IDLE, AppState.RUNNING) and \
-                     (self.state != AppState.IDLE or self._browsers_ok)
+        can_toggle = self.state in (AppState.IDLE, AppState.RUNNING) and (
+            self.state != AppState.IDLE or self._browsers_ok
+        )
         self.btn_toggle.config(
             text="Start Server" if self.state == AppState.IDLE else "Stop Server",
             state=tk.NORMAL if can_toggle else tk.DISABLED,
@@ -235,10 +304,11 @@ class CrawlerLauncher:
     def _auth_headers(self) -> dict:
         # Authorization is unused by the local BFF's own routes (they check
         # the session cookie, not this header) but IS needed by proxied
-        # cloud calls. X-CSRF-Token mirrors what frontend/static/js/base.js's
-        # fetch-patch does for the browser — self.http never runs that JS, so
-        # without this every mutating local-BFF call (e.g. cancel-all) would
-        # 403 on verify_local_csrf despite already carrying the csrf cookie.
+        # cloud calls. X-CSRF-Token mirrors what frontend/shared/static/js/
+        # http.js's fetch-patch does for the browser — self.http never runs
+        # that JS, so without this every mutating local-BFF call (e.g.
+        # cancel-all) would 403 on verify_local_csrf despite already
+        # carrying the csrf cookie.
         headers = {}
         if self._access_token:
             headers["Authorization"] = f"Bearer {self._access_token}"
@@ -253,11 +323,13 @@ class CrawlerLauncher:
 
         def task():
             try:
-                resp = self.http.request(method, path, timeout=5,
-                                         headers={**self._auth_headers(), **extra_headers}, **kwargs)
+                resp = self.http.request(
+                    method, path, timeout=5, headers={**self._auth_headers(), **extra_headers}, **kwargs
+                )
                 if resp.status_code == 401 and self._try_refresh_sync():
-                    resp = self.http.request(method, path, timeout=5,
-                                             headers={**self._auth_headers(), **extra_headers}, **kwargs)
+                    resp = self.http.request(
+                        method, path, timeout=5, headers={**self._auth_headers(), **extra_headers}, **kwargs
+                    )
                 resp.raise_for_status()
                 data = resp.json()
                 self.root.after(0, on_done, data, None)
@@ -276,14 +348,16 @@ class CrawlerLauncher:
         if not refresh_token:
             return False
         try:
-            resp = httpx.post(f"{self._cloud_base_url()}/auth/refresh",
-                              json={"refresh_token": refresh_token}, timeout=5)
+            resp = httpx.post(
+                f"{self._cloud_base_url()}/auth/refresh", json={"refresh_token": refresh_token}, timeout=5
+            )
             resp.raise_for_status()
             data = resp.json()
             self._access_token = data["access_token"]
             keyring.set_password(_KEYRING_SERVICE, self._login_email, data["refresh_token"])
-            identity.update_access_token(data["access_token"],
-                                         permissions=data["user"]["permissions"], is_admin=data["user"]["is_admin"])
+            identity.update_access_token(
+                data["access_token"], permissions=data["user"]["permissions"], is_admin=data["user"]["is_admin"]
+            )
             return True
         except Exception as e:
             log.warning(f"Token refresh failed: {e}")
@@ -293,13 +367,14 @@ class CrawlerLauncher:
 
     def trigger_download(self):
         self.btn_download.config(state=tk.DISABLED)
-        self.status_detail_lbl.config(text="Downloading Playwright browsers (~600MB)… please wait.",
-                                      foreground="#4fa8d8")
+        self.status_detail_lbl.config(
+            text="Downloading Playwright browsers (~600MB)… please wait.", foreground="#4fa8d8"
+        )
         threading.Thread(target=self._download_browsers_task, daemon=True).start()
 
     def _download_browsers_task(self):
         try:
-            if getattr(sys, 'frozen', False):
+            if getattr(sys, "frozen", False):
                 cmd = [sys.executable, "INSTALL_BROWSERS"]
             else:
                 cmd = [sys.executable, self.entry_script, "INSTALL_BROWSERS"]
@@ -337,8 +412,9 @@ class CrawlerLauncher:
 
     def trigger_start_server(self):
         if not self._browsers_ok:
-            messagebox.showwarning("Playwright required",
-                                   "Download the Playwright browsers before starting the server.")
+            messagebox.showwarning(
+                "Playwright required", "Download the Playwright browsers before starting the server."
+            )
             return
 
         self.state = AppState.STARTING
@@ -411,8 +487,9 @@ class CrawlerLauncher:
 
     def _login_task(self, email: str, password: str):
         try:
-            resp = httpx.post(f"{self._cloud_base_url()}/auth/login",
-                              json={"email": email, "password": password}, timeout=10)
+            resp = httpx.post(
+                f"{self._cloud_base_url()}/auth/login", json={"email": email, "password": password}, timeout=10
+            )
             resp.raise_for_status()
             data = resp.json()
             self.root.after(0, self._on_login_success, email, data)
@@ -424,8 +501,13 @@ class CrawlerLauncher:
         self._login_email = email
         keyring.set_password(_KEYRING_SERVICE, _KEYRING_LAST_EMAIL_KEY, email)
         keyring.set_password(_KEYRING_SERVICE, email, data["refresh_token"])
-        identity.set_session(email, data["access_token"], self._cloud_base_url(),
-                             permissions=data["user"]["permissions"], is_admin=data["user"]["is_admin"])
+        identity.set_session(
+            email,
+            data["access_token"],
+            self._cloud_base_url(),
+            permissions=data["user"]["permissions"],
+            is_admin=data["user"]["is_admin"],
+        )
         try:
             # self.http is this launcher's OWN client for polling its local BFF
             # (/api/system/activity, cancel-all) — it never went through the
@@ -476,8 +558,7 @@ class CrawlerLauncher:
         cur_jobs = {j["id"] for j in data["crawl_jobs"]}
 
         for job_id in self._prev_jobs - cur_jobs:
-            self._api_async("GET", f"/api/jobs/{job_id}",
-                            lambda d, e, jid=job_id: self._notify_job_done(jid, d, e))
+            self._api_async("GET", f"/api/jobs/{job_id}", lambda d, e, jid=job_id: self._notify_job_done(jid, d, e))
 
         self._prev_jobs = cur_jobs
 

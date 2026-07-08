@@ -362,7 +362,7 @@ function triggerDispatch() {
     const draftCount = parseInt(document.getElementById('stat-draft').textContent) || 0;
     const queuedCount = parseInt(document.getElementById('stat-queued').textContent) || 0;
     if (draftCount === 0 && queuedCount === 0) {
-        alert("No selected draft or queued emails to dispatch. Select at least one email using the checkboxes.");
+        showToast('No selected draft or queued emails to dispatch. Select at least one email using the checkboxes.', {type: 'warning'});
         return;
     }
 
@@ -388,10 +388,10 @@ async function confirmDispatch() {
             loadCampaigns();
         } else {
             const err = await res.json();
-            alert("Failed to start dispatch: " + err.detail);
+            showToast('Failed to start dispatch: ' + err.detail, {type: 'error'});
         }
     } catch (e) {
-        alert("Network error.");
+        showToast("Can't reach the server — check your connection.", {type: 'error'});
     } finally {
         btn.disabled = false;
         btn.textContent = '▶ Yes, Dispatch';
@@ -430,14 +430,14 @@ async function toggleEmailSelection(emailId, isSelected) {
         });
         if (!res.ok) {
             const err = await res.json();
-            alert("Could not update selection: " + err.detail);
+            showToast('Could not update selection: ' + err.detail, {type: 'error'});
             loadEmails(); // revert UI
         } else {
             // Refresh stats without full reload
             pollCampaignStats();
         }
     } catch (e) {
-        alert("Network error.");
+        showToast("Can't reach the server — check your connection.", {type: 'error'});
         loadEmails();
     }
 }
@@ -455,10 +455,10 @@ async function selectAllEmails(selected) {
             pollCampaignStats();
         } else {
             const err = await res.json();
-            alert("Could not update selection: " + err.detail);
+            showToast('Could not update selection: ' + err.detail, {type: 'error'});
         }
     } catch (e) {
-        alert("Network error.");
+        showToast("Can't reach the server — check your connection.", {type: 'error'});
     }
 }
 
@@ -476,10 +476,10 @@ async function confirmDeleteEmail(emailId) {
             loadCampaigns();
         } else {
             const err = await res.json();
-            alert("Could not remove email: " + err.detail);
+            showToast('Could not remove email: ' + err.detail, {type: 'error'});
         }
     } catch (e) {
-        alert("Network error.");
+        showToast("Can't reach the server — check your connection.", {type: 'error'});
     }
 }
 
@@ -532,10 +532,10 @@ async function saveEmailEdit() {
             loadEmails();
         } else {
             const err = await res.json();
-            alert("Failed to update email: " + (err.detail || "Unknown error"));
+            showToast('Failed to update email: ' + (err.detail || 'Unknown error'), {type: 'error'});
         }
     } catch (e) {
-        alert("Network error.");
+        showToast("Can't reach the server — check your connection.", {type: 'error'});
     } finally {
         btn.disabled = false;
         btn.textContent = "Save Override";
@@ -601,7 +601,7 @@ async function openEditCampaignCredentialsModal() {
         const c = await res.json();
         assignedIds = c.credential_ids || [];
     } catch (e) {
-        alert("Failed to load current credential assignment.");
+        showToast('Failed to load current credential assignment.', {type: 'error'});
         return;
     }
 
@@ -647,7 +647,7 @@ async function saveCampaignCredentials() {
         : Array.from(document.querySelectorAll('.ecc-cred-checkbox:checked')).map(cb => parseInt(cb.value, 10));
 
     if (!isRoundRobin && credentialIds.length === 0) {
-        alert("Select at least one SMTP credential, or use round robin.");
+        showToast('Select at least one SMTP credential, or use round robin.', {type: 'warning'});
         return;
     }
 
@@ -662,9 +662,9 @@ async function saveCampaignCredentials() {
             loadCampaignDetail();
         } else {
             const err = await res.json();
-            alert("Failed to update credentials: " + err.detail);
+            showToast('Failed to update credentials: ' + err.detail, {type: 'error'});
         }
     } catch (e) {
-        alert("Network error.");
+        showToast("Can't reach the server — check your connection.", {type: 'error'});
     }
 }

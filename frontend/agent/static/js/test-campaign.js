@@ -94,7 +94,7 @@ async function uploadDummyLeadsCsv() {
     const file = fileInput.files[0];
     const resultBox = document.getElementById('test-csv-result');
     if (!file) {
-        alert('Choose a CSV file first.');
+        showToast('Choose a CSV file first.', {type: 'warning'});
         return;
     }
 
@@ -147,7 +147,7 @@ async function submitTestCampaign(e) {
     const credId = isRoundRobin ? null : (checkedRadio ? checkedRadio.value : null);
 
     if (!isRoundRobin && !credId) {
-        alert("Select an SMTP credential, or use round robin.");
+        showToast('Select an SMTP credential, or use round robin.', {type: 'warning'});
         btn.disabled = false;
         btn.textContent = "Create & Dispatch Test";
         return;
@@ -191,7 +191,7 @@ async function submitTestCampaign(e) {
         window.location.href = '/campaigns';
 
     } catch (err) {
-        alert("Error: " + err.message);
+        showToast(err.message, {type: 'error'});
         btn.disabled = false;
         btn.textContent = "Create & Dispatch Test";
     }

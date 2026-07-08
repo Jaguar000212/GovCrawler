@@ -1,21 +1,5 @@
-// ── CSRF (double-submit cookie) ────────────────────────────────────────────────
-// Single chokepoint for every fetch() call across every page script (campaigns.js,
-// leads.js, settings.js, etc. all call the raw fetch(), not just apiFetch below) —
-// patching window.fetch here covers all of them without touching each call site.
-// See cloud/api/deps.py's verify_csrf for the server-side check.
-(function () {
-    const nativeFetch = window.fetch.bind(window);
-    window.fetch = function (input, init = {}) {
-        const method = (init.method || 'GET').toUpperCase();
-        if (method !== 'GET' && method !== 'HEAD') {
-            const match = document.cookie.match(/(?:^|; )csrf=([^;]*)/);
-            if (match) {
-                init = {...init, headers: {...(init.headers || {}), 'X-CSRF-Token': decodeURIComponent(match[1])}};
-            }
-        }
-        return nativeFetch(input, init);
-    };
-})();
+// CSRF injection + apiFetch()/ApiError now live in
+// frontend/shared/static/js/http.js, loaded before this file (see base.html).
 
 // ── Defaults (shown in config panel even before server restart) ───────────────
 const CFG_DEFAULTS = {
@@ -361,7 +345,7 @@ async function promptAddDomainUrl(id) {
         });
         loadDomains();
     } catch (e) {
-        alert(`Failed to update URL: ${e.message}`);
+        showApiError(e);
     }
 }
 
@@ -391,7 +375,7 @@ async function selectAllResults() {
         updateSelCount();
     } catch (e) {
         // Endpoint not available yet — restart server
-        alert(`Select-all requires a server restart.\n\nAfter restarting, this will select all ${totalMatching.toLocaleString()} domains.`);
+        showToast(`Select-all requires a server restart. After restarting, this will select all ${totalMatching.toLocaleString()} domains.`, {type: 'warning'});
     }
 }
 
@@ -459,7 +443,7 @@ document.addEventListener('DOMContentLoaded', function () {
             await apiFetch('/api/import/json', {method: 'POST', body: form});
             startImportPoll();
         } catch (e) {
-            alert('Import failed to start: ' + e.message);
+            showApiError(e);
         }
         this.value = '';
     });
@@ -471,7 +455,7 @@ async function triggerImport() {
         await apiFetch('/api/import', {method: 'POST'});
         startImportPoll();
     } catch (e) {
-        alert('Import failed: ' + e.message);
+        showApiError(e);
     }
 }
 
@@ -543,7 +527,7 @@ async function startCrawl() {
         const badge = document.getElementById('live-badge');
         if (badge) badge.style.display = 'flex';
     } catch (e) {
-        alert('Failed to start crawl: ' + e.message);
+        showApiError(e);
     }
 }
 
@@ -564,7 +548,7 @@ async function startCustomCrawl() {
         const badge = document.getElementById('live-badge');
         if (badge) badge.style.display = 'flex';
     } catch (e) {
-        alert('Failed to start crawl: ' + e.message);
+        showApiError(e);
     }
 }
 
@@ -575,7 +559,7 @@ async function cancelJob() {
         await apiFetch(`/api/jobs/${activeJobId}/cancel`, {method: 'POST'});
         updateJobPanel({...await apiFetch(`/api/jobs/${activeJobId}`)});
     } catch (e) {
-        alert('Failed to cancel: ' + e.message);
+        showApiError(e);
     }
 }
 
@@ -720,7 +704,7 @@ function openResults() {
 
 async function exportDashboardLeads() {
     if (!activeJobId) {
-        alert("No active job selected to export leads from.");
+        showToast('No active job selected to export leads from.', {type: 'warning'});
         return;
     }
 
@@ -744,7 +728,7 @@ async function exportDashboardLeads() {
 
         if (!resp.ok) {
             if (resp.status === 404) {
-                alert("No leads found for this job.");
+                showToast('No leads found for this job.', {type: 'warning'});
                 return;
             }
             let errText = "Unknown error";
@@ -768,7 +752,7 @@ async function exportDashboardLeads() {
         window.URL.revokeObjectURL(url);
     } catch (e) {
         console.error("Export failed:", e);
-        alert("Export failed: " + e.message);
+        showToast('Export failed: ' + e.message, {type: 'error'});
     } finally {
         if (btn1) btn1.textContent = originalText1;
         if (btn2) btn2.textContent = originalText2;
@@ -865,7 +849,7 @@ async function useSameSeeds() {
             apiFetch(`/api/jobs/${activeJobId}/seeds`),
         ]);
         if (!seeds.length) {
-            alert("No seeds found in this job.");
+            showToast('No seeds found in this job.', {type: 'warning'});
             return;
         }
         if (!confirm(`Start a new job with these ${seeds.length} seeds?`)) return;
@@ -888,7 +872,7 @@ async function useSameSeeds() {
         const badge = document.getElementById('live-badge');
         if (badge) badge.style.display = 'flex';
     } catch (e) {
-        alert('Failed to start crawl: ' + e.message);
+        showApiError(e);
     }
 }
 
@@ -1128,26 +1112,13 @@ async function saveConfig() {
             setTimeout(() => msg2.style.display = 'none', 4000);
         }
         if (!msg1 && !msg2) {
-            alert("Settings saved!");
+            showToast('Settings saved — takes effect on next crawl job.', {type: 'success'});
         }
     } catch (e) {
         console.error(e);
-        alert("Failed to save settings");
+        showApiError(e);
     }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-async function apiFetch(url, opts = {}) {
-    const r = await fetch(url, opts);
-    if (!r.ok) {
-        const b = await r.text();
-        throw new Error(`${r.status}: ${b}`);
-    }
-    return r.json();
-}
-
-function esc(str) {
-    if (!str) return '';
-    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
+// esc() now lives in frontend/shared/static/js/http.js, loaded before this file.
 

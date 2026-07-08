@@ -1,6 +1,8 @@
 import datetime
 import json
 
+from sqlalchemy import func
+
 from shared.enums import JobStatus
 
 from ..tables.crawl import CrawlJob, CrawlJobDomain, JobCustomUrl
@@ -9,9 +11,15 @@ _TERMINAL_STATUSES = {JobStatus.DONE.value, JobStatus.FAILED.value, JobStatus.CA
 
 
 class JobMixin:
-    def create_job(self, domain_ids: list[int] = None, custom_urls: list[str] = None,
-                   category_filter: str = None, title_filter: str = None,
-                   owner_id: int | None = None, agent_id: str | None = None) -> int:
+    def create_job(
+        self,
+        domain_ids: list[int] = None,
+        custom_urls: list[str] = None,
+        category_filter: str = None,
+        title_filter: str = None,
+        owner_id: int | None = None,
+        agent_id: str | None = None,
+    ) -> int:
         source_type = "custom_urls" if custom_urls else "domains"
         seed_count = len(custom_urls) if custom_urls else len(domain_ids or [])
         with self._Session() as s:
@@ -44,25 +52,28 @@ class JobMixin:
 
     def get_job_custom_urls(self, job_id: int) -> list[dict]:
         with self._Session() as s:
-            rows = (
-                s.query(JobCustomUrl)
-                .filter_by(job_id=job_id)
-                .order_by(JobCustomUrl.id)
-                .all()
-            )
+            rows = s.query(JobCustomUrl).filter_by(job_id=job_id).order_by(JobCustomUrl.id).all()
             return [
-                {"id": r.id, "title": r.url, "main_url": r.url,
-                 "contact_url": None, "category_code": "custom", "state": None,
-                 "org_type": None}
+                {
+                    "id": r.id,
+                    "title": r.url,
+                    "main_url": r.url,
+                    "contact_url": None,
+                    "category_code": "custom",
+                    "state": None,
+                    "org_type": None,
+                }
                 for r in rows
             ]
 
     def start_job(self, job_id: int):
         with self._Session() as s:
-            s.query(CrawlJob).filter_by(id=job_id).update({
-                "status": "running",
-                "started_at": datetime.datetime.utcnow(),
-            })
+            s.query(CrawlJob).filter_by(id=job_id).update(
+                {
+                    "status": "running",
+                    "started_at": datetime.datetime.utcnow(),
+                }
+            )
             s.commit()
 
     def finish_job(self, job_id: int, status: str = "done", error: str = None):
@@ -72,11 +83,13 @@ class JobMixin:
                 # Already finished by a racing path (in-memory cancel vs. a
                 # heartbeat-driven finish) — a no-op, not an error.
                 return
-            s.query(CrawlJob).filter_by(id=job_id).update({
-                "status": status,
-                "finished_at": datetime.datetime.utcnow(),
-                "error_message": error,
-            })
+            s.query(CrawlJob).filter_by(id=job_id).update(
+                {
+                    "status": status,
+                    "finished_at": datetime.datetime.utcnow(),
+                    "error_message": error,
+                }
+            )
             s.commit()
 
     def set_cancel_requested(self, job_id: int) -> None:
@@ -122,8 +135,8 @@ class JobMixin:
                 s.query(CrawlJob.id)
                 .filter(CrawlJob.status == JobStatus.RUNNING.value)
                 .filter(
-                    ((CrawlJob.last_heartbeat_at.isnot(None)) & (CrawlJob.last_heartbeat_at < cutoff)) |
-                    ((CrawlJob.last_heartbeat_at.is_(None)) & (CrawlJob.started_at < cutoff))
+                    ((CrawlJob.last_heartbeat_at.isnot(None)) & (CrawlJob.last_heartbeat_at < cutoff))
+                    | ((CrawlJob.last_heartbeat_at.is_(None)) & (CrawlJob.started_at < cutoff))
                 )
                 .all()
             )
@@ -137,10 +150,12 @@ class JobMixin:
 
     def resume_job(self, job_id: int) -> None:
         with self._Session() as s:
-            s.query(CrawlJob).filter_by(id=job_id).update({
-                "status": JobStatus.RUNNING.value,
-                "cancel_requested": False,
-            })
+            s.query(CrawlJob).filter_by(id=job_id).update(
+                {
+                    "status": JobStatus.RUNNING.value,
+                    "cancel_requested": False,
+                }
+            )
             s.commit()
 
     def claim_or_verify_job_agent(self, job_id: int, agent_id: str) -> bool:
@@ -180,8 +195,7 @@ class JobMixin:
             j = q.first()
             return self._job_dict(j) if j else None
 
-    def list_jobs(self, limit: int = 20, owner_id: int | None = None,
-                  view_all: bool = False) -> list[dict]:
+    def list_jobs(self, limit: int = 20, owner_id: int | None = None, view_all: bool = False) -> list[dict]:
         with self._Session() as s:
             q = s.query(CrawlJob)
             if not view_all:
@@ -194,18 +208,36 @@ class JobMixin:
         itself (plan.md §19.1 Phase 9 Part 2), so 'running' is whatever the
         `crawl_jobs.status` column says, not an in-process task registry."""
         with self._Session() as s:
+            rows = s.query(CrawlJob).filter(CrawlJob.status == JobStatus.RUNNING.value).order_by(CrawlJob.id).all()
+            return [self._job_dict(j) for j in rows]
+
+    def get_agent_summary(self) -> list[dict]:
+        """Distinct agent_ids that have ever run a job here, with a job count
+        and last-active timestamp — the admin dashboard's System tab uses
+        this as a lightweight "which agents exist" view (there's no separate
+        agent-registry table; `crawl_jobs.agent_hostname` is the only record
+        of an agent's existence, per plan.md §19.1 Phase 9 Part 2)."""
+        with self._Session() as s:
             rows = (
-                s.query(CrawlJob)
-                .filter(CrawlJob.status == JobStatus.RUNNING.value)
-                .order_by(CrawlJob.id)
+                s.query(
+                    CrawlJob.agent_hostname,
+                    func.count(CrawlJob.id),
+                    func.max(CrawlJob.created_at),
+                )
+                .filter(CrawlJob.agent_hostname.isnot(None))
+                .group_by(CrawlJob.agent_hostname)
+                .order_by(func.max(CrawlJob.created_at).desc())
                 .all()
             )
-            return [self._job_dict(j) for j in rows]
+            return [
+                {"agent_id": agent_id, "job_count": count, "last_job_at": last_at} for agent_id, count, last_at in rows
+            ]
 
     @staticmethod
     def _job_dict(j: CrawlJob) -> dict:
         return {
-            "id": j.id, "status": j.status,
+            "id": j.id,
+            "status": j.status,
             "source_type": j.source_type,
             "total_domains": j.total_domains,
             "crawled_domains": j.crawled_domains,

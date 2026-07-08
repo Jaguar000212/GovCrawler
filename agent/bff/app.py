@@ -10,14 +10,17 @@ behind the loopback + local-session + CSRF guards in security.py. See
 import logging
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Request
-from fastapi.responses import RedirectResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from playwright.async_api import async_playwright
 
 from . import local_auth, local_system, pages, proxy, security
+from .proxy import CloudUnreachableError
 from .. import api as agent_api
 from .. import state
 from portal.paths import APP_DIR
+from shared.errors import format_validation_errors
 
 log = logging.getLogger(__name__)
 
@@ -46,6 +49,23 @@ def create_app(config: dict) -> FastAPI:
     async def _redirect_handler(request: Request, exc: security.LocalRedirectException):
         return RedirectResponse(url=exc.location, status_code=302)
 
+    @app.exception_handler(CloudUnreachableError)
+    async def _cloud_unreachable_handler(request: Request, exc: CloudUnreachableError):
+        return JSONResponse(status_code=502, content={"detail": exc.message, "code": "cloud_unreachable"})
+
+    # Every error response is guaranteed a plain-string `detail` — see
+    # cloud/api/server.py's identical handlers and shared/errors.py.
+    @app.exception_handler(RequestValidationError)
+    async def _validation_handler(request: Request, exc: RequestValidationError):
+        content = {"detail": format_validation_errors(exc), "code": "validation_error"}
+        return JSONResponse(status_code=422, content=content)
+
+    @app.exception_handler(Exception)
+    async def _unhandled_exception_handler(request: Request, exc: Exception):
+        log.error("Unhandled exception on %s %s", request.method, request.url.path, exc_info=True)
+        content = {"detail": "Something went wrong on the agent.", "code": "internal_error"}
+        return JSONResponse(status_code=500, content=content)
+
     @app.get("/ping", dependencies=[Depends(security.require_loopback)])
     async def ping():
         """Readiness probe for the launcher's own startup poll
@@ -53,9 +73,11 @@ def create_app(config: dict) -> FastAPI:
         everything else this app serves."""
         return {"status": "ok"}
 
-    static_dir = APP_DIR / "frontend" / "static"
+    static_dir = APP_DIR / "frontend" / "agent" / "static"
     static_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+    shared_static_dir = APP_DIR / "frontend" / "shared" / "static"
+    app.mount("/assets", StaticFiles(directory=str(shared_static_dir)), name="assets")
 
     # Registration order matters: FastAPI matches path+method in the order
     # routes were added, so the specific routers below must all precede

@@ -32,7 +32,7 @@ Both are now the same thing — the module split *and* the process/deployment sp
   (`agent/launcher/app.py`), which now boots its own **local BFF** (`agent/bff/app.py`) — a completely
   separate FastAPI app from the cloud's, bound to loopback. It owns Playwright/the crawl browser directly
   (moved out of the cloud process for good), renders the operator's pages itself
-  (`agent/bff/pages.py`, verbatim reuse of the shared `frontend/` templates), proxies every shared-data API
+  (`agent/bff/pages.py`, from `frontend/agent/` + the tier-agnostic `frontend/shared/`), proxies every shared-data API
   call to the configured `cloud_api_base_url` (`agent/bff/proxy.py`, one generic reverse-proxy handler, not
   ~15 hand-written pass-throughs), and runs the crawl engine as an `asyncio.Task` in-process
   (`agent/api.py`'s job-lifecycle routes). The operator's browser only ever talks to this local origin —
@@ -73,7 +73,7 @@ exposed to the internet.
 │      │ boots                                                   │
 │      ▼                                                          │
 │  agent.bff.app — a standalone FastAPI app (NOT the cloud's)    │
-│   ├─ pages.py    — renders frontend/ templates itself          │
+│   ├─ pages.py    — renders frontend/agent/ + shared templates  │
 │   ├─ proxy.py    — one generic reverse-proxy for shared data   │
 │   ├─ local_auth / local_system — this machine's own concerns   │
 │   ├─ agent/api.py (job create/resume/cancel)                   │
@@ -135,8 +135,10 @@ argv sentinel that installs Chromium via a subprocess, no-console stdio guard). 
 is `CrawlerLauncher`, an explicit `AppState` state machine (`IDLE → STARTING → RUNNING → CHECKING →
 CANCELLING → DRAINING → STOPPING`) that:
 
-- on first run, prompts for the **cloud server URL** (`agent/localdb.py`'s `cloud_api_base_url` — a
-  one-time-per-machine setup step, not a recurring flow);
+- on first run, prompts for the **cloud server URL** (`agent/localdb.py`'s `cloud_api_base_url`); a
+  "Cloud Server" panel in the main window shows this URL plus a live-polled (every 15 s) reachability
+  indicator (`GET {url}/healthz`) and a **Change…** button — disabled while the server is running, since
+  swapping the cloud mid-session would invalidate the current login/identity;
 - starts/stops its own standalone `agent.bff.app` on a daemon thread (so Tkinter's mainloop stays
   responsive);
 - shows a **login dialog**, authenticates directly against the cloud's `/auth/login` (not its own local
@@ -158,30 +160,36 @@ browser UI.
 
 A FastAPI app built by `create_app(config, db)` in `cloud/api/server.py`. It mounts ~17 routers and a
 background **stale-job reaper** + stuck-`SENDING` recovery lifespan, configures CORS (only if
-`auth.admin_origin` is set) and double-submit CSRF, and serves the Jinja2 browser UI (including the admin
-dashboard) from the top-level `frontend/` directory. It never imports `agent.*` and never touches
-Playwright — the crawler is entirely the agent's concern. Every `/api/*` router carries `get_current_user`
-+ `verify_csrf`; mutating routes add a `require(<permission>)` dependency and write an audit-log row. See
-[api-reference.md](api-reference.md).
+`auth.admin_origin` is set) and double-submit CSRF, and serves the **admin-only** Jinja2 browser UI
+(`frontend/cloud/`, plus the shared `frontend/shared/` login page) via `cloud/api/frontend.py` — the
+crawler/outreach pages (dashboard, leads, campaigns, crawler settings, test-campaign) are not rendered here
+at all; they exist only on the agent. It never imports `agent.*` and never touches Playwright — the crawler
+is entirely the agent's concern. Every `/api/*` router carries `get_current_user` + `verify_csrf`; mutating
+routes add a `require(<permission>)` dependency and write an audit-log row. Two error handlers
+(`RequestValidationError`, catch-all `Exception`) normalize every error response to a plain-string `detail`
+(`shared/errors.py`), so the frontend never has to render FastAPI's raw `[{loc, msg, type}, ...]` validation
+array or a traceback. See [api-reference.md](api-reference.md).
 
 ### 3. Agent local BFF — `agent/bff/`
 
 A second, completely independent FastAPI app (`agent/bff/app.py`), bound to loopback, that the launcher
 boots instead of the cloud's. Owns Playwright/the crawl browser (its own lifespan starts/stops Chromium).
-Composed of: `pages.py` (renders the shared `frontend/` templates locally — zero `cloud.*` import, the
-directory is a top-level sibling asset tree), `proxy.py` (one generic reverse-proxy for every shared-data
-route: domains/leads/campaigns/templates/credentials/blacklist/imports/config/read-only jobs — forwards to
+Composed of: `pages.py` (renders `frontend/agent/` + the shared `frontend/shared/` templates locally — zero
+`cloud.*` import), `proxy.py` (one generic reverse-proxy for every shared-data route:
+domains/leads/campaigns/templates/credentials/blacklist/imports/config/read-only jobs — forwards to
 `cloud_api_base_url` with the operator's bearer token, built on the same retry-on-401-then-refresh helper
-`agent/cloud_client.py` uses for coordination calls), `local_auth.py` (the browser's own local
-`session`/`csrf` cookie pair — never the real bearer token — plus a straight `/auth/login` relay so
-`frontend/login.html` keeps working unmodified if the operator ever lands there directly), and
-`local_system.py` (this machine's own `/api/system/activity` + `/api/system/cancel-all` + `/api/logs`,
-reading `agent/state.py`'s local task registry — there is nothing else to read, since the cloud process no
-longer runs any crawl engine). `security.py` is the floor under all of it: `require_loopback` (checks the
-actual peer address, not just the bind host), `require_local_session` + `verify_local_csrf` (double-submit
-CSRF **and** a trusted-`Host`-header check, defending against DNS-rebinding against this loopback service).
-`agent/api.py`'s job-lifecycle routes (create/resume/cancel) mount into this same app, behind the same
-guards.
+`agent/cloud_client.py` uses for coordination calls; a `ConnectError`/`TimeoutException` from the cloud is
+caught and re-raised as a `CloudUnreachableError`, giving the frontend a distinct `code: "cloud_unreachable"`
+instead of a generic 5xx), `local_auth.py` (the browser's own local `session`/`csrf` cookie pair — never the
+real bearer token — plus a straight `/auth/login` relay so `frontend/shared/templates/login.html` keeps
+working unmodified if the operator ever lands there directly), and `local_system.py` (this machine's own
+`/api/system/activity` + `/api/system/cancel-all` + `/api/logs`, reading `agent/state.py`'s local task
+registry — there is nothing else to read, since the cloud process no longer runs any crawl engine).
+`security.py` is the floor under all of it: `require_loopback` (checks the actual peer address, not just the
+bind host), `require_local_session` + `verify_local_csrf` (double-submit CSRF **and** a trusted-`Host`-header
+check, defending against DNS-rebinding against this loopback service). `agent/api.py`'s job-lifecycle routes
+(create/resume/cancel) mount into this same app, behind the same guards. The same
+`RequestValidationError`/catch-all `Exception` normalization as the cloud tier applies here too.
 
 ### 4. Crawler engine — `agent/crawler/engine.py`
 
@@ -217,6 +225,30 @@ CAPTCHA) and emits `gov_domains.json`; it has no runtime dependency on `cloud`/`
 `cloud/services/importer.py` imports that JSON (or hits the live API directly, with the same API-calling
 code inlined — Phase 7, plan.md §19.1) into the `domains` catalog, keeping organizations with no listed URL
 as "not crawlable" rather than dropping them.
+
+### 8. Frontend — `frontend/{shared,agent,cloud}/`
+
+Three structurally separate trees, not just naming conventions, so it's never ambiguous which tier owns a
+template or asset (see [directory-structure.md](directory-structure.md) for the full layout):
+
+- **`frontend/shared/`** — the one page genuinely identical on both tiers (`login.html`), CSS design tokens
+  + generic components (buttons, tables, modals, badges, the sidebar-tab-nav pattern), and the shared error
+  layer: `http.js` (`apiFetch`/`ApiError`/`friendlyMessage` + the CSRF-injecting `fetch` patch) and
+  `toast.js` (`showToast`/`showApiError`) — every raw `alert()` that used to report an API error is now a
+  dismissible, human-readable toast; `confirm()` stays native for destructive-action confirmations, which
+  isn't an error-reporting concern.
+- **`frontend/agent/`** — the full crawler + outreach UI (dashboard, leads, campaigns, settings,
+  test-campaign, user guide), rendered only by `agent/bff/pages.py`. Its only admin-adjacent affordance is a
+  permission-gated "Admin Portal ↗" nav button that opens the cloud's own login in a new tab — a link-out,
+  never rendered admin UI.
+- **`frontend/cloud/`** — the admin-only UI, rendered only by `cloud/api/frontend.py`: a single
+  sidebar-tabbed `admin-dashboard.html` (Overview / Users & Permissions / Roles — read-only, since the
+  backend only supports the 3 built-in roles / Audit Log / System — DB health + dispatch mode +
+  `GET /api/admin/system-status`'s per-agent job-activity summary) plus a short `admin-guide.html`. No
+  crawl-start, leads, campaigns, or crawler-settings page exists on this tier.
+- Both tiers mount `/static` to their own tree and `/assets` to `frontend/shared/static` (distinct
+  prefixes, not nested, so there's no `StaticFiles` mount-order ambiguity); `Jinja2Templates` is built from
+  a two-entry search path (tier-specific dir first, then `frontend/shared/templates`).
 
 ---
 

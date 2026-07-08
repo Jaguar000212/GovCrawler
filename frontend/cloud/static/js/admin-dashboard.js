@@ -1,6 +1,15 @@
 const ADMIN_DASHBOARD_POLL_MS = 3000;
 let _adminDashboardTimer = null;
 
+// ── Tab switching (same generic pattern settings.js uses) ───────────────────
+function switchAdminTab(tabId) {
+    document.querySelectorAll('.settings-nav li').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.settings-tab').forEach(el => el.style.display = 'none');
+    document.getElementById(`nav-${tabId}`)?.classList.add('active');
+    const tab = document.getElementById(`tab-${tabId}`);
+    if (tab) tab.style.display = 'block';
+}
+
 function startAdminDashboardPoll() {
     loadAdminActivity();
     _adminDashboardTimer = setInterval(loadAdminActivity, ADMIN_DASHBOARD_POLL_MS);
@@ -75,6 +84,10 @@ async function loadUsers() {
 }
 
 function userRowHtml(u) {
+    const statusBadge = u.is_active
+        ? '<span class="badge badge-green">Active</span>'
+        : '<span class="badge badge-muted">Disabled</span>';
+    const adminBadge = u.is_admin ? '<span class="badge badge-green">Admin</span>' : '—';
     return `<tr>
         <td>${esc(u.email)}</td>
         <td>${esc(u.full_name || '')}</td>
@@ -86,9 +99,12 @@ function userRowHtml(u) {
             </select>
         </td>
         <td style="text-align:center">
-            <input onchange="toggleUserActive(${u.id}, this.checked)" type="checkbox" ${u.is_active ? 'checked' : ''}>
+            <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer;">
+                <input onchange="toggleUserActive(${u.id}, this.checked)" type="checkbox" ${u.is_active ? 'checked' : ''}>
+                ${statusBadge}
+            </label>
         </td>
-        <td style="text-align:center">${u.is_admin ? '✓' : ''}</td>
+        <td style="text-align:center">${adminBadge}</td>
         <td style="white-space:nowrap;">
             <button class="btn-secondary btn-sm" onclick="openPermissionsModal(${u.id}, '${esc(u.email)}')">Permissions</button>
             <button class="btn-secondary btn-sm" onclick="resetUserPassword(${u.id})">Reset PW</button>
@@ -113,7 +129,7 @@ async function submitNewUser() {
     const email = document.getElementById('nu-email').value.trim();
     const password = document.getElementById('nu-password').value;
     if (!email || !password) {
-        alert('Email and password are required');
+        showToast('Email and password are required.', {type: 'warning'});
         return;
     }
     try {
@@ -128,9 +144,10 @@ async function submitNewUser() {
             }),
         });
         closeNewUserModal();
+        showToast('User created.', {type: 'success'});
         loadUsers();
     } catch (e) {
-        alert('Failed to create user: ' + e.message);
+        showApiError(e);
     }
 }
 
@@ -142,7 +159,7 @@ async function toggleUserActive(userId, isActive) {
             body: JSON.stringify({is_active: isActive}),
         });
     } catch (e) {
-        alert('Failed to update user: ' + e.message);
+        showApiError(e);
         loadUsers();
     }
 }
@@ -155,7 +172,7 @@ async function changeUserRole(userId, role) {
             body: JSON.stringify({role: role || null}),
         });
     } catch (e) {
-        alert('Failed to update role: ' + e.message);
+        showApiError(e);
         loadUsers();
     }
 }
@@ -169,9 +186,9 @@ async function resetUserPassword(userId) {
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({password}),
         });
-        alert('Password reset.');
+        showToast('Password reset.', {type: 'success'});
     } catch (e) {
-        alert('Failed to reset password: ' + e.message);
+        showApiError(e);
     }
 }
 
@@ -193,7 +210,7 @@ async function openPermissionsModal(userId, email) {
         return `<div style="display:flex; align-items:center; justify-content:space-between; gap:12px; border-bottom:1px solid var(--border, #30363d); padding:6px 0;">
             <div>
                 <div style="font-size:13px;">${esc(key)}</div>
-                <div style="font-size:11px; color:var(--text-muted);">${esc(_permissionsCatalog[key])}</div>
+                <div style="font-size:11px; color:var(--muted);">${esc(_permissionsCatalog[key])}</div>
             </div>
             <select onchange="setPermissionOverride(${userId}, '${key}', this.value)" style="font-size:12px;">
                 <option value="inherit" ${current === 'inherit' ? 'selected' : ''}>Inherited from role</option>
@@ -217,7 +234,7 @@ async function setPermissionOverride(userId, permissionKey, value) {
             body: JSON.stringify({effect}),
         });
     } catch (e) {
-        alert('Failed to update permission: ' + e.message);
+        showApiError(e);
     }
 }
 
@@ -277,4 +294,80 @@ function auditRowHtml(e) {
         <td style="font-size:11px;max-width:280px;overflow-wrap:anywhere;">${detail}</td>
         <td style="font-size:11px;">${esc(e.ip || '')}</td>
     </tr>`;
+}
+
+// ── Roles (read-only — built-in roles have no create/edit backend) ─────────
+
+async function loadRoles() {
+    const grid = document.getElementById('ad-roles-grid');
+    let roles, permissions;
+    try {
+        [roles, permissions] = await Promise.all([
+            apiFetch('/api/admin/roles'),
+            apiFetch('/api/admin/permissions'),
+        ]);
+    } catch (e) {
+        grid.innerHTML = '<div class="empty-state">Failed to load roles.</div>';
+        return;
+    }
+
+    const permKeys = Object.keys(permissions).sort();
+    const roleNames = roles.map(r => r.name);
+
+    let html = `<div class="role-grid" style="grid-template-columns: 1fr repeat(${roleNames.length}, 110px);">`;
+    html += `<div class="role-grid-header">Permission</div>`;
+    roleNames.forEach(name => html += `<div class="role-grid-header">${esc(name)}</div>`);
+
+    permKeys.forEach(key => {
+        html += `<div class="role-grid-cell" title="${esc(permissions[key])}">${esc(key)}</div>`;
+        roles.forEach(role => {
+            const granted = (role.permissions || []).includes(key);
+            html += `<div class="role-grid-cell">${granted ? '<span class="role-grid-check">✓</span>' : '—'}</div>`;
+        });
+    });
+    html += '</div>';
+    grid.innerHTML = html;
+}
+
+// ── System / health ──────────────────────────────────────────────────────────
+
+async function loadSystemStatus() {
+    const statusEl = document.getElementById('ad-system-status');
+    const agentsBody = document.getElementById('ad-agents-tbody');
+    let status;
+    try {
+        status = await apiFetch('/api/admin/system-status');
+    } catch (e) {
+        statusEl.innerHTML = '<div class="empty-state">Failed to load system status.</div>';
+        return;
+    }
+
+    const dbOk = status.db_status === 'ok';
+    statusEl.innerHTML = `
+        <div class="health-stat">
+            <div class="health-stat-label">Database</div>
+            <div class="health-stat-value">
+                <span class="dot ${dbOk ? 'dot-green' : 'dot-red'}"></span>
+                ${dbOk ? 'Connected' : 'Unreachable'}
+            </div>
+        </div>
+        <div class="health-stat">
+            <div class="health-stat-label">Dispatch mode</div>
+            <div class="health-stat-value">${esc(status.dispatch_mode || 'unknown')}</div>
+        </div>
+        <div class="health-stat">
+            <div class="health-stat-label">Agents seen recently</div>
+            <div class="health-stat-value">${(status.agents || []).length}</div>
+        </div>
+    `;
+
+    agentsBody.innerHTML = (status.agents || []).map(a => `
+        <tr>
+            <td style="font-family:monospace; font-size:11px;">${esc(a.agent_id)}</td>
+            <td>${a.job_count}</td>
+            <td style="font-size:11px;">${a.last_job_at ? esc(new Date(a.last_job_at + 'Z').toLocaleString()) : '—'}</td>
+        </tr>
+    `).join('') || '<tr><td colspan="3" class="empty-state">No agents have run a job yet.</td></tr>';
+
+    document.getElementById('sys-last-updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
 }

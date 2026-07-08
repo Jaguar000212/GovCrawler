@@ -1,5 +1,8 @@
-"""Frontend HTML page routes plus small UI-support endpoints. See
-.docs/api-reference.md."""
+"""Frontend HTML page routes plus small UI-support endpoints. The cloud tier
+only ever renders the admin UI (frontend/cloud/templates) plus the shared
+login page (frontend/shared/templates) — the crawler/outreach pages
+(dashboard, leads, campaigns, settings, test-campaign) are agent-only, see
+agent/bff/pages.py. See .docs/api-reference.md."""
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
@@ -11,7 +14,8 @@ from portal.paths import APP_DIR, LOG_FILE_PATH
 router = APIRouter(tags=["frontend"])
 
 _frontend_dir = APP_DIR / "frontend"
-_templates = Jinja2Templates(directory=str(_frontend_dir))
+_template_dirs = [str(_frontend_dir / "cloud" / "templates"), str(_frontend_dir / "shared" / "templates")]
+_templates = Jinja2Templates(directory=_template_dirs)
 
 
 @router.get("/login", response_class=HTMLResponse)
@@ -21,33 +25,9 @@ async def login_page(request: Request):
 
 
 @router.get("/", response_class=HTMLResponse)
-async def index(request: Request, user: CurrentUser = Depends(current_user_or_redirect)):
-    template = _templates.get_template("index.html")
-    return HTMLResponse(template.render({"request": request, "active_page": "dashboard", "user": user}))
-
-
-@router.get("/leads", response_class=HTMLResponse)
-async def leads_page(request: Request, user: CurrentUser = Depends(current_user_or_redirect)):
-    template = _templates.get_template("leads.html")
-    return HTMLResponse(template.render({"request": request, "active_page": "leads", "user": user}))
-
-
-@router.get("/settings", response_class=HTMLResponse)
-async def settings_page(request: Request, user: CurrentUser = Depends(current_user_or_redirect)):
-    template = _templates.get_template("settings.html")
-    return HTMLResponse(template.render({"request": request, "active_page": "settings", "user": user}))
-
-
-@router.get("/test-campaign", response_class=HTMLResponse)
-async def test_campaign_page(request: Request, user: CurrentUser = Depends(current_user_or_redirect)):
-    template = _templates.get_template("test-campaign.html")
-    return HTMLResponse(template.render({"request": request, "active_page": "test-campaign", "user": user}))
-
-
-@router.get("/campaigns", response_class=HTMLResponse)
-async def campaigns_page(request: Request, user: CurrentUser = Depends(current_user_or_redirect)):
-    template = _templates.get_template("campaigns.html")
-    return HTMLResponse(template.render({"request": request, "active_page": "campaigns", "user": user}))
+async def index(request: Request, user: CurrentUser = Depends(require("jobs.view_all"))):
+    template = _templates.get_template("admin-dashboard.html")
+    return HTMLResponse(template.render({"request": request, "active_page": "admin-dashboard", "user": user}))
 
 
 @router.get("/admin/dashboard", response_class=HTMLResponse)
@@ -57,9 +37,9 @@ async def admin_dashboard_page(request: Request, user: CurrentUser = Depends(req
 
 
 @router.get("/user-guide", response_class=HTMLResponse)
-async def user_guide_page(request: Request, user: CurrentUser = Depends(current_user_or_redirect)):
-    template = _templates.get_template("user-guide.html")
-    return HTMLResponse(template.render({"request": request, "active_page": "user-guide", "user": user}))
+async def admin_guide_page(request: Request, user: CurrentUser = Depends(current_user_or_redirect)):
+    template = _templates.get_template("admin-guide.html")
+    return HTMLResponse(template.render({"request": request, "active_page": "admin-guide", "user": user}))
 
 
 @router.get("/api/logs")

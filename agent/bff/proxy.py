@@ -28,6 +28,17 @@ router = APIRouter(
     ],
 )
 
+
+class CloudUnreachableError(Exception):
+    """Raised when the configured cloud server can't be reached at all (as
+    opposed to reaching it and getting a real error response). Handled by
+    agent/bff/app.py with a flat {detail, code} body so the frontend's
+    friendlyMessage() can show a tailored message instead of a generic one."""
+
+    def __init__(self, message: str):
+        self.message = message
+
+
 # Headers that must never be blindly relayed either direction: the browser's
 # local session/csrf cookies never leave this machine, `authorization` is set
 # fresh from identity.py (not whatever the browser sent, which is nothing —
@@ -44,12 +55,26 @@ async def proxy(path: str, request: Request) -> Response:
     headers = {k: v for k, v in request.headers.items() if k.lower() not in _STRIP_REQUEST_HEADERS}
     params = list(request.query_params.multi_items())
 
-    async with httpx.AsyncClient(base_url=cloud_url, timeout=30) as http:
-        r = await request_with_retry(
-            request.method, http, f"/api/{path}", identity.get_valid_token, identity.refresh,
-            params=params, content=body, headers=headers,
+    try:
+        async with httpx.AsyncClient(base_url=cloud_url, timeout=30) as http:
+            r = await request_with_retry(
+                request.method,
+                http,
+                f"/api/{path}",
+                identity.get_valid_token,
+                identity.refresh,
+                params=params,
+                content=body,
+                headers=headers,
+            )
+    except (httpx.ConnectError, httpx.TimeoutException) as e:
+        log.warning(f"Cloud unreachable at {cloud_url}: {e}")
+        raise CloudUnreachableError(
+            f"Can't reach the cloud server at {cloud_url}. Check your connection or "
+            "update the Cloud Server URL from the launcher."
         )
 
     response_headers = {k: v for k, v in r.headers.items() if k.lower() not in _STRIP_RESPONSE_HEADERS}
-    return Response(content=r.content, status_code=r.status_code, headers=response_headers,
-                    media_type=r.headers.get("content-type"))
+    return Response(
+        content=r.content, status_code=r.status_code, headers=response_headers, media_type=r.headers.get("content-type")
+    )

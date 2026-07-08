@@ -27,8 +27,7 @@ class AuthMixin:
                     s.add(role)
                     s.commit()
                 existing_role_perms = {
-                    rp.permission_key for rp in
-                    s.query(RolePermission).filter_by(role_id=role.id).all()
+                    rp.permission_key for rp in s.query(RolePermission).filter_by(role_id=role.id).all()
                 }
                 for perm_key in perm_keys:
                     if perm_key not in existing_role_perms:
@@ -37,9 +36,15 @@ class AuthMixin:
 
     # ── Users ─────────────────────────────────────────────────────────────────
 
-    def create_user(self, email: str, password: str, full_name: str | None = None,
-                    is_admin: bool = False, role_name: str | None = None,
-                    created_by: int | None = None) -> int:
+    def create_user(
+        self,
+        email: str,
+        password: str,
+        full_name: str | None = None,
+        is_admin: bool = False,
+        role_name: str | None = None,
+        created_by: int | None = None,
+    ) -> int:
         email = email.strip().lower()
         with self._Session() as s:
             role_id = None
@@ -47,8 +52,12 @@ class AuthMixin:
                 role = s.query(Role).filter_by(name=role_name).first()
                 role_id = role.id if role else None
             user = User(
-                email=email, password_hash=hash_password(password), full_name=full_name,
-                is_admin=is_admin, role_id=role_id, created_by=created_by,
+                email=email,
+                password_hash=hash_password(password),
+                full_name=full_name,
+                is_admin=is_admin,
+                role_id=role_id,
+                created_by=created_by,
             )
             s.add(user)
             s.commit()
@@ -72,10 +81,15 @@ class AuthMixin:
     @staticmethod
     def _user_to_dict(user: User) -> dict:
         return {
-            "id": user.id, "email": user.email, "full_name": user.full_name,
-            "is_active": user.is_active, "is_admin": user.is_admin,
-            "role_id": user.role_id, "token_version": user.token_version,
-            "failed_logins": user.failed_logins, "locked_until": user.locked_until,
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "is_active": user.is_active,
+            "is_admin": user.is_admin,
+            "role_id": user.role_id,
+            "token_version": user.token_version,
+            "failed_logins": user.failed_logins,
+            "locked_until": user.locked_until,
             "last_login_at": user.last_login_at,
         }
 
@@ -161,24 +175,37 @@ class AuthMixin:
             return role.name if role else None
 
     def list_roles(self) -> list[dict]:
+        """Includes each role's permission-key list — the admin dashboard's
+        read-only Roles view renders this against the full PERMISSIONS
+        catalog (there's no create/edit-role capability, only per-user
+        overrides on top of these fixed bundles)."""
         with self._Session() as s:
             roles = s.query(Role).all()
-            return [{"id": r.id, "name": r.name, "description": r.description,
-                    "is_system": r.is_system} for r in roles]
+            role_perms = {
+                role.id: sorted(p[0] for p in s.query(RolePermission.permission_key).filter_by(role_id=role.id).all())
+                for role in roles
+            }
+            return [
+                {
+                    "id": r.id,
+                    "name": r.name,
+                    "description": r.description,
+                    "is_system": r.is_system,
+                    "permissions": role_perms[r.id],
+                }
+                for r in roles
+            ]
 
     # ── Per-user permission overrides ────────────────────────────────────────
 
-    def set_user_permission_override(self, user_id: int, permission_key: str,
-                                     effect: str | None) -> bool:
+    def set_user_permission_override(self, user_id: int, permission_key: str, effect: str | None) -> bool:
         """`effect` is "grant"|"deny" to add/replace an override, or None to
         remove it (reverting to the role default). Returns False if the user
         doesn't exist."""
         with self._Session() as s:
             if not s.query(User.id).filter_by(id=user_id).first():
                 return False
-            existing = s.query(UserPermission).filter_by(
-                user_id=user_id, permission_key=permission_key
-            ).first()
+            existing = s.query(UserPermission).filter_by(user_id=user_id, permission_key=permission_key).first()
             if effect is None:
                 if existing:
                     s.delete(existing)
@@ -198,12 +225,21 @@ class AuthMixin:
 
     # ── Sessions (refresh tokens) ─────────────────────────────────────────────
 
-    def create_session(self, user_id: int, refresh_token_hash: str, expires_at: datetime.datetime,
-                       user_agent: str | None = None, ip: str | None = None) -> int:
+    def create_session(
+        self,
+        user_id: int,
+        refresh_token_hash: str,
+        expires_at: datetime.datetime,
+        user_agent: str | None = None,
+        ip: str | None = None,
+    ) -> int:
         with self._Session() as s:
             session = UserSession(
-                user_id=user_id, refresh_token_hash=refresh_token_hash,
-                user_agent=user_agent, ip=ip, expires_at=expires_at,
+                user_id=user_id,
+                refresh_token_hash=refresh_token_hash,
+                user_agent=user_agent,
+                ip=ip,
+                expires_at=expires_at,
             )
             s.add(session)
             s.commit()
@@ -215,8 +251,10 @@ class AuthMixin:
             if not session:
                 return None
             return {
-                "id": session.id, "user_id": session.user_id,
-                "expires_at": session.expires_at, "revoked_at": session.revoked_at,
+                "id": session.id,
+                "user_id": session.user_id,
+                "expires_at": session.expires_at,
+                "revoked_at": session.revoked_at,
             }
 
     def rotate_session(self, session_id: int, new_refresh_token_hash: str, new_expires_at: datetime.datetime):
@@ -245,19 +283,37 @@ class AuthMixin:
 
     # ── Audit ─────────────────────────────────────────────────────────────────
 
-    def write_audit(self, user_id: int | None, action: str, target_type: str | None = None,
-                    target_id: str | None = None, detail: dict | None = None, ip: str | None = None):
+    def write_audit(
+        self,
+        user_id: int | None,
+        action: str,
+        target_type: str | None = None,
+        target_id: str | None = None,
+        detail: dict | None = None,
+        ip: str | None = None,
+    ):
         with self._Session() as s:
-            s.add(AuditLog(
-                user_id=user_id, action=action, target_type=target_type,
-                target_id=str(target_id) if target_id is not None else None,
-                detail=json.dumps(detail) if detail else None, ip=ip,
-            ))
+            s.add(
+                AuditLog(
+                    user_id=user_id,
+                    action=action,
+                    target_type=target_type,
+                    target_id=str(target_id) if target_id is not None else None,
+                    detail=json.dumps(detail) if detail else None,
+                    ip=ip,
+                )
+            )
             s.commit()
 
-    def list_audit_log(self, user_id: int | None = None, action_prefix: str | None = None,
-                       date_from: datetime.datetime | None = None, date_to: datetime.datetime | None = None,
-                       page: int = 1, limit: int = 50) -> tuple[list[dict], int]:
+    def list_audit_log(
+        self,
+        user_id: int | None = None,
+        action_prefix: str | None = None,
+        date_from: datetime.datetime | None = None,
+        date_to: datetime.datetime | None = None,
+        page: int = 1,
+        limit: int = 50,
+    ) -> tuple[list[dict], int]:
         with self._Session() as s:
             q = s.query(AuditLog)
             if user_id is not None:
@@ -270,19 +326,23 @@ class AuthMixin:
                 q = q.filter(AuditLog.created_at <= date_to)
             total = q.count()
             rows = (
-                q.order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
-                .offset((page - 1) * limit).limit(limit).all()
+                q.order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).offset((page - 1) * limit).limit(limit).all()
             )
             emails = {
-                u.id: u.email for u in
-                s.query(User).filter(User.id.in_({r.user_id for r in rows if r.user_id is not None})).all()
+                u.id: u.email
+                for u in s.query(User).filter(User.id.in_({r.user_id for r in rows if r.user_id is not None})).all()
             }
             return [
                 {
-                    "id": r.id, "user_id": r.user_id, "user_email": emails.get(r.user_id),
-                    "action": r.action, "target_type": r.target_type, "target_id": r.target_id,
+                    "id": r.id,
+                    "user_id": r.user_id,
+                    "user_email": emails.get(r.user_id),
+                    "action": r.action,
+                    "target_type": r.target_type,
+                    "target_id": r.target_id,
                     "detail": json.loads(r.detail) if r.detail else None,
-                    "ip": r.ip, "created_at": r.created_at,
+                    "ip": r.ip,
+                    "created_at": r.created_at,
                 }
                 for r in rows
             ], total

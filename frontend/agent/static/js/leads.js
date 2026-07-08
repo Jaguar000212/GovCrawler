@@ -712,7 +712,7 @@ async function confirmExport() {
 
         if (!resp.ok) {
             if (resp.status === 404) {
-                alert('No leads matched your current filters to export.');
+                showToast('No leads matched your current filters to export.', {type: 'warning'});
                 return;
             }
             let errText = 'Unknown error';
@@ -727,7 +727,7 @@ async function confirmExport() {
 
         const blob = await resp.blob();
         if (blob.size === 0) {
-            alert('No leads matched your current filters to export.');
+            showToast('No leads matched your current filters to export.', {type: 'warning'});
             return;
         }
 
@@ -741,7 +741,7 @@ async function confirmExport() {
         window.URL.revokeObjectURL(url);
         closeExportModal();
     } catch (e) {
-        alert('Export failed: ' + e.message);
+        showToast('Export failed: ' + e.message, {type: 'error'});
     } finally {
         btn.textContent = '⬇ Export CSV';
         btn.disabled = false;
@@ -764,7 +764,7 @@ async function confirmImport() {
     const fileInput = document.getElementById('import-csv-file');
     const file = fileInput.files[0];
     if (!file) {
-        alert('Choose a CSV file first.');
+        showToast('Choose a CSV file first.', {type: 'warning'});
         return;
     }
 
@@ -883,12 +883,12 @@ async function submitCampaign() {
     const templateId = parseInt(document.getElementById('camp-template').value);
 
     if (!name || !templateId) {
-        alert("Please provide a name and select a template.");
+        showToast('Please provide a name and select a template.', {type: 'warning'});
         return;
     }
 
     if (selectedLeadIds.size === 0) {
-        alert("No leads selected.");
+        showToast('No leads selected.', {type: 'warning'});
         return;
     }
 
@@ -902,7 +902,7 @@ async function submitCampaign() {
         : Array.from(document.querySelectorAll('.camp-cred-checkbox:checked')).map(cb => parseInt(cb.value, 10));
 
     if (!isRoundRobin && credentialIds.length === 0) {
-        alert("Select at least one SMTP credential, or use round robin.");
+        showToast('Select at least one SMTP credential, or use round robin.', {type: 'warning'});
         btn.disabled = false;
         btn.textContent = "Generate Drafts";
         return;
@@ -928,10 +928,10 @@ async function submitCampaign() {
             window.location.href = `/campaigns?id=${data.campaign_id}`;
         } else {
             const err = await res.json();
-            alert("Failed to create campaign: " + err.detail);
+            showToast('Failed to create campaign: ' + err.detail, {type: 'error'});
         }
     } catch (e) {
-        alert("Network error.");
+        showToast("Can't reach the server — check your connection.", {type: 'error'});
     } finally {
         btn.disabled = false;
         btn.textContent = "Generate Drafts";

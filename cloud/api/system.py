@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, Response
 from sqlalchemy import text
 
 from . import campaigns as campaigns_module
-from .deps import get_db, require
+from .deps import get_config, get_db, require
 from ..db import Campaign, CampaignStatus, Database
 
 log = logging.getLogger(__name__)
@@ -54,9 +54,11 @@ def _get_admin_activity(db: Database) -> dict:
     dispatch genuinely still runs in this process (the dispatcher), so that
     half stays task-registry-backed."""
     crawl_jobs = [
-        {"id": j["id"],
-         "label": f"Job #{j['id']} ({j['crawled_domains']}/{j['total_domains']} domains, {j['leads_found']} leads)",
-         "agent_hostname": j["agent_hostname"]}
+        {
+            "id": j["id"],
+            "label": f"Job #{j['id']} ({j['crawled_domains']}/{j['total_domains']} domains, {j['leads_found']} leads)",
+            "agent_hostname": j["agent_hostname"],
+        }
         for j in db.get_running_jobs()
     ]
 
@@ -88,3 +90,24 @@ def _get_admin_activity(db: Database) -> dict:
 @router.get("/api/admin/activity", dependencies=[Depends(require("jobs.view_all"))])
 async def get_admin_activity(db: Database = Depends(get_db)):
     return _get_admin_activity(db)
+
+
+@router.get("/api/admin/system-status", dependencies=[Depends(require("jobs.view_all"))])
+async def get_system_status(db: Database = Depends(get_db), config: dict = Depends(get_config)):
+    """Backs the admin dashboard's System tab — the same DB check /healthz
+    does, plus config-derived dispatch mode and a summary of which agents
+    have ever run a job here. No new tables; everything is derived from
+    existing data (plan.md §19.1 UI overhaul)."""
+    try:
+        with db._Session() as s:
+            s.execute(text("SELECT 1"))
+        db_status = "ok"
+    except Exception:
+        log.error("System-status DB check failed", exc_info=True)
+        db_status = "db_unreachable"
+
+    return {
+        "db_status": db_status,
+        "dispatch_mode": config.get("dispatch", {}).get("mode", "embedded"),
+        "agents": db.get_agent_summary(),
+    }

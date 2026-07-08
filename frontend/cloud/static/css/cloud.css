@@ -1,0 +1,114 @@
+/* Cloud/admin-only chrome. Generic primitives (buttons, tables, modals,
+   badges, sidebar-tab nav) live in frontend/shared/static/css/components.css
+   — nothing in this file should be needed by the agent/crawler UI. */
+
+/* ── Admin header wordmark — visually distinct from the agent's plain logo
+   so it's unmistakable which tier of the app is open. ── */
+.admin-wordmark {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 6px;
+    margin-left: 2px;
+}
+
+.admin-card-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.admin-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    min-width: 220px;
+    font-size: 12px;
+}
+
+.admin-card h4 {
+    margin: 0 0 6px;
+    font-size: 13px;
+}
+
+.admin-card-meta {
+    color: var(--muted);
+    margin-top: 4px;
+}
+
+/* ── System/Health stat row ── */
+.health-stat-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.health-stat {
+    flex: 1;
+    min-width: 160px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+}
+
+.health-stat-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--small);
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+
+.health-stat-value {
+    font-size: 16px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* ── Roles view: permission grid per built-in role ── */
+.role-grid {
+    display: grid;
+    grid-template-columns: 1fr repeat(3, 90px);
+    gap: 0;
+    font-size: 12px;
+}
+
+.role-grid-header {
+    font-weight: 600;
+    color: var(--small);
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+}
+
+.role-grid-header:first-child {
+    text-align: left;
+}
+
+.role-grid-cell {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+}
+
+.role-grid-cell:first-child {
+    text-align: left;
+    color: var(--text);
+}
+
+.role-grid-check {
+    color: var(--green);
+    font-weight: 700;
+}

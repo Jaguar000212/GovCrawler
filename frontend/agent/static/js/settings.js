@@ -123,12 +123,12 @@ async function saveCredential() {
                 const testData = await testRes.json();
 
                 if (testData.success) {
-                    alert("✅ Credential saved and connection test successful!");
+                    showToast('Credential saved and connection test successful.', {type: 'success'});
                 } else {
-                    alert("⚠️ Credential saved, but connection test failed:\n" + testData.error);
+                    showToast('Credential saved, but the connection test failed: ' + testData.error, {type: 'warning'});
                 }
             } catch (e) {
-                alert("⚠️ Credential saved, but error occurred during testing.");
+                showToast('Credential saved, but an error occurred while testing it.', {type: 'warning'});
             } finally {
                 if (saveBtn) {
                     saveBtn.textContent = origText;
@@ -138,11 +138,12 @@ async function saveCredential() {
                 loadCredentials();
             }
         } else {
-            alert("Failed to save credential.");
+            const err = await res.json().catch(() => ({}));
+            showToast('Failed to save credential: ' + (err.detail || 'unknown error'), {type: 'error'});
         }
     } catch (e) {
         console.error(e);
-        alert("Network error saving credential.");
+        showToast("Can't reach the server — check your connection.", {type: 'error'});
     }
 }
 
@@ -161,12 +162,12 @@ async function testCredential(id, btn) {
         const res = await fetch(`/api/credentials/${id}/test`, {method: 'POST'});
         const data = await res.json();
         if (data.success) {
-            alert("✅ Connection successful!");
+            showToast('Connection successful.', {type: 'success'});
         } else {
-            alert("❌ Connection failed:\n" + data.error);
+            showToast('Connection failed: ' + data.error, {type: 'error'});
         }
     } catch (e) {
-        alert("❌ Error calling test endpoint.");
+        showToast("Can't reach the server — check your connection.", {type: 'error'});
     } finally {
         btn.textContent = origText;
         btn.disabled = false;
@@ -433,7 +434,7 @@ async function batchTestCredentials() {
 
     btn.textContent = origText;
     btn.disabled = false;
-    alert(`Batch Test Complete:\n✅ ${successes} Successful\n❌ ${fails} Failed`);
+    showToast(`Batch test complete — ${successes} successful, ${fails} failed.`, {type: fails > 0 ? 'warning' : 'success'});
     loadCredentials();
 }
 

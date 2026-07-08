@@ -37,8 +37,9 @@ GovCrawler/
 │   │   ├── admin.py           # /api/admin/users|roles|permissions + permission-override PUT (users.manage)
 │   │   ├── audit.py           # GET /api/admin/audit (audit.view — deliberately separate from users.manage)
 │   │   ├── coordination.py    # /api/coordination/* — the agent↔cloud contract; resume enforces agent_id match
-│   │   ├── frontend.py        # HTML page routes (Jinja2) + /api/logs (cloud's own server log)
-│   │   ├── system.py          # /healthz, /api/admin/activity (DB-backed crawl-job activity)
+│   │   ├── frontend.py        # HTML page routes (Jinja2) — admin-only (login/admin-dashboard/admin-guide) +
+│   │   │                      #   /api/logs (cloud's own server log)
+│   │   ├── system.py          # /healthz, /api/admin/activity, /api/admin/system-status (DB-backed)
 │   │   ├── config.py          # GET/POST /api/config — the crawl-policy "settings" router
 │   │   ├── domains.py         # catalog browse + PATCH a no-URL domain's URL
 │   │   ├── imports.py         # /api/import/json|/api/import|/api/import/status (single-flight)
@@ -68,19 +69,38 @@ GovCrawler/
 │   │                          #   Web Directory API calls inlined here — see GovScraper/ below)
 │   └── dispatch_service.py    # `python -m cloud.dispatch_service` — standalone (external) dispatcher
 │
-├── frontend/                   # SHARED UI — Jinja2 templates + vanilla JS/CSS. Operator pages are rendered
-│   │                          # by the agent (agent/bff/pages.py); the admin dashboard only by the cloud.
-│   ├── base.html               # layout + permission-gated nav (Admin link opens the cloud externally
-│   │                          #   when rendered by the agent, in-app when rendered by the cloud itself)
-│   ├── login.html
-│   ├── index.html              # domains browser + crawl job creation + live status
-│   ├── leads.html
-│   ├── campaigns.html
-│   ├── test-campaign.html
-│   ├── admin-dashboard.html    # /admin/dashboard (require jobs.view_all), cloud-only — users/permissions +
-│   │                          #   audit log panels, 3 s activity poll
-│   ├── user-guide.html
-│   └── static/{css,js,img}     # base + per-page assets; favicon
+├── frontend/                   # Three clearly-separated trees — no template/asset is ambiguous about which
+│   │                          # tier renders it (UI overhaul, see .docs/architecture.md#frontend).
+│   ├── shared/                 # Tier-agnostic: login page, design tokens, generic components, the shared
+│   │   ├── templates/          #   error/toast JS. Loaded by BOTH cloud and agent apps.
+│   │   │   └── login.html      # standalone (doesn't extend either tier's base.html); identical on both
+│   │   └── static/
+│   │       ├── css/            # tokens.css (CSS vars) + components.css (buttons/tables/modals/badges/…)
+│   │       ├── js/             # http.js (apiFetch/ApiError/friendlyMessage + CSRF patch), toast.js
+│   │       │                   #   (showToast/showApiError), login.js
+│   │       └── img/favicon.ico
+│   ├── agent/                   # The crawler+outreach UI — rendered only by agent/bff/pages.py
+│   │   ├── templates/
+│   │   │   ├── base.html        # layout + nav; the Admin nav button is an external-only link-out
+│   │   │   │                    #   ("Admin Portal ↗") to the cloud's own login, never rendered UI
+│   │   │   ├── index.html       # domains browser + crawl job creation + live status
+│   │   │   ├── leads.html
+│   │   │   ├── campaigns.html
+│   │   │   ├── settings.html    # crawler policy + outreach (SMTP/templates/blacklist) config
+│   │   │   ├── test-campaign.html
+│   │   │   └── user-guide.html
+│   │   └── static/
+│   │       ├── css/             # agent.css (dock/sidebar/config-drawer chrome) + leads/campaigns/settings.css
+│   │       └── js/              # base.js, leads.js, campaigns.js, settings.js, test-campaign.js
+│   └── cloud/                    # The admin-only UI — rendered only by cloud/api/frontend.py
+│       ├── templates/
+│       │   ├── base.html         # layout + nav (Admin Dashboard / Admin Guide / Logout) — no crawler links
+│       │   ├── admin-dashboard.html  # /admin/dashboard + / (require jobs.view_all) — sidebar-tab page:
+│       │   │                    #   Overview / Users / Roles (read-only) / Audit Log / System (health card)
+│       │   └── admin-guide.html  # short admin-only workflow doc
+│       └── static/
+│           ├── css/cloud.css    # admin-card-grid, health-stat cards, role-grid, admin wordmark
+│           └── js/admin-dashboard.js
 │
 ├── agent/                     # THE LOCAL APP (per machine) — crawler + standalone BFF + launcher.
 │   │                          # Zero cloud.* imports (import-linter enforced, both directions)

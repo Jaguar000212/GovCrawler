@@ -55,7 +55,7 @@ See [authentication.md](authentication.md) for the token model and permission ca
 | PATCH | `/api/admin/users/{id}` | Set `is_active` and/or `role` |
 | POST | `/api/admin/users/{id}/reset-password` | Set a new password |
 | PUT | `/api/admin/users/{id}/permissions/{key}` | Grant/deny/clear one permission override on top of the user's role (`{"effect": "grant"\|"deny"\|null}`) |
-| GET | `/api/admin/roles` | List roles |
+| GET | `/api/admin/roles` | List the 3 built-in roles, each with its resolved `permissions` list — read-only, no create/edit-role endpoint exists |
 | GET | `/api/admin/permissions` | The full permission catalog (key → description), for rendering the override grid |
 
 ## Audit log — `cloud/api/audit.py` (`require("audit.view")` — deliberately separate from `users.manage`)
@@ -176,21 +176,25 @@ cloud. See [resilience.md](resilience.md) for the durability guarantees.
 
 ## Frontend pages
 
-Rendered from the top-level `frontend/` directory. Operator pages are rendered by **the agent**
-(`agent/bff/pages.py`) — the browser never talks to the cloud directly for these. The admin dashboard is
-rendered only by **the cloud** (`cloud/api/frontend.py`) and is never mounted on the agent at all; an
-admin-capable operator reaches it via an external link (opens in a new tab, requiring its own login).
+Rendered from three structurally separate trees under `frontend/` — see
+[directory-structure.md](directory-structure.md) and [architecture.md](architecture.md#8-frontend--frontendsharedagentcloud).
+The crawler/outreach pages are rendered only by **the agent** (`agent/bff/pages.py`, from `frontend/agent/`)
+— the browser never talks to the cloud directly for these. The admin UI is rendered only by **the cloud**
+(`cloud/api/frontend.py`, from `frontend/cloud/`) and is never mounted on the agent at all; an admin-capable
+operator reaches it via an external link on the agent's dashboard (opens in a new tab, requiring its own
+login). `/login` is the one page genuinely identical on both tiers (`frontend/shared/templates/login.html`).
 
 | Path | Rendered by | Guard | Page |
 |------|-------------|-------|------|
-| `/login` | agent (+ cloud, for direct cloud access) | public | Login |
+| `/login` | agent + cloud (same template) | public | Login |
 | `/` | agent | local session | Dashboard (domains + job creation + status) |
 | `/leads` | agent | local session | Leads browser |
 | `/campaigns` | agent | local session | Campaigns |
 | `/test-campaign` | agent | local session | Test campaign |
-| `/settings` | agent | local session | Crawl-policy editor |
-| `/user-guide` | agent | local session | In-app guide |
-| `/admin/dashboard` | **cloud only** | `jobs.view_all` | Admin dashboard (3 s poll; users & permissions; audit log) |
+| `/settings` | agent | local session | Crawl-policy + outreach config editor |
+| `/user-guide` | agent | local session | In-app crawler/outreach guide |
+| `/` , `/admin/dashboard` | **cloud only** | `jobs.view_all` | Admin dashboard (3 s poll; Overview / Users & Permissions / Roles / Audit Log / System) |
+| `/user-guide` | **cloud only** | auth | Admin-only guide (a different template than the agent's) |
 
 ## System & health
 
@@ -198,6 +202,7 @@ admin-capable operator reaches it via an external link (opens in a new tab, requ
 |--------|------|-----------|-------|---------|
 | GET | `/healthz` | cloud | public | Liveness/readiness (`SELECT 1`; 503 if DB unreachable) |
 | GET | `/api/admin/activity` | cloud | `jobs.view_all` | Org-wide active jobs (DB-backed — `crawl_jobs.status`, not an in-process registry) + per-campaign dispatch stats + recently-finished tail |
+| GET | `/api/admin/system-status` | cloud | `jobs.view_all` | Backs the admin dashboard's System tab: DB reachability, configured `dispatch.mode`, and a per-`agent_id` job-count/last-active summary derived from `crawl_jobs` |
 | GET | `/api/system/activity` | **agent-local** | loopback + local session | This machine's own running crawl jobs (its local task registry — no campaign data, dispatch never runs here) |
 | POST | `/api/system/cancel-all` | **agent-local** | loopback + local session + CSRF | Emergency stop — cancels this machine's own running jobs directly and best-effort signals the cloud |
 | GET | `/api/logs` | **agent-local** | loopback + local session | This machine's own crawl log tail (last 1000 lines) — the VPS's server log is only visible from the cloud admin dashboard |
