@@ -42,7 +42,7 @@ class AppState(Enum):
     RUNNING = auto()
     CHECKING = auto()  # briefly asking the server "is anything active?"
     CANCELLING = auto()  # cancel-all issued, waiting for it to take effect
-    DRAINING = auto()  # waiting for active jobs/campaigns to actually stop
+    DRAINING = auto()  # waiting for active jobs to actually stop
     STOPPING = auto()  # uvicorn graceful shutdown in progress
 
 
@@ -113,7 +113,6 @@ class CrawlerLauncher:
         self._full_quit_requested = False
         self._drain_deadline: float | None = None
         self._prev_jobs: set[int] = set()
-        self._prev_campaigns: set[int] = set()
         self._access_token: str | None = None
         self._login_email: str | None = None
 
@@ -234,9 +233,20 @@ class CrawlerLauncher:
         return f"http://{display_host}:{self.config['api']['port']}"
 
     def _auth_headers(self) -> dict:
+        # Authorization is unused by the local BFF's own routes (they check
+        # the session cookie, not this header) but IS needed by proxied
+        # cloud calls. X-CSRF-Token mirrors what frontend/static/js/base.js's
+        # fetch-patch does for the browser — self.http never runs that JS, so
+        # without this every mutating local-BFF call (e.g. cancel-all) would
+        # 403 on verify_local_csrf despite already carrying the csrf cookie.
+        headers = {}
         if self._access_token:
-            return {"Authorization": f"Bearer {self._access_token}"}
-        return {}
+            headers["Authorization"] = f"Bearer {self._access_token}"
+        if self.http is not None:
+            csrf = self.http.cookies.get("csrf")
+            if csrf:
+                headers["X-CSRF-Token"] = csrf
+        return headers
 
     def _api_async(self, method: str, path: str, on_done, **kwargs):
         extra_headers = kwargs.pop("headers", {})
@@ -335,7 +345,7 @@ class CrawlerLauncher:
         self._render_state()
 
         self.http = httpx.Client(base_url=self._base_url())
-        self._prev_jobs, self._prev_campaigns = set(), set()
+        self._prev_jobs = set()
 
         if self.tray is None:
             self._setup_tray()
@@ -416,6 +426,15 @@ class CrawlerLauncher:
         keyring.set_password(_KEYRING_SERVICE, email, data["refresh_token"])
         identity.set_session(email, data["access_token"], self._cloud_base_url(),
                              permissions=data["user"]["permissions"], is_admin=data["user"]["is_admin"])
+        try:
+            # self.http is this launcher's OWN client for polling its local BFF
+            # (/api/system/activity, cancel-all) — it never went through the
+            # BFF's own /auth/login (login above hits the cloud directly), so
+            # without this it would never carry the local session cookie
+            # require_local_session checks for, and every poll would 401.
+            self.http.get("/local-bootstrap")
+        except Exception as e:
+            log.warning(f"Failed to seed local session cookie for launcher's own API client: {e}")
 
         self.state = AppState.RUNNING
         self._render_state()
@@ -451,35 +470,21 @@ class CrawlerLauncher:
         if n == 0:
             self.activity_lbl.config(text="No active jobs")
             return
-        parts = []
-        if data["crawl_jobs"]:
-            parts.append(f"{len(data['crawl_jobs'])} crawl job(s)")
-        if data["campaigns"]:
-            parts.append(f"{len(data['campaigns'])} campaign(s)")
-        self.activity_lbl.config(text=f"Active: {', '.join(parts)}")
+        self.activity_lbl.config(text=f"Active: {len(data['crawl_jobs'])} crawl job(s)")
 
     def _check_for_completions(self, data: dict):
         cur_jobs = {j["id"] for j in data["crawl_jobs"]}
-        cur_campaigns = {c["id"] for c in data["campaigns"]}
 
         for job_id in self._prev_jobs - cur_jobs:
             self._api_async("GET", f"/api/jobs/{job_id}",
                             lambda d, e, jid=job_id: self._notify_job_done(jid, d, e))
-        for cid in self._prev_campaigns - cur_campaigns:
-            self._api_async("GET", f"/api/campaigns/{cid}",
-                            lambda d, e, cid=cid: self._notify_campaign_done("Campaign", cid, d, e))
 
-        self._prev_jobs, self._prev_campaigns = cur_jobs, cur_campaigns
+        self._prev_jobs = cur_jobs
 
     def _notify_job_done(self, job_id: int, data, err):
         if err is not None or not data:
             return
         self._toast("GovCrawler", f"Crawl job #{job_id} {data['status']} — {data['leads_found']} leads found.")
-
-    def _notify_campaign_done(self, label: str, campaign_id: int, data, err):
-        if err is not None or not data:
-            return
-        self._toast("GovCrawler", f"{label} '{data['name']}' is now {data['status']}.")
 
     # --- ACTION: Safe shutdown ------------------------------------------------
 
@@ -509,14 +514,13 @@ class CrawlerLauncher:
         self._render_state()
 
         labels = [j["label"] for j in data["crawl_jobs"]]
-        labels += [f"Campaign: {c['name']}" for c in data["campaigns"]]
         preview = "\n".join(f"• {label}" for label in labels[:6])
         if len(labels) > 6:
             preview += f"\n… and {len(labels) - 6} more"
 
         proceed = messagebox.askyesno(
             "Active work in progress",
-            f"{data['total_active']} job(s)/campaign(s) are currently running:\n\n{preview}\n\n"
+            f"{data['total_active']} job(s) are currently running:\n\n{preview}\n\n"
             "Stop them and shut down the server?",
         )
         if proceed:
@@ -540,7 +544,7 @@ class CrawlerLauncher:
         self._drain_deadline = time.monotonic() + DRAIN_TIMEOUT_SECONDS
         self.state = AppState.DRAINING
         self._render_state()
-        self.status_detail_lbl.config(text="Stopping active job(s)… this can take up to ~90s for email campaigns.")
+        self.status_detail_lbl.config(text="Stopping active job(s)…")
         self._poll_drain()
 
     def _poll_drain(self):
@@ -560,8 +564,7 @@ class CrawlerLauncher:
         if time.monotonic() >= self._drain_deadline:
             proceed = messagebox.askyesno(
                 "Still stopping",
-                "Some jobs haven't stopped yet (a running email campaign can take up to 90s "
-                "between sends to notice it was cancelled).\n\nForce-stop the server anyway?",
+                "Some jobs haven't stopped yet.\n\nForce-stop the server anyway?",
             )
             if proceed:
                 self._begin_graceful_shutdown()
