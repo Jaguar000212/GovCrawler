@@ -4,10 +4,10 @@ See .docs/api-reference.md."""
 import asyncio
 import logging
 import tempfile
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, Request, UploadFile
 from pathlib import Path
 
-from .deps import CurrentUser, get_config as get_app_config, get_current_user, get_db, require
+from .deps import CurrentUser, client_ip, get_config as get_app_config, get_current_user, get_db, require
 from ..db import Database
 from ..services.importer import import_all, import_from_json, import_status
 
@@ -47,6 +47,7 @@ async def _run_import(db: Database, config: dict):
 
 @router.post("/api/import/json")
 async def trigger_json_import(
+        request: Request,
         file: UploadFile = File(...),
         db: Database = Depends(get_db),
         config: dict = Depends(get_app_config),
@@ -61,17 +62,20 @@ async def trigger_json_import(
     tmp.write(content)
     tmp.close()
     asyncio.create_task(_run_json_import(db, config, tmp.name, cleanup=True))
+    db.write_audit(user.id, "domain.import_json", detail={"filename": file.filename}, ip=client_ip(request))
     return {"message": f"JSON import started from {file.filename}"}
 
 
 @router.post("/api/import")
-async def trigger_import(db: Database = Depends(get_db), config: dict = Depends(get_app_config),
+async def trigger_import(request: Request, db: Database = Depends(get_db),
+                         config: dict = Depends(get_app_config),
                          user: CurrentUser = Depends(require("domains.import"))):
     """Import from live india.gov.in API — use only to refresh data."""
     if _import_lock.locked():
         return {"message": "Import already running", "status": import_status}
     await _import_lock.acquire()
     asyncio.create_task(_run_import(db, config))
+    db.write_audit(user.id, "domain.import_live", ip=client_ip(request))
     return {"message": "API import started"}
 
 

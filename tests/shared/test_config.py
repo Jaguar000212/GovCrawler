@@ -1,6 +1,6 @@
 """portal.main.load_config's env-override behavior — unverified by anything
 until now, despite several Phase 5/6 features depending on it (least-
-privilege DB role, VPS dispatcher split, cross-machine resume)."""
+privilege DB role, VPS dispatcher split)."""
 import portal.main as main
 
 
@@ -22,15 +22,3 @@ def test_dispatch_mode_env_override(monkeypatch):
     monkeypatch.setenv("DISPATCH_MODE", "external")
     config = main.load_config()
     assert config["dispatch"]["mode"] == "external"
-
-
-def test_cross_machine_resume_env_override(monkeypatch):
-    monkeypatch.setenv("CROSS_MACHINE_RESUME", "true")
-    config = main.load_config()
-    assert config["crawler"]["cross_machine_resume"] is True
-
-
-def test_cross_machine_resume_defaults_off(monkeypatch):
-    monkeypatch.delenv("CROSS_MACHINE_RESUME", raising=False)
-    config = main.load_config()
-    assert config["crawler"]["cross_machine_resume"] is False

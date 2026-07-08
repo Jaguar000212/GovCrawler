@@ -6,7 +6,6 @@ handlers pull it via Depends(...) instead of capturing it through closures —
 this lets each route module be imported and tested independently of app
 construction.
 """
-import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -19,9 +18,6 @@ from ..security.jwt import decode_token
 _db: Database | None = None
 _config: dict | None = None
 _config_path: Path | None = None
-_browser = None
-_playwright_instance = None
-_active_tasks: dict[int, asyncio.Task] = {}
 
 
 def decode_token_with_rotation(token: str, config: dict) -> dict | None:
@@ -52,14 +48,6 @@ def get_config() -> dict:
 
 def get_config_path() -> Path:
     return _config_path
-
-
-def get_browser():
-    return _browser
-
-
-def get_active_tasks() -> dict[int, asyncio.Task]:
-    return _active_tasks
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -142,13 +130,9 @@ def forbid_unless_owner(owner_id: int | None, user: CurrentUser, *, allow: str |
     raise HTTPException(status_code=403, detail="Insufficient permissions")
 
 
-_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
-
-
-def require_loopback(request: Request):
-    host = request.client.host if request.client else None
-    if host not in _LOOPBACK_HOSTS:
-        raise HTTPException(status_code=403, detail="This endpoint is only reachable from localhost")
+def client_ip(request: Request) -> str | None:
+    """Shared by every router that writes an audit_log row."""
+    return request.client.host if request.client else None
 
 
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}

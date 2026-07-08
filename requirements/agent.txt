@@ -4,14 +4,14 @@ beautifulsoup4>=4.12.0
 lxml>=5.1.0
 fastapi>=0.110.0
 uvicorn>=0.29.0
+jinja2>=3.1.6
 pystray>=0.19.5
 notify-py>=0.3.3
 sv-ttk>=2.6.0
 keyring>=24.3.0
 
-# agent/api.py still imports cloud.security.jwt + cloud.db.Database (the
-# flagged Phase-9 exception, plan.md §19.1) — until that split lands, an
-# agent-only install also needs the cloud stack's DB/JWT deps:
-sqlalchemy>=2.0.0
-psycopg2-binary>=2.9.0
-PyJWT>=2.8.0
+# The agent tier is genuinely crawler-free of the cloud stack as of plan.md
+# §19.1 Phase 9 Part 2 — zero cloud.* imports, enforced by the import-linter
+# CI contract (pyproject.toml). No SQLAlchemy/psycopg2/PyJWT/DB driver here:
+# the agent never opens the shared Postgres and never mints/verifies a JWT
+# itself, only carries the bearer token the cloud already issued.

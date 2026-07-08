@@ -2,7 +2,7 @@ from .base import Base
 from .database import Database
 from .enums import CampaignKind, CampaignStatus, EmailStatus
 from .tables.auth import AuditLog, Permission, Role, RolePermission, User, UserPermission, UserSession
-from .tables.crawl import CrawlJob, CrawlJobDomain, CrawlSnapshot, Domain, JobCustomUrl, JobFrontier, VisitedUrl
+from .tables.crawl import CrawlJob, CrawlJobDomain, CrawlSnapshot, Domain, JobCustomUrl
 from .tables.leads import Lead, LeadOccurrence
 from .tables.lookups import Category, OrgType
 from .tables.settings import AppSetting
@@ -12,7 +12,7 @@ from .tables.outreach import (
 
 __all__ = [
     "Base", "Database", "CampaignKind", "CampaignStatus", "EmailStatus",
-    "Domain", "CrawlJob", "CrawlJobDomain", "CrawlSnapshot", "JobCustomUrl", "JobFrontier", "VisitedUrl",
+    "Domain", "CrawlJob", "CrawlJobDomain", "CrawlSnapshot", "JobCustomUrl",
     "Lead", "LeadOccurrence",
     "Category", "OrgType", "AppSetting",
     "Campaign", "EmailTemplate", "SMTPCredential", "CampaignCredential", "CampaignEmail",

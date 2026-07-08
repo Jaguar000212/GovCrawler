@@ -11,40 +11,49 @@ The codebase is organized into three tiers plus a thin entry-point shim:
 | **Agent** | `agent/` | each operator's machine | the crawler engine + parser, a durable local outbox/frontier, the Tkinter launcher, and a local BFF that talks to the cloud |
 | **Entry shim** | `portal/` | both | `load_config()`, path resolution + first-run bootstrap, and the `python -m portal` CLI |
 
-> **Dependency direction:** `cloud → shared` and `agent → shared`, `agent → cloud` is now **zero**
-> (plan.md §19.1 Phase 9, Part 1) and enforced by an `import-linter` CI contract (`pyproject.toml`); the one
-> remaining `cloud → agent` direction (mounting `agent.api.router` + wiring `agent.state`) is documented
-> below. `shared/` imports neither tier.
+> **Dependency direction:** `cloud → shared` and `agent → shared`; `agent ⊥ cloud` — **zero** imports in
+> either direction (plan.md §19.1 Phase 9, both Parts complete) — enforced by two `import-linter` CI
+> contracts (`pyproject.toml`). `shared/` imports neither tier. `portal/` (the entry-point shim) is the one
+> place allowed to import both, since it's the composition root, not part of either tier's runtime.
 
 ---
 
 ## Deployment reality vs. target
 
-The **module split is complete** (`portal/` no longer contains any `api/`, `db/`, or `crawler/` code —
-those live under `cloud/` and `agent/`). The **process/deployment split is partial**, by design:
+Both are now the same thing — the module split *and* the process/deployment split are complete
+(plan.md §19.1 Phase 9, Parts 1 and 2):
 
-- **Cloud, containerized:** `deploy/docker-compose.yml` runs Postgres, a one-shot Alembic `migrate`
-  service, the FastAPI `api`, a standalone `dispatcher`, and a Caddy TLS `proxy`. This is the recommended
-  production path.
-- **Desktop, single process:** `run.py` launches the Tkinter launcher, which starts **one** Uvicorn
-  process hosting the cloud FastAPI app *and* the agent's crawl routes, and self-calls its own coordination
-  API over loopback. The crawler is not yet a physically separate process/port — `agent/launcher/app.py`
-  is the one place left that still constructs `cloud.db.Database`/`cloud.api.server.create_app` directly
-  (it's the process entrypoint responsible for standing up the combined app; explicitly exempted in the
-  import-linter contract, not an oversight). `agent/api.py` itself, though, has **zero** `cloud.*` imports
-  as of Phase 9 Part 1: its job-lifecycle routes authenticate coordination calls as the operator's own
-  standing session (`agent/identity.py` — a self-refreshing token via `/auth/refresh` + the OS keyring,
-  the same mechanism the launcher already used for its own polling) rather than minting a JWT via direct
-  DB access, and read config/browser/active-task state from `agent/state.py` (agent-owned) instead of
-  `cloud.api.deps`. The `crawl.run` permission check moved from the local route to
-  `cloud/api/coordination.py` accordingly — it's now the one place that checks it, not a defense-in-depth
-  duplicate. See [resilience.md](resilience.md) for why a self-refreshing token matters (a crawl reliably
-  outlives one access token's TTL). Part 2 — an agent that's a genuinely separate OS process, reachable
-  over a real network (not just loopback), proxying the *rest* of the operator UI's data calls to a remote
-  cloud — is planned but not started (plan.md §19.1).
+- **Cloud, containerized, crawler-free:** `deploy/docker-compose.yml` runs Postgres, a one-shot Alembic
+  `migrate` service, the FastAPI `api` (a plain `python:3.11-slim` image — no Playwright, no Chromium, no
+  `agent/` code), a standalone `dispatcher`, and a Caddy TLS `proxy`. `cloud/api/server.py` never imports
+  `agent.*` and never touches Playwright; its lifespan only owns the stale-job reaper and stuck-`SENDING`
+  recovery.
+- **Agent, standalone, per operator machine:** `run.py` launches the Tkinter launcher
+  (`agent/launcher/app.py`), which now boots its own **local BFF** (`agent/bff/app.py`) — a completely
+  separate FastAPI app from the cloud's, bound to loopback. It owns Playwright/the crawl browser directly
+  (moved out of the cloud process for good), renders the operator's pages itself
+  (`agent/bff/pages.py`, verbatim reuse of the shared `frontend/` templates), proxies every shared-data API
+  call to the configured `cloud_api_base_url` (`agent/bff/proxy.py`, one generic reverse-proxy handler, not
+  ~15 hand-written pass-throughs), and runs the crawl engine as an `asyncio.Task` in-process
+  (`agent/api.py`'s job-lifecycle routes). The operator's browser only ever talks to this local origin —
+  the real bearer token never reaches it, only a local `session`/`csrf` cookie pair
+  (`agent/bff/security.py`). The Tkinter launcher itself is the sole authenticator: it logs in directly
+  against the cloud (`agent/identity.py` — a self-refreshing token via `/auth/refresh` + the OS keyring)
+  and hands the browser a ready-made session via `GET /local-bootstrap`, replacing the old same-process
+  `/auth/bootstrap?token=` hand-off. `agent/localdb.py` holds this machine's own settings
+  (`cloud_api_base_url`, a durable `agent_id`) and its own visited-URL recrawl-protection history — 100%
+  local, never synced to the cloud (see [resilience.md](resilience.md)). The admin dashboard is
+  deliberately **not** rendered by the agent at all — an admin-capable operator gets an external link that
+  opens the cloud's own `/admin/dashboard` in a new tab, requiring its own separate login.
 - **Dispatcher, independently deployable:** `dispatch.mode` (`embedded` vs `external`) decides whether the
   API process runs the SMTP send loop in-process or leaves it to the standalone `cloud/dispatch_service.py`.
-  See [outreach.md](outreach.md#dispatch-modes).
+  Unaffected by the agent/cloud split — dispatch always ran cloud-side only. See
+  [outreach.md](outreach.md#dispatch-modes).
+
+A crawl job may only ever be **resumed by the agent that started it** — `crawl_jobs.agent_hostname` stores
+that agent's durable `agent_id`, and `cloud/api/coordination.py`'s resume route rejects any other agent
+unconditionally (there is no frontier/visited data anywhere else to resume from). Jobs themselves stay
+centrally recorded in the cloud DB for admin visibility; only the resume *action* is agent-exclusive.
 
 ---
 
@@ -57,30 +66,36 @@ RBAC-checked HTTP API. A leaked agent cannot bypass a permission with raw SQL, a
 exposed to the internet.
 
 ```
-┌──────────────── Operator machine (per user) ────────────────┐
-│  Tkinter launcher (agent/launcher) — login + start/stop      │
-│      │ starts Uvicorn on a daemon thread                     │
-│      ▼                                                        │
-│  FastAPI app (cloud.api.server.create_app)                   │
-│   ├─ cloud routers (auth, leads, campaigns, admin, …)        │
-│   ├─ agent routes  (agent/api.py: create/resume/cancel job)  │
-│   └─ CrawlerEngine (agent/crawler) as an asyncio.Task        │
-│  Local SQLite (agent/local_store) — outbox + frontier only   │
-│  OS keyring — refresh token + last email                     │
-└───────────────────────────────┬──────────────────────────────┘
-                                 │ HTTPS + Bearer JWT (httpx)
+┌────── Operator machine (per user, N concurrent) ─────────────┐
+│  Browser ──(loopback only, local session cookie)──┐           │
+│                                                     ▼           │
+│  Tkinter launcher (agent/launcher) — login + start/stop        │
+│      │ boots                                                   │
+│      ▼                                                          │
+│  agent.bff.app — a standalone FastAPI app (NOT the cloud's)    │
+│   ├─ pages.py    — renders frontend/ templates itself          │
+│   ├─ proxy.py    — one generic reverse-proxy for shared data   │
+│   ├─ local_auth / local_system — this machine's own concerns   │
+│   ├─ agent/api.py (job create/resume/cancel)                   │
+│   └─ CrawlerEngine (agent/crawler) as an asyncio.Task           │
+│  Local SQLite: agent/localdb.py (settings, agent_id, visited    │
+│    history) + agent/local_store.py (outbox + frontier)         │
+│  OS keyring — refresh token + last email                       │
+└───────────────────────────────┬────────────────────────────────┘
+                                 │ HTTPS + Bearer JWT (httpx, server-side only —
+                                 │ the browser never holds this token)
                                  ▼
-┌──────────────────────────── VPS (cloud) ─────────────────────┐
-│  Caddy — TLS (Let's Encrypt); :443 the only public port      │
-│      ▼                                                        │
-│  Cloud API (FastAPI + Uvicorn)                               │
-│   ├─ Auth / RBAC / ownership scoping / audit                 │
-│   ├─ All shared-data endpoints                               │
-│   └─ Agent-coordination endpoints (/api/coordination/*)      │
-│  Dispatcher (cloud.dispatch_service) — SMTP send + pacing    │
-│      ▼                                                        │
-│  Postgres (127.0.0.1) — shared data + users/roles/audit      │
-└───────────────────────────────────────────────────────────────┘
+┌──────────────────────────── VPS (cloud) ──────────────────────┐
+│  Caddy — TLS (Let's Encrypt); :443 the only public port        │
+│      ▼                                                          │
+│  Cloud API (FastAPI + Uvicorn) — crawler-free, no Playwright   │
+│   ├─ Auth / RBAC / ownership scoping / audit                   │
+│   ├─ All shared-data endpoints + the admin dashboard            │
+│   └─ Agent-coordination endpoints (/api/coordination/*)        │
+│  Dispatcher (cloud.dispatch_service) — SMTP send + pacing      │
+│      ▼                                                          │
+│  Postgres (127.0.0.1) — shared data + users/roles/audit         │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 See [authentication.md](authentication.md) for the auth/RBAC internals and [deployment.md](deployment.md)
@@ -92,17 +107,21 @@ for the container topology.
 
 | Data | Location |
 |------|----------|
-| users, roles, permissions, sessions, audit log | **Cloud** (Postgres, or SQLite in desktop/dev) |
-| categories, org_types, domains, crawl_jobs, snapshots, job_custom_urls, job_frontiers | **Cloud** |
-| leads, lead_occurrences, visited_urls (shared pool) | **Cloud** |
+| users, roles, permissions (+ per-user overrides), sessions, audit log | **Cloud** (Postgres, or SQLite in desktop/dev) |
+| categories, org_types, domains, crawl_jobs, snapshots, job_custom_urls | **Cloud** |
+| leads, lead_occurrences (shared pool) | **Cloud** |
 | campaigns, campaign_emails, credentials, templates, blacklist | **Cloud** |
-| per-machine outbox + frontier checkpoint | **Local SQLite** (`agent/local_store.py`) |
+| this machine's settings (`cloud_api_base_url`, `agent_id`) + visited-URL recrawl history | **Local SQLite** (`agent/localdb.py`) |
+| per-job outbox + frontier checkpoint | **Local SQLite** (`agent/local_store.py`) |
 | refresh token + last-login email | **OS keyring** |
 
-The cloud DB is one SQLAlchemy database (`cloud.db.Database`, composed from seven mixins). It runs on
-**Postgres** in production and **SQLite** for desktop/dev — `database.uri` picks which. The local store is
-plain `sqlite3` (deliberately not SQLAlchemy/Alembic) because it is a disposable per-machine resilience
-buffer, not part of the shared schema. See [database-schema.md](database-schema.md).
+The cloud DB is one SQLAlchemy database (`cloud.db.Database`, composed from several mixins). It runs on
+**Postgres** in production and **SQLite** for desktop/dev — `database.uri` picks which. Neither local store
+uses SQLAlchemy/Alembic (both are plain `sqlite3` with a `PRAGMA user_version` stepper where one is needed)
+because they hold per-machine data, not shared schema — and, as of plan.md §19.1 Phase 9 Part 2, **nothing
+in them is ever synced to the cloud**: visited-URL history and frontier checkpoints are this machine's
+business alone, unlike leads (the only thing that flows outward) and job records (created/read centrally,
+but never containing another agent's crawl state). See [database-schema.md](database-schema.md).
 
 ---
 
@@ -116,10 +135,17 @@ argv sentinel that installs Chromium via a subprocess, no-console stdio guard). 
 is `CrawlerLauncher`, an explicit `AppState` state machine (`IDLE → STARTING → RUNNING → CHECKING →
 CANCELLING → DRAINING → STOPPING`) that:
 
-- starts/stops Uvicorn on a daemon thread (so Tkinter's mainloop stays responsive);
-- shows a **login dialog**, authenticates against `/auth/login`, and stores the refresh token in the OS
-  **keyring** (access token in memory); auto-refreshes on 401;
-- polls `GET /api/system/activity` every 1.5 s and toasts on job/campaign completion;
+- on first run, prompts for the **cloud server URL** (`agent/localdb.py`'s `cloud_api_base_url` — a
+  one-time-per-machine setup step, not a recurring flow);
+- starts/stops its own standalone `agent.bff.app` on a daemon thread (so Tkinter's mainloop stays
+  responsive);
+- shows a **login dialog**, authenticates directly against the cloud's `/auth/login` (not its own local
+  server), and stores the refresh token in the OS **keyring** (access token in memory + `agent/identity.py`);
+  auto-refreshes on 401 against the cloud directly too;
+- polls its own local `GET /api/system/activity` every 1.5 s and toasts on job completion (campaign
+  activity isn't polled here — dispatch never runs on the agent);
+- opens the browser via the agent's own `GET /local-bootstrap` (a local session cookie hand-off, replacing
+  the old same-process `/auth/bootstrap?token=`);
 - on stop, runs a **confirm → cancel-all → drain** shutdown (up to a 180 s deadline) before killing Uvicorn.
 
 `tray.py` runs a `pystray` icon on its own thread; `notifications.py` wraps cross-platform `notifypy`
@@ -130,22 +156,44 @@ browser UI.
 
 ### 2. Cloud API — `cloud/api/`
 
-A FastAPI app built by `create_app(config, db)` in `cloud/api/server.py`. It mounts ~15 routers, sets up a
-lifespan that owns the shared Playwright browser and a background **stale-job reaper**, configures CORS
-(only if `auth.admin_origin` is set) and double-submit CSRF, and serves the Jinja2 browser UI from the
-top-level `frontend/` directory. Every `/api/*` router carries `get_current_user` + `verify_csrf`; mutating routes add a
-`require(<permission>)` dependency and write an audit-log row. See [api-reference.md](api-reference.md).
+A FastAPI app built by `create_app(config, db)` in `cloud/api/server.py`. It mounts ~17 routers and a
+background **stale-job reaper** + stuck-`SENDING` recovery lifespan, configures CORS (only if
+`auth.admin_origin` is set) and double-submit CSRF, and serves the Jinja2 browser UI (including the admin
+dashboard) from the top-level `frontend/` directory. It never imports `agent.*` and never touches
+Playwright — the crawler is entirely the agent's concern. Every `/api/*` router carries `get_current_user`
++ `verify_csrf`; mutating routes add a `require(<permission>)` dependency and write an audit-log row. See
+[api-reference.md](api-reference.md).
 
-### 3. Crawler engine — `agent/crawler/engine.py`
+### 3. Agent local BFF — `agent/bff/`
 
-`CrawlerEngine` runs as an `asyncio.Task` on the Uvicorn event loop. Worker coroutines consume from an
+A second, completely independent FastAPI app (`agent/bff/app.py`), bound to loopback, that the launcher
+boots instead of the cloud's. Owns Playwright/the crawl browser (its own lifespan starts/stops Chromium).
+Composed of: `pages.py` (renders the shared `frontend/` templates locally — zero `cloud.*` import, the
+directory is a top-level sibling asset tree), `proxy.py` (one generic reverse-proxy for every shared-data
+route: domains/leads/campaigns/templates/credentials/blacklist/imports/config/read-only jobs — forwards to
+`cloud_api_base_url` with the operator's bearer token, built on the same retry-on-401-then-refresh helper
+`agent/cloud_client.py` uses for coordination calls), `local_auth.py` (the browser's own local
+`session`/`csrf` cookie pair — never the real bearer token — plus a straight `/auth/login` relay so
+`frontend/login.html` keeps working unmodified if the operator ever lands there directly), and
+`local_system.py` (this machine's own `/api/system/activity` + `/api/system/cancel-all` + `/api/logs`,
+reading `agent/state.py`'s local task registry — there is nothing else to read, since the cloud process no
+longer runs any crawl engine). `security.py` is the floor under all of it: `require_loopback` (checks the
+actual peer address, not just the bind host), `require_local_session` + `verify_local_csrf` (double-submit
+CSRF **and** a trusted-`Host`-header check, defending against DNS-rebinding against this loopback service).
+`agent/api.py`'s job-lifecycle routes (create/resume/cancel) mount into this same app, behind the same
+guards.
+
+### 4. Crawler engine — `agent/crawler/engine.py`
+
+`CrawlerEngine` runs as an `asyncio.Task` on the agent BFF's event loop. Worker coroutines consume from an
 `asyncio.PriorityQueue`; HTML parsing runs on a `parse_pool` (`ThreadPoolExecutor`, `cpu_count` threads) and
 all persistence runs on a single-thread `db_pool`. Fetching is **HTTPX-first, Playwright-fallback**. Leads
-and visited URLs are written to the durable local **outbox** (never straight to the cloud), which an async
-flusher drains to the coordination API. A frontier checkpoint is saved every 5 s for exact resume. See
-[crawler.md](crawler.md) and [resilience.md](resilience.md).
+are written to the durable local **outbox** (never straight to the cloud), which an async flusher drains to
+the coordination API. Visited URLs go straight into `agent/localdb.py`'s local-only history (never
+outboxed/synced anywhere — recrawl protection is this machine's business alone). A frontier checkpoint is
+saved every 5 s for exact resume, 100% local. See [crawler.md](crawler.md) and [resilience.md](resilience.md).
 
-### 4. SMTP dispatcher — `cloud/api/dispatcher.py` + `cloud/dispatch_service.py`
+### 5. SMTP dispatcher — `cloud/api/dispatcher.py` + `cloud/dispatch_service.py`
 
 `run_campaign_dispatch()` is an async loop that claims `QUEUED` emails one at a time (atomically flipping
 them to `SENDING` for at-most-once recovery), paces sends per SMTP credential, rotates round-robin over the
@@ -153,7 +201,7 @@ campaign's credential pool, and auto-blacklists hard bounces. In `embedded` mode
 `external` mode the standalone `cloud/dispatch_service.py` polls for `RUNNING` campaigns and runs it instead.
 See [outreach.md](outreach.md).
 
-### 5. Lead scoring — `shared/scoring.py`
+### 6. Lead scoring — `shared/scoring.py`
 
 A pure function, `compute_lead_score()`, called wherever a lead is written or edited. Produces a 0–100 score
 from email confidence band plus the presence of name/designation/phone, weighted by `lead_score.weights`
@@ -162,7 +210,7 @@ from email confidence band plus the presence of name/designation/phone, weighted
 `POST /api/config` (background task, not on every startup), so the change applies retroactively without a
 restart. See [configuration.md](configuration.md#lead-scoring).
 
-### 6. Domain discovery — `GovScraper/` + `cloud/services/importer.py`
+### 7. Domain discovery — `GovScraper/` + `cloud/services/importer.py`
 
 `GovScraper/` is a standalone dev-time CLI that reads the `india.gov.in` Web Directory API (no browser, no
 CAPTCHA) and emits `gov_domains.json`; it has no runtime dependency on `cloud`/`agent`/`shared`.
@@ -174,22 +222,22 @@ as "not crawlable" rather than dropping them.
 
 ## Async / threading model
 
-```
-Uvicorn event loop (main thread)
-  ├── FastAPI request handlers
-  ├── CrawlerEngine worker coroutines (× workers)
-  ├── CrawlerEngine _reporter (heartbeat every 2 s) + _checkpoint_loop (every 5 s)
-  ├── CloudApiClient outbox flush loop
-  └── SMTP dispatcher coroutine (embedded mode) + reaper loop
+There are now two separate event loops in two separate processes — the cloud's and each agent's — each
+with its own version of this model:
 
-ThreadPoolExecutor: db_pool   (1 thread)      ← serialized local persistence / checkpoints
-ThreadPoolExecutor: parse_pool (cpu_count)    ← BeautifulSoup parsing off the loop
-asyncio.to_thread                              ← blocking domain imports
+```
+Cloud event loop (main thread)                    Agent BFF event loop (main thread, per machine)
+  ├── FastAPI request handlers                       ├── FastAPI request handlers (pages/proxy/local_*)
+  ├── reap loop (stale jobs, every 60 s)              ├── CrawlerEngine worker coroutines (× workers)
+  └── SMTP dispatcher coroutine (embedded mode)       ├── CrawlerEngine _reporter (2 s) + _checkpoint_loop (5 s)
+                                                       └── CloudApiClient outbox flush loop (leads only)
+
+                                                     ThreadPoolExecutor: db_pool (1 thread) ← local persistence
+                                                     ThreadPoolExecutor: parse_pool (cpu_count) ← parsing off the loop
 ```
 
 **Never call blocking I/O directly in an `async` function on the event loop.** Use `asyncio.to_thread()`
-for one-offs or submit to the appropriate executor. The one place a *synchronous* HTTP call is allowed is
-`CloudApiClient.save_frontier`'s optional cloud upload — it runs on the `db_pool` thread, not the loop.
+for one-offs or submit to the appropriate executor.
 
 ---
 
@@ -198,18 +246,24 @@ for one-offs or submit to the appropriate executor. The one place a *synchronous
 ### Crawl job
 
 ```
-Browser → POST /api/jobs (agent/api.py, require crawl.run)
-  → create_remote_job → POST /api/coordination/jobs (cloud)
-      cloud: create crawl_jobs row, freeze each seed into crawl_snapshots,
-             compute seed-scoped visited_bootstrap, load policy
-      → {job_id, seeds, policy, visited_bootstrap}
-  → CrawlerEngine.run(seeds)  [asyncio.Task on the loop]
+Browser → POST /api/jobs (agent/bff, loopback + local session + CSRF)
+  → create_remote_job → POST /api/coordination/jobs (cloud, over the network)
+      cloud: create crawl_jobs row (stamped with this agent's agent_id),
+             freeze each seed into crawl_snapshots, load policy
+      → {job_id, seeds, policy}
+  agent: compute visited_bootstrap LOCALLY (agent/localdb.py's own recrawl
+         history, minus this job's seed domains) — never asks the cloud
+  → CrawlerEngine.run(seeds, visited_bootstrap)  [asyncio.Task on the agent's loop]
       worker: fetch (httpx → playwright fallback) → parse (parse_pool)
-              → leads/visited → local OUTBOX (db_pool)
-      flusher: OUTBOX → POST /api/coordination/jobs/{id}/leads|visited (idempotent enrich-dedup)
+              → leads → local OUTBOX (db_pool) · visited URL → agent/localdb.py directly (never outboxed)
+      flusher: OUTBOX → POST /api/coordination/jobs/{id}/leads (idempotent enrich-dedup)
       reporter: POST /api/coordination/jobs/{id}/heartbeat every 2 s → {cancel_requested}
-      checkpoint: frontier snapshot every 5 s (local; + cloud if cross_machine_resume)
+      checkpoint: frontier snapshot every 5 s — 100% local, never uploaded
   → drain outbox → POST /api/coordination/jobs/{id}/finish
+
+Resume (same agent only): POST /api/jobs/{id}/resume → resume_remote_job sends this
+  agent's agent_id → cloud rejects with 403 if a different agent already owns the job
+  → local frontier reloaded from agent/local_store.py → CrawlerEngine.run(seeds, frontier=...)
 ```
 
 ### Campaign dispatch
@@ -240,10 +294,14 @@ Browser/CLI → POST /api/import/json (upload) or /api/import (live API)   [requ
 ### Login
 
 ```
-Launcher/browser → POST /auth/login
+Launcher → POST {cloud_api_base_url}/auth/login (directly against the cloud, not the local BFF)
   verify argon2id, check is_active/locked_until → issue access JWT (~15 min) + refresh token (~14 d, hashed in user_sessions)
-  browser: httpOnly Secure SameSite cookies + CSRF cookie · launcher: Bearer token, refresh in keyring
+  launcher: Bearer token cached in agent/identity.py, refresh token in OS keyring
   audit user.login
+Launcher → GET {agent_base_url}/local-bootstrap (loopback)
+  hands the browser a local session + csrf cookie pair — the real bearer token never reaches it
+Browser (fallback, if it ever lands on /login directly) → POST {agent_base_url}/auth/login
+  agent/bff/local_auth.py relays to the cloud's real /auth/login, same effect as above
 ```
 
 See [authentication.md](authentication.md) for refresh rotation, reuse detection, and revocation.
@@ -256,7 +314,8 @@ See [authentication.md](authentication.md) for refresh rotation, reuse detection
 |----------|-----------|
 | One trust boundary (the API), Postgres loopback-only | RBAC is meaningless if clients hold DB connection strings; the API is the only place permissions/ownership can be enforced |
 | Durable local outbox as the primary write path | A cloud blip or crash never loses an extracted lead; idempotent cloud writes make at-least-once retry safe |
-| Frontier checkpoint every 5 s | Interrupted crawls resume exactly from a checkpoint, not from a full re-crawl of seeds |
+| Frontier checkpoint every 5 s, 100% local, no cloud copy | Interrupted crawls resume exactly from a checkpoint, not a full re-crawl — and since a job can only be resumed by the agent that started it, there's nothing to gain from a cloud-side copy |
+| Visited-URL recrawl history is per-agent, not shared | Simpler and more honest than a shared table implied cross-agent coordination that never actually existed at job-execution granularity; the tradeoff (two agents might both re-crawl a recently-visited domain) is accepted |
 | Heartbeat + stale-job reaper | A silent agent is reaped to `interrupted` (resumable), never left as a phantom `running`; late heartbeats revive it non-destructively |
 | At-most-once send (`SENDING` claim before the SMTP call) | A crash mid-send is reconciled as `failed` for manual review, never blindly re-sent — double-mailing officials wrecks sender reputation |
 | Global `UNIQUE(email)` leads with enrich-on-conflict + `lead_occurrences` | One shared lead pool deduped by email, but per-job attribution and truthful per-job counts survive dedup |

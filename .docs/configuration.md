@@ -27,7 +27,6 @@ know or care.
 | `DATABASE_URL` | `database.uri` | Used only if `DATABASE_URL_APP` is unset; the `migrate` service uses this (DDL rights) |
 | `DISPATCH_MODE` | `dispatch.mode` | `embedded` (desktop/dev) or `external` (VPS dispatcher) |
 | `ADMIN_ORIGIN` | `auth.admin_origin` | Enables CORS for a separate admin origin |
-| `CROSS_MACHINE_RESUME` | `crawler.cross_machine_resume` | `1`/`true`/`yes` → true |
 | `JWT_SECRET` / `JWT_SECRET_PREV` | `auth.jwt_secret` / `..._prev` | Rotation grace period |
 | `CREDENTIAL_ENC_KEY` / `..._PREV` | `auth.credential_enc_key` / `..._prev` | Fernet key + rotation |
 
@@ -60,7 +59,6 @@ Secrets follow an env-first-else-persist rule: if the env var is set it wins (an
 |-----|---------|---------|
 | `workers` | 10 | Concurrent async workers |
 | `httpx_first` / `playwright_fallback` | true / false | Fetch strategy toggles |
-| `cross_machine_resume` | false | Persist the frontier to the cloud for resume on another machine |
 | `httpx_timeout` | connect 10 / read 30 | httpx timeouts (s) |
 | `playwright_timeout` / `js_settle_time` | 45 / 3.0 | Playwright nav timeout (s) / settle wait (s) |
 | `per_url_timeout` | 100 | Per-page stall killer (s) |
@@ -111,6 +109,22 @@ each field to its backend — machine-local keys to `config.yaml`, policy keys t
 `Database.set_app_setting()`. Read-only display fields (regex, obfuscation map, user agent,
 pagination text/param signals) are shown but not editable there — change them via a direct
 `db.set_app_setting("crawl_policy", ...)` call.
+
+## Agent-side configuration (`agent/localdb.py`)
+
+The same bootstrap-file-vs-DB split the cloud tier has, mirrored on the agent side (plan.md §19.1 Phase 9
+Part 2, 2.1): `portal/config.yaml` stays bootstrap-only (data dir, log path — whatever must exist before any
+DB can be opened); everything operational moves to `agent/localdb.py`'s `local_settings` table, a plain
+`sqlite3` key/value store at `portal/data/agent_local.db`:
+
+| Key | Set by | Meaning |
+|-----|--------|---------|
+| `cloud_api_base_url` | Launcher's first-run "Cloud Server URL" prompt | The VPS this agent talks to for everything — auth, proxied shared-data calls, coordination |
+| `agent_id` | Minted once on first run (`agent/localdb.get_agent_id()`) | A durable UUID (never a real hostname) stamped onto `crawl_jobs.agent_hostname` at job creation; the only agent allowed to resume that job |
+
+`agent/localdb.py` also holds `visited_history` — this machine's own visited-URL recrawl-protection data,
+consulted against the shared `crawler.recrawl_days` policy value but never uploaded anywhere. See
+[database-schema.md](database-schema.md#local-stores-agent-per-machine).
 
 ## PostgreSQL / production
 

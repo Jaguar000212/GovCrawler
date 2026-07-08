@@ -7,9 +7,12 @@ resumable state.
 
 ## Durable outbox — `agent/local_store.py`
 
-Leads and visited URLs are written to a per-job SQLite outbox (`PRAGMA synchronous=FULL`, so a queued row
-survives power loss, not just a clean crash), never straight to the cloud. `CloudApiClient`'s async flusher
-drains oldest-first, batching by kind (up to 100 rows), and deletes rows only on a successful ack:
+Leads are written to a per-job SQLite outbox (`PRAGMA synchronous=FULL`, so a queued row survives power
+loss, not just a clean crash), never straight to the cloud. `CloudApiClient`'s async flusher drains
+oldest-first (up to 100 rows at a time), and deletes rows only on a successful ack. (Visited URLs used to go
+through this same outbox too — as of plan.md §19.1 Phase 9 Part 2 they're written directly to
+`agent/localdb.py`'s local-only `visited_history` table instead, since they're never sent to the cloud at
+all anymore — nothing to buffer-for-upload.)
 
 - **Retry with backoff** — a failed batch increments per-row `attempts` and sleeps before retry.
 - **Dead-letter** — a row that fails `MAX_ATTEMPTS` (8) times moves to `outbox_dead` and is logged, so one
@@ -21,35 +24,28 @@ drains oldest-first, batching by kind (up to 100 rows), and deletes rows only on
 
 ## Idempotent cloud writes
 
-The coordination endpoints are safe to retry:
-
-- **Leads** — global `UNIQUE(email)` with **enrich-on-conflict**: a re-delivered or duplicate lead fills
-  null fields and keeps the higher confidence band rather than discarding data, and records a
-  `lead_occurrences` row for per-job attribution.
-- **Visited** — `UNIQUE(url, job_id)`, insert-or-ignore.
-
-So an at-least-once flush (the outbox may resend after a blip) can never create duplicates or lose data.
+The coordination endpoints are safe to retry: **leads** use a global `UNIQUE(email)` with
+**enrich-on-conflict** — a re-delivered or duplicate lead fills null fields and keeps the higher confidence
+band rather than discarding data, and records a `lead_occurrences` row for per-job attribution. So an
+at-least-once flush (the outbox may resend after a blip) can never create duplicates or lose data.
 
 ## Frontier checkpoint & resume
 
 `CrawlerEngine._checkpoint_loop` saves a frontier snapshot every 5 s (and on graceful stop) via
-`CloudApiClient.save_frontier`. The snapshot captures the pending/in-flight queue items, the visited set,
-counters, and — critically — the **shared pagination `chain_budget`** (reconstructed by `chain_key` on
-rehydrate so a naive per-item restore can't reset the fan-out cap).
+`CloudApiClient.save_frontier` — **100% local** (`agent/local_store.py`), never uploaded anywhere (plan.md
+§19.1 Phase 9 Part 2). The snapshot captures the pending/in-flight queue items, the visited set, counters,
+and — critically — the **shared pagination `chain_budget`** (reconstructed by `chain_key` on rehydrate so a
+naive per-item restore can't reset the fan-out cap).
 
-Resume (`POST /api/jobs/{id}/resume`): flush the outbox → load the frontier → rehydrate the queue and
-visited set (unioned with a fresh `visited_bootstrap` from the cloud) → continue. With a checkpoint present
-the resume is **exact**; without one (e.g. a fresh machine), the job re-crawls from seeds using only the
-cloud's `visited_bootstrap` for dedup.
-
-### Cross-machine resume (optional, off by default)
-
-The frontier is always written locally. When `crawler.cross_machine_resume` (env `CROSS_MACHINE_RESUME`) is
-on, `save_frontier` **also** best-effort uploads the snapshot to `POST /api/coordination/jobs/{id}/frontier`
-(a synchronous call, safe because it runs on the `db_pool` thread, not the event loop). If a job is resumed
-on a machine with no local checkpoint, `load_frontier` falls back to `GET .../frontier` from the cloud
-(`job_frontiers` table) instead of re-crawling. The cost is extra write volume, which is why it's off by
-default (`plan.md` §18 Decision C).
+Resume (`POST /api/jobs/{id}/resume`) is **agent-exclusive**: the request carries this agent's `agent_id`,
+and `cloud/api/coordination.py` rejects it outright (403) if a different agent started the job — there is
+no cloud-side frontier or visited-URL copy for a different machine to fall back to anymore, so a
+cross-machine resume attempt would only ever be a silent full re-crawl-from-seeds; making it a hard reject
+instead is both simpler and more honest about what's actually possible. On the *same* agent: flush the
+outbox → load the local frontier → rehydrate the queue and visited set (unioned with a fresh
+`visited_bootstrap` computed from this agent's own local recrawl history, `agent/api.py:
+_local_visited_bootstrap`) → continue. With a checkpoint present the resume is **exact**; without one (e.g.
+the local outbox file was deleted), the job re-crawls from seeds using only local history for dedup.
 
 ## Heartbeat, reaping & reconciliation
 
@@ -77,6 +73,7 @@ from a clean claim, never blindly re-sent mid-flight. See [outreach.md](outreach
 | VPS disk loss | data since last backup / WAL | nightly `pg_dump` + WAL archive | restore ([deployment.md](deployment.md#backups--recovery)) |
 | Duplicate delivery to cloud | nothing | — | `ON CONFLICT` no-op / enrich |
 | Access token expires mid-crawl | nothing | outbox buffers during the one retry round-trip | `CloudApiClient` retries once on 401 via `agent/identity.py`'s self-refresh (`/auth/refresh` + keyring) |
+| Resume attempted from a different agent | nothing (rejected before any write) | the job stays `interrupted`, resumable from the correct machine | 403 from `cloud/api/coordination.py` — the job's `agent_id` doesn't match the caller's |
 
 ## DR targets
 

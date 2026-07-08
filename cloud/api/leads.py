@@ -3,11 +3,11 @@
 
 import csv
 import io
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from .deps import CurrentUser, get_db, require
+from .deps import CurrentUser, client_ip, get_db, require
 from ..db import Database
 from ..services.csv_import import build_template_csv, parse_contacts_csv
 
@@ -121,7 +121,7 @@ async def get_lead_org_types(job_id: list[int] = Query(None), db: Database = Dep
 
 
 @router.post("/api/leads/export")
-async def export_leads(req: ExportLeadsRequest, db: Database = Depends(get_db),
+async def export_leads(req: ExportLeadsRequest, request: Request, db: Database = Depends(get_db),
                        user: CurrentUser = Depends(require("leads.export"))):
     rows = db.get_all_leads_for_export(
         job_ids=req.job_ids,
@@ -139,6 +139,8 @@ async def export_leads(req: ExportLeadsRequest, db: Database = Depends(get_db),
     )
     if not rows:
         raise HTTPException(status_code=404, detail="No leads for this job")
+
+    db.write_audit(user.id, "lead.export", detail={"count": len(rows)}, ip=client_ip(request))
 
     # Keep only the requested fields (email always included), preserving canonical order
     if req.fields:
@@ -162,7 +164,7 @@ async def export_leads(req: ExportLeadsRequest, db: Database = Depends(get_db),
 
 
 @router.post("/api/leads/import-csv")
-async def import_leads_csv(file: UploadFile = File(...), db: Database = Depends(get_db),
+async def import_leads_csv(request: Request, file: UploadFile = File(...), db: Database = Depends(get_db),
                            user: CurrentUser = Depends(require("leads.import"))):
     """Bulk-create or update manual leads from an uploaded CSV file."""
     content = await file.read()
@@ -174,6 +176,8 @@ async def import_leads_csv(file: UploadFile = File(...), db: Database = Depends(
     imported, updated, db_skipped = db.bulk_upsert_manual_leads(job_id, rows, captured_by=user.id)
     skipped.extend(db_skipped)
 
+    db.write_audit(user.id, "lead.import_csv", detail={"imported": imported, "updated": updated},
+                   ip=client_ip(request))
     return {"imported": imported, "updated": updated, "skipped": skipped}
 
 
@@ -187,7 +191,7 @@ async def download_leads_csv_template():
 
 
 @router.put("/api/leads/{lead_id}")
-async def update_lead(lead_id: int, req: LeadUpdate, db: Database = Depends(get_db),
+async def update_lead(lead_id: int, req: LeadUpdate, request: Request, db: Database = Depends(get_db),
                       user: CurrentUser = Depends(require("leads.edit"))):
     updates = req.model_dump(exclude_none=True)
     if not updates:
@@ -198,4 +202,5 @@ async def update_lead(lead_id: int, req: LeadUpdate, db: Database = Depends(get_
                             detail="State is derived from the crawl for this lead and can't be edited")
     if not result:
         raise HTTPException(status_code=404, detail="Lead not found")
+    db.write_audit(user.id, "lead.update", "lead", lead_id, detail=updates, ip=client_ip(request))
     return {"ok": True}

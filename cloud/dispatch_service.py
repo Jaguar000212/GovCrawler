@@ -21,7 +21,7 @@ import signal
 
 from cloud.api.dispatcher import run_campaign_dispatch
 from cloud.db import Campaign, CampaignStatus, Database
-from portal.main import load_config
+from portal.config import load_config
 
 log = logging.getLogger(__name__)
 

@@ -1,8 +1,9 @@
 # Deployment (Docker / VPS)
 
-The multi-user cloud tier runs as a Docker Compose stack on a single VPS. The desktop launcher
-([architecture.md](architecture.md#subsystems)) is a separate, self-contained distribution path — this doc
-covers the server.
+The multi-user cloud tier runs as a Docker Compose stack on a single VPS, genuinely crawler-free (plan.md
+§19.1 Phase 9 Part 2 — no Playwright, no `agent/` code). The desktop agent
+([architecture.md](architecture.md#subsystems)) is a separate, self-contained distribution path,
+independently deployable on any number of operator machines — this doc covers the server.
 
 ## Quick start
 
@@ -26,8 +27,9 @@ Caddy provisions TLS for `${DOMAIN}` automatically; `https://${DOMAIN}` is the o
 | `dispatcher` | `python -m cloud.dispatch_service` | Standalone SMTP send loop (survives API restarts) |
 | `proxy` | `caddy:2` | TLS termination + reverse proxy to `api:8001` |
 
-All three app services build from one `deploy/Dockerfile` (a Playwright base image). Postgres is **never**
-published beyond loopback; only the app services reach it over the Compose network.
+All three app services build from one `deploy/Dockerfile` (a plain `python:3.11-slim` base — no Playwright,
+no Chromium, no `agent/` code copied in). Postgres is **never** published beyond loopback; only the app
+services reach it over the Compose network.
 
 ## Secrets & environment (`deploy/.env`)
 
@@ -39,7 +41,6 @@ published beyond loopback; only the app services reach it over the Compose netwo
 | `JWT_SECRET` (+ `JWT_SECRET_PREV`) | Token signing (+ rotation grace) |
 | `CREDENTIAL_ENC_KEY` (+ `_PREV`) | SMTP-password Fernet key (+ rotation) |
 | `DOMAIN` | Public hostname for Caddy TLS + `ADMIN_ORIGIN` |
-| `CROSS_MACHINE_RESUME` | Opt-in cross-machine frontier fetch (off by default) |
 
 Generate `JWT_SECRET` with `python -c "import secrets; print(secrets.token_urlsafe(48))"` and
 `CREDENTIAL_ENC_KEY` with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.

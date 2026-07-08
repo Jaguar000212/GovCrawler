@@ -5,8 +5,11 @@ Two databases (see [architecture.md](architecture.md#the-two-databases)):
 - **Cloud** — the database of record. SQLAlchemy ORM (`cloud/db/`), Postgres in production or SQLite in
   desktop/dev, selected by `database.uri`. Access is through `cloud.db.Database` only; no raw sessions
   elsewhere. Migrations are Alembic (`alembic/versions/`).
-- **Local** — a per-machine `sqlite3` resilience buffer (`agent/local_store.py`), not part of the shared
-  schema and not migrated by Alembic.
+- **Local** — two per-machine `sqlite3` stores, neither part of the shared schema nor migrated by Alembic:
+  `agent/local_store.py` (the per-job durable outbox + frontier checkpoint) and `agent/localdb.py` (this
+  machine's own settings — `cloud_api_base_url`, a durable `agent_id` — plus its visited-URL recrawl
+  history). As of plan.md §19.1 Phase 9 Part 2, **nothing in either local store is ever synced to the
+  cloud** — leads are the only thing that flows outward.
 
 Status/kind fields are stored as **`TEXT`** (or SQLAlchemy `Enum`, which is `VARCHAR`+CHECK) rather than
 native Postgres `ENUM`, so future migrations stay cheap — `ALTER TYPE` is transaction-hostile and can't drop
@@ -68,8 +71,11 @@ the junction) · `source_type` (`domains`|`custom_urls`) · `status` · `owner_i
 catalog rebuilds: `id` · `job_id` (CASCADE) · `source_domain_id` (soft link) · `external_id` ·
 `category_code`/`category_title` · `state` · `org_type`/`org_type_title` · `title` · `main_url` ·
 `contact_url` · `created_at`; `UNIQUE(job_id, source_domain_id)` for get-or-insert.
-**`job_frontiers`** — optional cross-machine resume: `job_id` PK → `crawl_jobs.id` · `snapshot_json` ·
-`updated_at`. Written only when `crawler.cross_machine_resume` is on (off by default).
+
+`agent_hostname` on `crawl_jobs` is stamped with the creating agent's durable `agent_id` at `POST /jobs`
+and used to reject a resume from any other agent (plan.md §19.1 Phase 9 Part 2, 2.5) — the frontier and
+visited-URL data a resume needs live only on that one machine. There is no `job_frontiers`/`visited_urls`
+table anymore (dropped by `alembic/versions/0023_drop_visited_and_frontier.py`) — both went 100% agent-local.
 
 **`app_settings`** — generic key/value store (plan.md §19.1 Phase 8): `key` PK · `value` (JSON) ·
 `updated_by` → `users.id` (nullable — null for the first-run seed write) · `updated_at`. One row this
@@ -92,7 +98,6 @@ else extraction-set) · `confidence_band` (`HIGH`/`LOW`) · `field_provenance` (
 **`lead_occurrences`** — every capture of a shared lead (many-to-many), so per-job attribution and truthful
 per-job `leads_found` survive dedup: `id` · `lead_id` (CASCADE) · `job_id` (CASCADE) · `captured_by` →
 `users.id` · `source_url` · `captured_at`; `UNIQUE(lead_id, job_id)`.
-**`visited_urls`** — `id` · `url` (indexed) · `job_id` (CASCADE) · `visited_at`; `UNIQUE(url, job_id)`.
 
 ### Outreach — `cloud/db/tables/outreach.py`
 
@@ -109,19 +114,34 @@ plaintext**) · `is_active` · `cooldown_until` · `daily_send_limit` (null = un
 
 ---
 
-## Local store — `agent/local_store.py` (`LocalOutbox`)
+## Local stores (agent, per machine)
+
+### `agent/local_store.py` (`LocalOutbox`) — per-job durable outbox + frontier
 
 Plain `sqlite3`, `PRAGMA synchronous=FULL` (a queued row survives power loss, not just a clean crash), one
 `threading.Lock` guarding every method. Three tables:
 
-**`outbox`** — `id` PK · `job_id` · `kind` (`lead`|`visited`) · `payload_json` · `created_at` · `attempts`
-· `last_error`; index `(job_id, kind)`. The write-ahead buffer drained by the flusher.
+**`outbox`** — `id` PK · `job_id` · `kind` (`lead` — the only kind since visited URLs stopped being
+outboxed, plan.md §19.1 Phase 9 Part 2) · `payload_json` · `created_at` · `attempts` · `last_error`; index
+`(job_id, kind)`. The write-ahead buffer drained by the flusher.
 **`outbox_dead`** — dead-letter: rows that exceed `MAX_ATTEMPTS` (8) move here (`died_at`) so one poison
 record can't block the queue.
-**`frontier`** — `job_id` PK · `snapshot_json` · `saved_at`; one upserted row per job, the resume checkpoint.
+**`frontier`** — `job_id` PK · `snapshot_json` · `saved_at`; one upserted row per job, the resume checkpoint
+— always local-only now, no cloud counterpart exists to fall back to.
 
-No `local_config`/`auth_state` tables exist — session state (refresh token, last email) lives in the **OS
-keyring**, written by `agent/launcher/app.py`.
+### `agent/localdb.py` — this machine's settings + visited history
+
+Plain `sqlite3` too, `PRAGMA user_version` step-runner instead of Alembic. Two tables:
+
+**`local_settings`** — `key` PK · `value`; holds `cloud_api_base_url` (set via the launcher's first-run
+prompt) and a durable `agent_id` (a UUID minted once, never a real hostname — this is what gets stamped
+onto `crawl_jobs.agent_hostname`).
+**`visited_history`** — `url` PK · `visited_at`; this agent's own cross-job recrawl-protection history,
+consulted at job create/resume (`agent/api.py:_local_visited_bootstrap`) instead of asking the cloud. Never
+synced anywhere.
+
+Session state itself (refresh token, last email) still lives in the **OS keyring**, written by
+`agent/launcher/app.py` / `agent/identity.py`.
 
 ---
 
@@ -130,9 +150,7 @@ keyring**, written by `agent/launcher/app.py`.
 ```
 users ──< crawl_jobs ──< crawl_job_domains >── domains
   │           │      ├──< job_custom_urls
-  │           │      ├──< crawl_snapshots ──< leads ──< lead_occurrences >── (job, user)
-  │           │      ├──< visited_urls
-  │           │      └──  job_frontiers (1:1)
+  │           │      └──< crawl_snapshots ──< leads ──< lead_occurrences >── (job, user)
   ├──< campaigns ──< campaign_emails >── leads
   │        └──< campaign_credentials >── smtp_credentials
   ├──< user_sessions          roles ──< role_permissions >── permissions
@@ -147,7 +165,8 @@ app_settings  ── standalone key/value store; updated_by soft-references user
 
 ## `Database` — composition & key methods
 
-`Database` (`cloud/db/database.py`) is composed from eight mixins. `__init__` creates the engine
+`Database` (`cloud/db/database.py`) is composed from seven mixins (`VisitedUrlMixin` was retired in plan.md
+§19.1 Phase 9 Part 2 — visited-URL tracking moved 100% agent-local). `__init__` creates the engine
 (`pool_pre_ping=True`), runs `create_all()`, then `_seed_app_settings()` (first-run backfill of the
 `crawl_policy` row from `config.yaml`) → `_ensure_columns()` → `run_migrations()` (Alembic
 stamp-then-upgrade) → `seed_rbac()`. `_ensure_columns()` triggers `_recompute_lead_scores()` only once, the
@@ -160,17 +179,16 @@ plus the existing one-time `_backfill_snapshots()`.
 | `app_settings_mixin` | `get_app_setting`, `set_app_setting` (optimistic `updated_at` check), `get_crawl_policy` |
 | `auth_mixin` | `seed_rbac`, `create_user`, `get_user_by_email/id`, `set_password`, `set_user_active/role`, `record_login_success/failure`, `resolve_effective_permissions`, `create/rotate/revoke_session`, `revoke_session_family`, `write_audit` |
 | `domain_mixin` | `upsert_category/org_type/domain`, `update_domain_url`, `clear_domains`, `get_domain_stats`, `get_categories/states/org_types`, `get_domains`, `get_domain_ids`, `get_domains_by_ids` |
-| `job_mixin` | `create_job`, `start_job`, `finish_job` (no-op if terminal), `heartbeat` (revives interrupted, returns cancel), `reap_stale_jobs`, `resume_job`, `set_cancel_requested`, `get_or_create_manual_upload_job`, `save/load_frontier_snapshot`, `get_job`/`list_jobs` (owner-filtered) |
+| `job_mixin` | `create_job` (stamps `agent_hostname`), `start_job`, `finish_job` (no-op if terminal), `heartbeat` (revives interrupted, returns cancel), `reap_stale_jobs`, `resume_job`, `claim_or_verify_job_agent` (resume ownership guard), `set_cancel_requested`, `get_or_create_manual_upload_job`, `get_running_jobs` (DB-backed, admin activity), `get_job`/`list_jobs` (owner-filtered) |
 | `crawl_snapshot_mixin` | `create_crawl_snapshot` (get-or-insert, race-safe), `get_crawl_snapshots` |
 | `lead_mixin` | `save_lead` (enrich-on-conflict + occurrence + score), `bulk_save_leads`, `get_leads`, `get_lead_ids`, `get_all_leads_for_export`, `get_lead_categories/states/org_types`, `bulk_upsert_manual_leads`, `update_lead` |
-| `visited_mixin` | `mark_visited`, `bulk_mark_visited`, `get_visited_urls`, `get_recently_visited_global`, `clear_visited_urls` |
 | `outreach_mixin` | templates/blacklist/credentials CRUD; campaigns; `claim_next_queued_email` (atomic QUEUED→SENDING), `recover_stuck_sending`, `mark_email_sent/failed`, `set_credential_cooldown`, `get_campaign_stats`, `get_credential_health` |
 
 ---
 
 ## Migration chain
 
-`alembic/versions/`, head = **`0022_add_app_settings`**. Linear except a branch at `0005` (`_add_lead_depth`
+`alembic/versions/`, head = **`0023_drop_visited_and_frontier`**. Linear except a branch at `0005` (`_add_lead_depth`
 and `_add_lead_grading` both descend from `0004` and merge at `0006`). `alembic/env.py` targets
 `cloud.db.Base` and honors the `DATABASE_URL` env var (so the Docker `migrate` service points at Postgres).
 
@@ -187,8 +205,9 @@ and `_add_lead_grading` both descend from `0004` and merge at `0006`). `alembic/
 | `0018_job_resume_cancel` | `cancel_requested`, `agent_hostname`, `last_heartbeat_at` |
 | `0019_add_sending_status` | `EmailStatus.SENDING` + `campaign_emails.sending_since` |
 | `0020_least_privilege_role` | Postgres-only `govcrawler_app` role, audit_log write-lockdown |
-| `0021_add_job_frontier` | `job_frontiers` (cross-machine resume) |
+| `0021_add_job_frontier` | `job_frontiers` (cross-machine resume) — later dropped by `0023` |
 | `0022_add_app_settings` | `app_settings` (DB-backed crawl policy, plan.md §19.1 Phase 8) |
+| `0023_drop_visited_and_frontier` | Drops `visited_urls` + `job_frontiers` — both went 100% agent-local (plan.md §19.1 Phase 9 Part 2) |
 
 Some columns (`leads.snapshot_id`, `crawl_jobs.current_depth`/`active_workers`, `lead_score` *values*) are
 applied via `_ensure_columns()`/backfills rather than a migration — an intentional, documented split for

@@ -1151,12 +1151,3 @@ function esc(str) {
     return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-async function clearVisitedUrls() {
-    if (!confirm('Are you sure you want to clear all visited URLs? This will reset the recrawl protection.')) return;
-    try {
-        const res = await apiFetch('/api/visited-urls', {method: 'DELETE'});
-        alert(res.message);
-    } catch (e) {
-        alert('Error clearing visited URLs: ' + e.message);
-    }
-}

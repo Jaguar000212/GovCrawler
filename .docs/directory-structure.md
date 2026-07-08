@@ -9,12 +9,14 @@ GovCrawler/
 ├── run.py                     # Desktop entry point (PyInstaller target): SSL cert fix,
 │                              # "INSTALL_BROWSERS" argv sentinel, no-console stdio guard,
 │                              # then launches agent.launcher.app.CrawlerLauncher
-├── GovCrawler.spec            # PyInstaller spec — bundles frontend, alembic, assets, config
-├── alembic.ini                # Alembic config; env.py targets cloud.db.Base
+├── GovCrawler.spec            # PyInstaller spec — bundles frontend, assets, config (no alembic — the
+│                              #   desktop agent never runs Alembic migrations)
+├── alembic.ini                # Alembic config; env.py targets cloud.db.Base (cloud/VPS only)
 ├── pyproject.toml             # ruff + black (line-length 120, py311) + pytest + import-linter config
-├── requirements.txt           # Desktop shim: -r requirements/cloud.txt + -r requirements/agent.txt
-├── requirements/               # Per-tier pins — shared.txt, cloud.txt (+shared), agent.txt (+shared)
-├── requirements-dev.txt       # -r requirements.txt + pytest/ruff/black
+├── requirements.txt           # Dev shim: -r requirements/cloud.txt + -r requirements/agent.txt (the VPS
+│                              #   Docker image installs requirements/cloud.txt directly, not this shim)
+├── requirements/               # Per-tier pins — shared.txt, cloud.txt (+shared), agent.txt (+shared, incl. jinja2)
+├── requirements-dev.txt       # -r requirements.txt + pytest/ruff/black/import-linter
 ├── README.md
 │
 ├── shared/                    # Framework-light; imported by BOTH cloud and agent, imports neither
@@ -24,17 +26,19 @@ GovCrawler/
 │   └── schemas/
 │       └── auth.py            # Pydantic DTOs: LoginRequest, RefreshRequest, UserOut, TokenResponse
 │
-├── cloud/                     # THE VPS APP — FastAPI + Postgres, auth, admin, dispatcher
+├── cloud/                     # THE VPS APP — FastAPI + Postgres, auth, admin, dispatcher. Genuinely
+│   │                          # crawler-free: no agent.* imports, no Playwright (plan.md §19.1 Phase 9 Part 2)
 │   ├── api/
-│   │   ├── server.py          # create_app(config, db): routers, lifespan (browser + reaper),
+│   │   ├── server.py          # create_app(config, db): routers, lifespan (reaper only — no browser),
 │   │   │                      #   CORS/CSRF, static mount, JWT-secret bootstrap
-│   │   ├── deps.py            # get_current_user, require(), require_loopback, verify_csrf,
+│   │   ├── deps.py            # get_current_user, require(), require_loopback, verify_csrf, client_ip,
 │   │   │                      #   CurrentUser, RedirectException, shared app state
-│   │   ├── auth.py            # /auth/login|refresh|logout|me, /auth/bootstrap (loopback)
-│   │   ├── admin.py           # /api/admin/users|roles (require users.manage)
-│   │   ├── coordination.py    # /api/coordination/* — the agent↔cloud contract
-│   │   ├── frontend.py        # HTML page routes (Jinja2) + /api/logs, DELETE /api/visited-urls
-│   │   ├── system.py          # /healthz, /api/system/activity, /api/admin/activity, cancel-all
+│   │   ├── auth.py            # /auth/login|refresh|logout|me (no /auth/bootstrap — retired, see agent/bff)
+│   │   ├── admin.py           # /api/admin/users|roles|permissions + permission-override PUT (users.manage)
+│   │   ├── audit.py           # GET /api/admin/audit (audit.view — deliberately separate from users.manage)
+│   │   ├── coordination.py    # /api/coordination/* — the agent↔cloud contract; resume enforces agent_id match
+│   │   ├── frontend.py        # HTML page routes (Jinja2) + /api/logs (cloud's own server log)
+│   │   ├── system.py          # /healthz, /api/admin/activity (DB-backed crawl-job activity)
 │   │   ├── config.py          # GET/POST /api/config — the crawl-policy "settings" router
 │   │   ├── domains.py         # catalog browse + PATCH a no-URL domain's URL
 │   │   ├── imports.py         # /api/import/json|/api/import|/api/import/status (single-flight)
@@ -47,11 +51,12 @@ GovCrawler/
 │   │   └── blacklist.py       # email/domain blacklist CRUD
 │   ├── db/
 │   │   ├── base.py            # declarative_base() + SQLite WAL pragma listener
-│   │   ├── database.py        # Database class, composed from the 7 mixins; _ensure_columns()
+│   │   ├── database.py        # Database class, composed from 7 mixins; _ensure_columns()
 │   │   ├── enums.py           # re-export of shared.enums (import compat)
 │   │   ├── migrations.py      # run_migrations(): stamp-then-upgrade on startup
-│   │   ├── tables/            # auth.py, crawl.py, leads.py, lookups.py, outreach.py
-│   │   └── mixins/            # auth, domain, job, crawl_snapshot, lead, visited, outreach
+│   │   ├── tables/            # auth.py, crawl.py, leads.py, lookups.py, outreach.py, settings.py
+│   │   └── mixins/            # auth (+ permission overrides + audit list), domain, job (+ agent-ownership
+│   │                          #   guard), crawl_snapshot, lead, outreach, app_settings — no visited_mixin
 │   ├── security/
 │   │   ├── hashing.py         # argon2id hash/verify/needs_rehash
 │   │   ├── jwt.py             # HS256 access tokens + opaque refresh tokens
@@ -63,32 +68,46 @@ GovCrawler/
 │   │                          #   Web Directory API calls inlined here — see GovScraper/ below)
 │   └── dispatch_service.py    # `python -m cloud.dispatch_service` — standalone (external) dispatcher
 │
-├── frontend/                   # SHARED UI — Jinja2 templates + vanilla JS/CSS (served by the cloud API)
-│   ├── base.html               # layout + permission-gated nav (incl. 🛡️ Admin link)
+├── frontend/                   # SHARED UI — Jinja2 templates + vanilla JS/CSS. Operator pages are rendered
+│   │                          # by the agent (agent/bff/pages.py); the admin dashboard only by the cloud.
+│   ├── base.html               # layout + permission-gated nav (Admin link opens the cloud externally
+│   │                          #   when rendered by the agent, in-app when rendered by the cloud itself)
 │   ├── login.html
 │   ├── index.html              # domains browser + crawl job creation + live status
 │   ├── leads.html
 │   ├── campaigns.html
 │   ├── test-campaign.html
-│   ├── admin-dashboard.html    # /admin/dashboard (require jobs.view_all), 3 s poll
+│   ├── admin-dashboard.html    # /admin/dashboard (require jobs.view_all), cloud-only — users/permissions +
+│   │                          #   audit log panels, 3 s activity poll
 │   ├── user-guide.html
 │   └── static/{css,js,img}     # base + per-page assets; favicon
 │
-├── agent/                     # THE LOCAL APP (per machine) — crawler + BFF + launcher
-│   ├── api.py                 # Local BFF: POST /api/jobs, /api/jobs/{id}/resume, .../cancel — zero
-│   │                          #   cloud.* imports (Phase 9 Part 1); loopback-gated, uses identity.py
+├── agent/                     # THE LOCAL APP (per machine) — crawler + standalone BFF + launcher.
+│   │                          # Zero cloud.* imports (import-linter enforced, both directions)
+│   ├── api.py                 # Job routes: POST /api/jobs, /api/jobs/{id}/resume, .../cancel — mounted
+│   │                          #   into agent/bff/app.py; loopback + local-session + CSRF gated
 │   ├── identity.py            # The operator's standing session: self-refreshing token via /auth/refresh
-│   │                          #   + OS keyring, decoupled from any one browser request
-│   ├── state.py                # Agent-owned config/browser/active_tasks (replaces reading cloud.api.deps)
-│   ├── cloud_client.py        # CloudApiClient + create_remote_job/resume_remote_job + outbox flusher —
-│   │                          #   token_provider is async with retry-on-401-then-refresh
-│   ├── local_store.py         # LocalOutbox: durable SQLite (outbox, outbox_dead, frontier)
+│   │                          #   + OS keyring + cached effective permissions; OperatorContext for templates
+│   ├── localdb.py             # Local SQLite (agent_local.db): local_settings (cloud_api_base_url, agent_id)
+│   │                          #   + visited_history (recrawl protection) — never synced to the cloud
+│   ├── state.py                # Agent-owned config/browser/active_tasks, set by agent/bff/app.py's lifespan
+│   ├── cloud_client.py        # CloudApiClient + create_remote_job/resume_remote_job + outbox flusher (leads
+│   │                          #   only) + request_with_retry (shared retry-on-401 helper, also used by proxy.py)
+│   ├── local_store.py         # LocalOutbox: durable SQLite (outbox, outbox_dead, frontier) — per-job
+│   ├── bff/                   # The standalone local BFF app (plan.md §19.1 Phase 9 Part 2)
+│   │   ├── app.py              # create_app(config): fresh FastAPI, owns Playwright, mounts everything below
+│   │   ├── security.py        # require_loopback, require_local_session, verify_local_csrf (+ Host check)
+│   │   ├── local_auth.py      # /auth/login (relay), /local-bootstrap, /auth/logout, /auth/me
+│   │   ├── local_system.py    # /api/system/activity|cancel-all, /api/logs — this machine's own view
+│   │   ├── pages.py            # Renders frontend/ templates locally (no admin dashboard)
+│   │   └── proxy.py            # One generic reverse-proxy for every remaining /api/* shared-data route
 │   ├── crawler/
 │   │   ├── engine.py          # CrawlerEngine: priority queue, httpx/playwright, checkpoint, orchestration
 │   │   ├── pagination.py      # Stateless pagination-link classifiers (is_pagination_link, safe_int, ...)
 │   │   └── parser.py          # 6-stage lead-extraction pipeline + Lead dataclass + parse_for_engine
 │   └── launcher/
-│       ├── app.py             # CrawlerLauncher (AppState machine) + LoginDialog; keyring; drain shutdown
+│       ├── app.py             # CrawlerLauncher (AppState machine) + LoginDialog (logs in directly against
+│       │                      #   the cloud) + first-run cloud-URL prompt; keyring; drain shutdown
 │       ├── tray.py            # TrayController (pystray)
 │       └── notifications.py   # notify() — notifypy toasts (cross-platform)
 │
@@ -96,7 +115,8 @@ GovCrawler/
 │   ├── __main__.py            # `python -m portal` → portal.main.main()
 │   ├── main.py                # load_config() (+ env overrides), CLI: serve/import/import-json/crawl/create-admin
 │   ├── paths.py               # path resolution + first-run bootstrap (dev + PyInstaller frozen)
-│   └── default_config.yaml    # shipped config template (config.yaml is the gitignored live copy)
+│   └── default_config.yaml    # shipped config template (config.yaml is the gitignored live copy) —
+│                              #   bootstrap-only keys now (data dir, log path, api host/port)
 │
 ├── GovScraper/                # Standalone dev-time CLI, fully decoupled from cloud/agent/shared — its
 │   │                          # API-calling code is duplicated (inlined) into cloud/services/importer.py,
@@ -107,11 +127,12 @@ GovCrawler/
 │
 ├── alembic/
 │   ├── env.py                 # targets `from cloud.db import Base`; honors DATABASE_URL env
-│   └── versions/              # 0000_add_core_tables … 0021_add_job_frontier (chain head)
+│   └── versions/              # 0000_add_core_tables … 0023_drop_visited_and_frontier (chain head)
 │
 ├── deploy/                    # Production VPS deployment
 │   ├── docker-compose.yml     # db · migrate · api · dispatcher · proxy
-│   ├── Dockerfile             # Playwright base image; one image for migrate/api/dispatcher
+│   ├── Dockerfile             # Plain python:3.11-slim — no Playwright, no agent/ code; the cloud tier
+│   │                          #   is genuinely crawler-free
 │   ├── Caddyfile              # reverse_proxy api:8001 + automatic TLS
 │   ├── config.docker.yaml     # container-tuned config (baked to portal/config.yaml)
 │   ├── .env.example           # secrets + env template
@@ -132,7 +153,8 @@ GovCrawler/
 │   └── agent/                 # test_imports.py (agent.api)
 │
 ├── .github/workflows/
-│   ├── ci.yaml                # lint (diff-scoped) · import-sanity · pytest · import-boundaries · migration smoke test
+│   ├── ci.yaml                # lint (diff-scoped) · import-sanity · pytest · import-boundaries (both
+│   │                          #   agent⊥cloud directions) · migration smoke test
 │   └── release.yaml           # tag-triggered PyInstaller build/release (win/mac/linux)
 │
 ├── assets/favicon.ico
@@ -160,7 +182,8 @@ The pre-overhaul monolith lived entirely under `portal/`. It was split by tier:
 
 | Path | Why excluded from git |
 |------|-----------------------|
-| `portal/data/govcrawler.db` | Runtime SQLite DB (desktop/dev) |
+| `portal/data/govcrawler.db` | Runtime SQLite DB (cloud, desktop/dev) |
+| `portal/data/agent_local.db` | Agent-local settings + visited history (`agent/localdb.py`) |
 | `portal/data/outbox_job_*.db` | Per-job durable outbox |
 | `portal/data/portal.log` | Runtime log |
 | `portal/config.yaml` | User-edited live config |

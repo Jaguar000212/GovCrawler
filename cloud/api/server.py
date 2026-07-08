@@ -1,7 +1,9 @@
-"""FastAPI app factory. Builds the app, mounts the per-concern routers (plus
-`agent.api.router` — the one cloud→agent import, since both tiers share a
-process today), manages the Playwright browser + reaper lifespan, and wires
-shared state into cloud.api.deps. See .docs/architecture.md."""
+"""FastAPI app factory. Builds the app, mounts the per-concern routers, manages
+the reaper lifespan, and wires shared state into cloud.api.deps. The cloud
+tier is genuinely crawler-free (plan.md §19.1 Phase 9 Part 2, 2.3) — it never
+imports `agent.*` and never touches Playwright; the agent's own standalone
+BFF (agent/bff/app.py) owns the crawl browser entirely. See
+.docs/architecture.md."""
 
 import asyncio
 import logging
@@ -14,16 +16,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
-from playwright.async_api import async_playwright
 
 from . import (
-    admin, auth, blacklist, campaigns, config, coordination, credentials, deps, domains, frontend, imports, jobs,
-    leads, system, templates,
+    admin, audit, auth, blacklist, campaigns, config, coordination, credentials, deps, domains, frontend, imports,
+    jobs, leads, system, templates,
 )
 from .deps import RedirectException, get_current_user, verify_csrf
 from ..db import Database
-from agent import api as agent_api
-from agent import state as agent_state
 from portal.paths import APP_DIR, LIVE_CONFIG_PATH
 
 log = logging.getLogger(__name__)
@@ -73,12 +72,6 @@ async def _reap_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    log.info("Starting Playwright browser…")
-    deps._playwright_instance = await async_playwright().start()
-    deps._browser = await deps._playwright_instance.chromium.launch(headless=True)
-    agent_state.set_browser(deps._browser)
-    log.info("Browser ready.")
-
     recovered = deps._db.recover_stuck_sending(_STUCK_SENDING_THRESHOLD_SECONDS)
     if recovered:
         log.warning(f"Requeued {len(recovered)} email(s) stuck SENDING (no completion for "
@@ -91,19 +84,12 @@ async def lifespan(app: FastAPI):
         await reap_task
     except asyncio.CancelledError:
         pass
-    log.info("Shutting down browser…")
-    try:
-        await deps._browser.close()
-        await deps._playwright_instance.stop()
-    except Exception:
-        pass
 
 
 def create_app(config_dict: dict, db: Database) -> FastAPI:
     deps._db = db
     deps._config = config_dict
     deps._config_path = LIVE_CONFIG_PATH
-    agent_state.set_config(config_dict)
 
     _ensure_jwt_secret(config_dict, deps._config_path)
 
@@ -135,15 +121,19 @@ def create_app(config_dict: dict, db: Database) -> FastAPI:
     # verify_csrf alongside get_current_user on every mutation-capable router —
     # it only enforces on non-GET requests with no Authorization header (i.e.
     # cookie-authenticated browser requests), so it's a no-op for the agent's
-    # Bearer-token calls to agent_api/coordination.
+    # Bearer-token calls to coordination.
     app.include_router(auth.router)
-    app.include_router(admin.router)
+    # admin.router's routes were previously mounted without verify_csrf — a
+    # real (defense-in-depth, not primary-vector — SameSite=Strict already
+    # covers it) gap, closed incidentally while adding the permission-override
+    # route here (plan.md §19.1 Phase 9 Part 2, 2.0).
+    app.include_router(admin.router, dependencies=[Depends(get_current_user), Depends(verify_csrf)])
+    app.include_router(audit.router, dependencies=[Depends(get_current_user), Depends(verify_csrf)])
     app.include_router(frontend.router)
     app.include_router(domains.router, dependencies=[Depends(get_current_user), Depends(verify_csrf)])
     app.include_router(config.router, dependencies=[Depends(get_current_user), Depends(verify_csrf)])
     app.include_router(imports.router, dependencies=[Depends(get_current_user), Depends(verify_csrf)])
     app.include_router(jobs.router, dependencies=[Depends(get_current_user), Depends(verify_csrf)])
-    app.include_router(agent_api.router, dependencies=[Depends(get_current_user), Depends(verify_csrf)])
     app.include_router(coordination.router, dependencies=[Depends(get_current_user), Depends(verify_csrf)])
     app.include_router(leads.router, dependencies=[Depends(get_current_user), Depends(verify_csrf)])
     app.include_router(templates.router, dependencies=[Depends(get_current_user), Depends(verify_csrf)])

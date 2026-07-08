@@ -34,7 +34,7 @@
         </button>
         {% if user is defined and user and user.can('jobs.view_all') %}
         <button class="btn-secondary btn-sm{{ ' active' if active_page == 'admin-dashboard' }}"
-                onclick="window.location.href='/admin/dashboard'">🛡️ Admin
+                data-cloud-admin-url="{{ cloud_admin_url or '' }}" onclick="openAdminDashboard(this)">🛡️ Admin
         </button>
         {% endif %}
         <button class="btn-secondary btn-sm" onclick="openLogs()">📃 View Logs</button>
@@ -305,15 +305,6 @@
             </div>
         </div>
 
-        <div class="cfg-section">
-            <div class="cfg-section-title">Maintenance</div>
-            <div class="cfg-row">
-                <label class="cfg-label">Visited URLs Cache</label>
-                <button class="btn-secondary btn-sm" onclick="clearVisitedUrls()">Clear Cache</button>
-            </div>
-        </div>
-
-
     </div>
     <div class="cfg-footer">
         <div id="cfg-warn-msg"
@@ -337,6 +328,18 @@
             await fetch("/auth/logout", {method: "POST"});
         } finally {
             window.location.href = "/login";
+        }
+    }
+    function openAdminDashboard(btn) {
+        // Rendered by the agent BFF: the admin dashboard is cloud-only (plan.md
+        // §19.1 Phase 9 Part 2) — opens externally, requiring its own login.
+        // Rendered directly by the cloud itself: no cloud_admin_url is passed,
+        // so this stays the plain in-app link it always was.
+        const cloudUrl = btn.dataset.cloudAdminUrl;
+        if (cloudUrl) {
+            window.open(cloudUrl + '/admin/dashboard', '_blank');
+        } else {
+            window.location.href = '/admin/dashboard';
         }
     }
     {% block init_js %}

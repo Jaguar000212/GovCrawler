@@ -12,7 +12,6 @@ from .mixins.domain_mixin import DomainMixin
 from .mixins.job_mixin import JobMixin
 from .mixins.lead_mixin import LeadMixin
 from .mixins.outreach_mixin import OutreachMixin
-from .mixins.visited_mixin import VisitedUrlMixin
 from ..security.crypto import ensure_credential_enc_key
 from portal.paths import LIVE_CONFIG_PATH
 from shared.scoring import DEFAULT_WEIGHTS, compute_lead_score
@@ -21,7 +20,7 @@ log = logging.getLogger(__name__)
 
 # plan.md §3.2 — the crawler-policy subset of config.yaml's `crawler` section
 # that lives in app_settings (everything else in `crawler` is machine-local:
-# workers, timeouts, js_settle_time, cross_machine_resume).
+# workers, timeouts, js_settle_time).
 _CRAWLER_POLICY_KEYS = (
     "target_suffixes", "priority_keywords", "skip_extensions", "pagination",
     "js_indicators", "max_links_per_page", "max_depth", "recrawl_days",
@@ -29,7 +28,7 @@ _CRAWLER_POLICY_KEYS = (
 )
 
 
-class Database(DomainMixin, JobMixin, CrawlSnapshotMixin, LeadMixin, VisitedUrlMixin, OutreachMixin, AuthMixin,
+class Database(DomainMixin, JobMixin, CrawlSnapshotMixin, LeadMixin, OutreachMixin, AuthMixin,
                AppSettingsMixin):
     def __init__(self, config: dict, config_path: Path = LIVE_CONFIG_PATH):
         """`config_path` is where a missing `credential_enc_key` gets persisted
@@ -41,7 +40,6 @@ class Database(DomainMixin, JobMixin, CrawlSnapshotMixin, LeadMixin, VisitedUrlM
         self.engine = create_engine(uri, echo=False, pool_pre_ping=True)
         Base.metadata.create_all(self.engine)
         self._Session = sessionmaker(bind=self.engine)
-        self._recrawl_days = config.get("crawler", {}).get("recrawl_days", 30)
         self._cred_enc_key = ensure_credential_enc_key(config, config_path)
         # Must precede _ensure_columns(): its lead_score backfill path reads
         # self._lead_score_weights, which is sourced from app_settings.

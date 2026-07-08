@@ -12,8 +12,12 @@ a = Analysis(
     ['run.py'],
     pathex=[],
     binaries=[],
+    # alembic/ + alembic.ini are no longer bundled — the desktop agent process
+    # never runs Alembic migrations (plan.md §19.1 Phase 9 Part 2): its local
+    # SQLite (agent/localdb.py) uses a plain PRAGMA user_version stepper, and
+    # it has zero cloud.db access. Alembic stays a cloud/VPS-only concern.
     datas=[('frontend', 'frontend'), ('portal/default_config.yaml', 'portal'), (cert_file, 'certifi'),
-          ('assets', 'assets'), ('alembic', 'alembic'), ('alembic.ini', '.')],
+          ('assets', 'assets')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

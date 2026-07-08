@@ -7,7 +7,7 @@ database (see [resilience.md](resilience.md)).
 
 ## Overview
 
-`CrawlerEngine(config, cloud, job_id, browser=None)` runs as an `asyncio.Task` on the shared Uvicorn event
+`CrawlerEngine(config, cloud, job_id, browser=None)` runs as an `asyncio.Task` on the agent BFF's event
 loop. `run(seeds, visited_bootstrap, frontier)`:
 
 1. Build a netloc→domain_id map from the seeds (full netloc and `www`-stripped root).
@@ -30,9 +30,11 @@ when a worker fully finishes it.
 
 `_url_key` is scheme-agnostic: lowercased, `www.`-stripped netloc + path with trailing slash normalized,
 **query string preserved** (so `?page=2` ≠ `?page=1`). Non-seed URLs are added to the visited set at
-enqueue time; **seeds are never** (they stay re-crawlable). `visited_bootstrap` (the job's own visited URLs
-∪ the global set visited within `recrawl_days`, minus the seeds' own root domains) is loaded before the
-crawl so reruns advance the frontier instead of re-crawling fresh pages.
+enqueue time; **seeds are never** (they stay re-crawlable). `visited_bootstrap` (this agent's own recent
+crawl history within `recrawl_days`, minus the seeds' own root domains — 100% local, `agent/localdb.py`,
+plan.md §19.1 Phase 9 Part 2) is loaded before the crawl so reruns advance the frontier instead of
+re-crawling fresh pages. Recrawl protection no longer spans other agents' machines — only this one's own
+history counts.
 
 ## Fetching — HTTPX first, Playwright fallback
 

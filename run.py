@@ -2,7 +2,7 @@ import os
 import sys
 import tkinter as tk
 
-from portal.main import load_config
+from portal.config import load_config
 
 config = load_config()
 

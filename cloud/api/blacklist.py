@@ -1,9 +1,9 @@
 """Blacklist CRUD for manual email/domain blocking. See .docs/api-reference.md."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
-from .deps import CurrentUser, get_db, require
+from .deps import CurrentUser, client_ip, get_db, require
 from ..db import Database
 
 router = APIRouter(tags=["blacklist"])
@@ -34,7 +34,7 @@ async def list_blacklist(
 
 
 @router.post("/api/blacklist", status_code=201)
-async def add_to_blacklist(req: BlacklistAdd, db: Database = Depends(get_db),
+async def add_to_blacklist(req: BlacklistAdd, request: Request, db: Database = Depends(get_db),
                            user: CurrentUser = Depends(require("blacklist.manage"))):
     email = req.email.strip().lower()
     if "@" not in email:
@@ -44,12 +44,15 @@ async def add_to_blacklist(req: BlacklistAdd, db: Database = Depends(get_db),
     added = db.add_to_blacklist(email=email, domain=domain, reason=req.reason)
     if not added:
         raise HTTPException(status_code=409, detail="Email already blacklisted")
+    db.write_audit(user.id, "blacklist.add", "blacklist", email,
+                   detail={"reason": req.reason}, ip=client_ip(request))
     return {"message": f"Blacklisted {email}", "domain": domain}
 
 
 @router.delete("/api/blacklist/{blacklist_id}")
-async def remove_from_blacklist(blacklist_id: int, db: Database = Depends(get_db),
+async def remove_from_blacklist(blacklist_id: int, request: Request, db: Database = Depends(get_db),
                                 user: CurrentUser = Depends(require("blacklist.manage"))):
     if not db.remove_from_blacklist(blacklist_id):
         raise HTTPException(status_code=404, detail="Blacklist entry not found")
+    db.write_audit(user.id, "blacklist.remove", "blacklist", blacklist_id, ip=client_ip(request))
     return {"message": "Entry removed from blacklist"}

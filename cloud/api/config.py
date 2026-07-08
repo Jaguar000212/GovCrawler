@@ -11,9 +11,9 @@ to the frontend — the wire shape is unchanged either way:
 
 import copy
 import yaml
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 
-from .deps import CurrentUser, get_config as get_app_config, get_config_path, get_db, require
+from .deps import CurrentUser, client_ip, get_config as get_app_config, get_config_path, get_db, require
 from ..db import Database
 
 router = APIRouter(tags=["config"])
@@ -82,7 +82,7 @@ async def get_config(c: dict = Depends(get_app_config), db: Database = Depends(g
 
 
 @router.post("/api/config")
-async def save_config(body: dict, background_tasks: BackgroundTasks,
+async def save_config(body: dict, background_tasks: BackgroundTasks, request: Request,
                       c: dict = Depends(get_app_config), config_path=Depends(get_config_path),
                       db: Database = Depends(get_db),
                       user: CurrentUser = Depends(require("settings.manage"))):
@@ -178,6 +178,7 @@ async def save_config(body: dict, background_tasks: BackgroundTasks,
         pagination["max_chain_children"] = int(body["pagination_max_chain_children"])
 
     db.set_app_setting("crawl_policy", policy, updated_by=user.id)
+    db.write_audit(user.id, "settings.update", detail={"fields": sorted(body.keys())}, ip=client_ip(request))
 
     if weights != old_weights:
         # Runs off the request/event loop (Starlette offloads sync background

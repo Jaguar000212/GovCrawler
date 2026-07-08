@@ -5,8 +5,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-from .deps import CurrentUser, current_user_or_redirect, get_current_user, get_db, require
-from ..db import Database
+from .deps import CurrentUser, current_user_or_redirect, get_current_user, require
 from portal.paths import APP_DIR, LOG_FILE_PATH
 
 router = APIRouter(tags=["frontend"])
@@ -74,9 +73,3 @@ async def get_logs(user: CurrentUser = Depends(get_current_user)):
         return {"logs": "".join(lines)}
     except Exception as e:
         return {"logs": f"Failed to read logs: {e}"}
-
-
-@router.delete("/api/visited-urls")
-async def clear_visited_urls(db: Database = Depends(get_db), user: CurrentUser = Depends(require("crawl.run"))):
-    db.clear_visited_urls()
-    return {"message": "Visited URLs cleared."}

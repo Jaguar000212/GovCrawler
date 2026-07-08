@@ -1,10 +1,10 @@
 """Domain metadata and catalog-browsing endpoints. See .docs/api-reference.md."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from urllib.parse import urlsplit
 
-from .deps import CurrentUser, get_db, require
+from .deps import CurrentUser, client_ip, get_db, require
 from ..db import Database
 
 router = APIRouter(tags=["domains"])
@@ -109,6 +109,7 @@ async def get_domain_stats(
 async def update_domain_url(
         domain_id: int,
         req: UpdateDomainUrlRequest,
+        request: Request,
         db: Database = Depends(get_db),
         user: CurrentUser = Depends(require("domains.import")),
 ):
@@ -118,4 +119,6 @@ async def update_domain_url(
     updated = db.update_domain_url(domain_id, main_url=main_url, contact_url=contact_url)
     if not updated:
         raise HTTPException(status_code=404, detail="Domain not found")
+    db.write_audit(user.id, "domain.set_url", "domain", domain_id,
+                   detail={"main_url": main_url, "contact_url": contact_url}, ip=client_ip(request))
     return updated

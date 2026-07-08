@@ -20,20 +20,33 @@ argon2id via `argon2-cffi` (`cloud/security/hashing.py`): `hash_password`, `veri
   (`auth.refresh_ttl_days`, default 14).
 
 **Clients:**
-- Launcher — Bearer access token in memory, refresh token in the OS **keyring**; auto-refreshes on 401.
-- Browser — `access`/`refresh` as **httpOnly, Secure, SameSite=Strict** cookies + a non-httpOnly `csrf`
-  cookie for double-submit CSRF.
+- Launcher — logs in **directly against the cloud** (`cloud_api_base_url`, not its own local server); Bearer
+  access token cached in `agent/identity.py`, refresh token in the OS **keyring**; auto-refreshes on 401.
+  Effective permissions ride along in every login/refresh response (`UserOut.permissions`) and are cached
+  too, so a mid-session role change is picked up on the next refresh with no extra round trip.
+- Browser (admin, direct cloud access) — `access`/`refresh` as **httpOnly, Secure, SameSite=Strict** cookies
+  + a non-httpOnly `csrf` cookie for double-submit CSRF.
+- Browser (operator, via the agent) — never sees the real cloud session at all. The agent's own local BFF
+  (`agent/bff/local_auth.py`) hands it a local `session`/`csrf` cookie pair instead (see
+  [architecture.md](architecture.md) and plan.md §19.1 Phase 9 Part 2) and forwards every proxied request
+  upstream with the launcher's cached bearer token, server-side.
 
 ## Login / refresh / logout
 
 - `POST /auth/login` — verify argon2id, check `is_active`/`locked_until`; on failure record it (audit
-  `user.login_failed`); on success issue tokens, set cookies, audit `user.login`.
+  `user.login_failed`); on success issue tokens, set cookies, audit `user.login`. The agent's own
+  `agent/bff/local_auth.py:login` relays to this unmodified for the case an operator lands on `/login`
+  directly rather than through the launcher.
 - `POST /auth/refresh` — **rotating**. Presenting a token whose session is already `revoked_at` triggers
   reuse detection: `revoke_session_family` + audit `user.session_reuse_detected` + 401. Otherwise rotate the
   session and issue a fresh access + refresh pair.
-- `POST /auth/logout` — revoke the session by refresh-cookie hash, clear cookies.
-- `GET /auth/bootstrap?token=` (loopback only) — the launcher hands the browser its session so the operator
-  isn't asked to log in twice.
+- `POST /auth/logout` — revoke the session (refresh token in the body, from `agent/identity.py:logout`, or
+  the `refresh` cookie from a direct browser session), clear cookies.
+
+There is no `/auth/bootstrap` anymore — it existed only to hand a same-process browser tab the launcher's
+session via a cookie; now that the agent is a genuinely separate process from the cloud, the equivalent
+hand-off is the agent's own loopback-only `GET /local-bootstrap` (`agent/bff/local_auth.py`), which never
+touches the cloud at all.
 
 ## Revocation
 
@@ -69,9 +82,15 @@ def require(*perms):
 ```
 
 Ownership is enforced inside handlers, not by a blanket dependency: list/detail reads filter to
-`owner_id == user.id` unless the caller holds the matching `*.view_all` permission (or is admin). `require_
-loopback` restricts the launcher-only system endpoints to 127.0.0.1. Every mutating route writes an
-`audit_log` row (append-only — the runtime DB role has no `UPDATE`/`DELETE` on it, Alembic 0020).
+`owner_id == user.id` unless the caller holds the matching `*.view_all` permission (or is admin).
+Loopback restriction is purely an agent-tier concern now (`agent/bff/security.py:require_loopback` — the
+cloud tier never had a loopback-only endpoint left once `/auth/bootstrap` and the launcher-facing
+`/api/system/*` routes moved to the agent, plan.md §19.1 Phase 9 Part 2). Every mutating route writes an
+`audit_log` row (append-only — the runtime DB role has no `UPDATE`/`DELETE` on it, Alembic 0020) — as of
+plan.md §19.1 Phase 9 Part 2, 2.0 this now covers every mutating router (domains, leads, campaigns,
+templates, credentials — never the password value — blacklist, settings, crawl jobs), not just user
+administration, and is readable via `GET /api/admin/audit` (`audit.view`, paginated + filterable by user/
+action-prefix/date-range).
 
 ## Permission catalog (`shared/permissions.py`)
 
@@ -98,7 +117,11 @@ loopback` restricts the launcher-only system endpoints to 127.0.0.1. Every mutat
 
 `is_admin` short-circuits every check; a per-user `deny` does not apply to an admin (a limited "admin" is a
 non-admin role with broad grants). Roles + the permission catalog are seeded idempotently by
-`AuthMixin.seed_rbac()` on startup. Effective permissions = role bundle ± per-user `grant`/`deny` overrides.
+`AuthMixin.seed_rbac()` on startup. Effective permissions = role bundle ± per-user `grant`/`deny` overrides,
+settable via `PUT /api/admin/users/{id}/permissions/{key}` (`{"effect": "grant"|"deny"|null}`, null clears
+the override) and visible on the admin dashboard's Users & Permissions panel. There is no custom-role
+builder — the three built-in roles and their bundles stay fixed in `shared/permissions.py`; per-user
+overrides are the only way to deviate from a role (plan.md §19.1 Phase 9 Part 2, 2.0).
 
 ## Bootstrap
 

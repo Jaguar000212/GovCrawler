@@ -166,6 +166,36 @@ class AuthMixin:
             return [{"id": r.id, "name": r.name, "description": r.description,
                     "is_system": r.is_system} for r in roles]
 
+    # ── Per-user permission overrides ────────────────────────────────────────
+
+    def set_user_permission_override(self, user_id: int, permission_key: str,
+                                     effect: str | None) -> bool:
+        """`effect` is "grant"|"deny" to add/replace an override, or None to
+        remove it (reverting to the role default). Returns False if the user
+        doesn't exist."""
+        with self._Session() as s:
+            if not s.query(User.id).filter_by(id=user_id).first():
+                return False
+            existing = s.query(UserPermission).filter_by(
+                user_id=user_id, permission_key=permission_key
+            ).first()
+            if effect is None:
+                if existing:
+                    s.delete(existing)
+                    s.commit()
+                return True
+            if existing:
+                existing.effect = effect
+            else:
+                s.add(UserPermission(user_id=user_id, permission_key=permission_key, effect=effect))
+            s.commit()
+            return True
+
+    def list_user_permission_overrides(self, user_id: int) -> list[dict]:
+        with self._Session() as s:
+            overrides = s.query(UserPermission).filter_by(user_id=user_id).all()
+            return [{"permission_key": o.permission_key, "effect": o.effect} for o in overrides]
+
     # ── Sessions (refresh tokens) ─────────────────────────────────────────────
 
     def create_session(self, user_id: int, refresh_token_hash: str, expires_at: datetime.datetime,
@@ -224,3 +254,35 @@ class AuthMixin:
                 detail=json.dumps(detail) if detail else None, ip=ip,
             ))
             s.commit()
+
+    def list_audit_log(self, user_id: int | None = None, action_prefix: str | None = None,
+                       date_from: datetime.datetime | None = None, date_to: datetime.datetime | None = None,
+                       page: int = 1, limit: int = 50) -> tuple[list[dict], int]:
+        with self._Session() as s:
+            q = s.query(AuditLog)
+            if user_id is not None:
+                q = q.filter(AuditLog.user_id == user_id)
+            if action_prefix:
+                q = q.filter(AuditLog.action.like(f"{action_prefix}%"))
+            if date_from is not None:
+                q = q.filter(AuditLog.created_at >= date_from)
+            if date_to is not None:
+                q = q.filter(AuditLog.created_at <= date_to)
+            total = q.count()
+            rows = (
+                q.order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+                .offset((page - 1) * limit).limit(limit).all()
+            )
+            emails = {
+                u.id: u.email for u in
+                s.query(User).filter(User.id.in_({r.user_id for r in rows if r.user_id is not None})).all()
+            }
+            return [
+                {
+                    "id": r.id, "user_id": r.user_id, "user_email": emails.get(r.user_id),
+                    "action": r.action, "target_type": r.target_type, "target_id": r.target_id,
+                    "detail": json.loads(r.detail) if r.detail else None,
+                    "ip": r.ip, "created_at": r.created_at,
+                }
+                for r in rows
+            ], total

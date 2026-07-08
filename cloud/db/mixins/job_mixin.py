@@ -3,7 +3,7 @@ import json
 
 from shared.enums import JobStatus
 
-from ..tables.crawl import CrawlJob, CrawlJobDomain, JobCustomUrl, JobFrontier
+from ..tables.crawl import CrawlJob, CrawlJobDomain, JobCustomUrl
 
 _TERMINAL_STATUSES = {JobStatus.DONE.value, JobStatus.FAILED.value, JobStatus.CANCELLED.value}
 
@@ -11,7 +11,7 @@ _TERMINAL_STATUSES = {JobStatus.DONE.value, JobStatus.FAILED.value, JobStatus.CA
 class JobMixin:
     def create_job(self, domain_ids: list[int] = None, custom_urls: list[str] = None,
                    category_filter: str = None, title_filter: str = None,
-                   owner_id: int | None = None) -> int:
+                   owner_id: int | None = None, agent_id: str | None = None) -> int:
         source_type = "custom_urls" if custom_urls else "domains"
         seed_count = len(custom_urls) if custom_urls else len(domain_ids or [])
         with self._Session() as s:
@@ -24,6 +24,7 @@ class JobMixin:
                 seed_domains=seed_count,
                 status="pending",
                 owner_id=owner_id,
+                agent_hostname=agent_id,
             )
             s.add(job)
             s.commit()
@@ -142,6 +143,24 @@ class JobMixin:
             })
             s.commit()
 
+    def claim_or_verify_job_agent(self, job_id: int, agent_id: str) -> bool:
+        """A job may only ever be resumed by the agent that's running it —
+        there is no cross-machine frontier/visited data to resume from
+        elsewhere (plan.md §19.1 Phase 9 Part 2, 2.5). A job with no
+        `agent_hostname` yet (created before this stamping existed, or via
+        the debug CLI) is claimed by whichever agent resumes it first rather
+        than permanently blocking every resume. Returns False if a different
+        agent already owns it."""
+        with self._Session() as s:
+            job = s.query(CrawlJob).filter_by(id=job_id).first()
+            if job is None:
+                return False
+            if job.agent_hostname is None:
+                job.agent_hostname = agent_id
+                s.commit()
+                return True
+            return job.agent_hostname == agent_id
+
     def get_or_create_manual_upload_job(self) -> int:
         """Shared synthetic job that all CSV-uploaded manual leads attach to."""
         with self._Session() as s:
@@ -170,6 +189,19 @@ class JobMixin:
             rows = q.order_by(CrawlJob.created_at.desc()).limit(limit).all()
             return [self._job_dict(j) for j in rows]
 
+    def get_running_jobs(self) -> list[dict]:
+        """DB-backed, org-wide — the cloud process never runs a crawl engine
+        itself (plan.md §19.1 Phase 9 Part 2), so 'running' is whatever the
+        `crawl_jobs.status` column says, not an in-process task registry."""
+        with self._Session() as s:
+            rows = (
+                s.query(CrawlJob)
+                .filter(CrawlJob.status == JobStatus.RUNNING.value)
+                .order_by(CrawlJob.id)
+                .all()
+            )
+            return [self._job_dict(j) for j in rows]
+
     @staticmethod
     def _job_dict(j: CrawlJob) -> dict:
         return {
@@ -195,23 +227,3 @@ class JobMixin:
             "started_at": j.started_at.isoformat() if j.started_at else None,
             "finished_at": j.finished_at.isoformat() if j.finished_at else None,
         }
-
-    def save_frontier_snapshot(self, job_id: int, snapshot: dict) -> None:
-        """Cloud-side counterpart to agent/local_store.py's local frontier
-        checkpoint — upserted, one row per job. Only called when
-        crawler.cross_machine_resume is enabled (see agent/cloud_client.py)."""
-        with self._Session() as s:
-            payload = json.dumps(snapshot)
-            existing = s.query(JobFrontier).filter_by(job_id=job_id).first()
-            if existing:
-                existing.snapshot_json = payload
-                existing.updated_at = datetime.datetime.utcnow()
-            else:
-                s.add(JobFrontier(job_id=job_id, snapshot_json=payload,
-                                  updated_at=datetime.datetime.utcnow()))
-            s.commit()
-
-    def load_frontier_snapshot(self, job_id: int) -> dict | None:
-        with self._Session() as s:
-            row = s.query(JobFrontier).filter_by(job_id=job_id).first()
-            return json.loads(row.snapshot_json) if row else None

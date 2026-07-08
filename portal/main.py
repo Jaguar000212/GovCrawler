@@ -12,20 +12,17 @@ Usage:
 """
 import asyncio
 import logging
-import os
-import shutil
 import sys
-from pathlib import Path
 
-from .paths import LOG_FILE_PATH, LIVE_CONFIG_PATH, DEFAULT_CONFIG_PATH, bootstrap
+from .paths import LOG_FILE_PATH, bootstrap
 
 # First-run setup must precede the late imports below (they read env it sets).
 bootstrap()
 
-import yaml
 import uvicorn
 from cloud.db import Database
 from cloud.api.server import create_app
+from .config import load_config
 
 log_handlers = [logging.FileHandler(LOG_FILE_PATH, encoding="utf-8")]
 
@@ -45,39 +42,6 @@ log = logging.getLogger(__name__)
 # otherwise flood the log file with one line per page/poll.
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
-
-
-def load_config() -> dict:
-    # Always read from the LIVE config next to the .exe
-    target_config = LIVE_CONFIG_PATH if LIVE_CONFIG_PATH.exists() else (Path(__file__).parent / "config.yaml")
-
-    if not target_config.exists():
-        log.error(f"Config not found at: {target_config}")
-        os.makedirs(target_config.parent, exist_ok=True)
-        shutil.copy(DEFAULT_CONFIG_PATH, target_config)
-    with open(target_config) as f:
-        config = yaml.safe_load(f)
-
-    # Container deployments (deploy/docker-compose.yml) point at Postgres via
-    # env var rather than baking a second config.yaml into the image.
-    # DATABASE_URL_APP (the least-privilege govcrawler_app role, see Alembic
-    # 0020) takes precedence for runtime traffic when set; the `migrate`
-    # service never sets it, so it always runs migrations with DATABASE_URL's
-    # (superuser-ish) DDL rights. Local/dev/desktop installs without the
-    # split role keep working on plain DATABASE_URL or the sqlite default.
-    if os.environ.get("DATABASE_URL_APP"):
-        config["database"]["uri"] = os.environ["DATABASE_URL_APP"]
-    elif os.environ.get("DATABASE_URL"):
-        config["database"]["uri"] = os.environ["DATABASE_URL"]
-    if os.environ.get("DISPATCH_MODE"):
-        config.setdefault("dispatch", {})["mode"] = os.environ["DISPATCH_MODE"]
-    if os.environ.get("ADMIN_ORIGIN"):
-        config.setdefault("auth", {})["admin_origin"] = os.environ["ADMIN_ORIGIN"]
-    if os.environ.get("CROSS_MACHINE_RESUME"):
-        config.setdefault("crawler", {})["cross_machine_resume"] = (
-            os.environ["CROSS_MACHINE_RESUME"].lower() in ("1", "true", "yes")
-        )
-    return config
 
 
 def cmd_serve(config: dict):
@@ -140,6 +104,7 @@ async def cmd_crawl(config: dict, job_id: int):
     import httpx
     from playwright.async_api import async_playwright
 
+    from agent.api import _local_visited_bootstrap
     from agent.cloud_client import CloudApiClient, resume_remote_job
     from agent.crawler.engine import CrawlerEngine
     from cloud.api.server import create_app
@@ -179,6 +144,8 @@ async def cmd_crawl(config: dict, job_id: int):
     resumed = await resume_remote_job("http://local", token_provider, token_provider, job_id, transport=transport)
     seeds = [(s[0], s[1]) for s in resumed["seeds"]]
     engine_config = resumed["policy"]
+    recrawl_days = engine_config.get("crawler", {}).get("recrawl_days", 30)
+    visited_bootstrap = _local_visited_bootstrap(seeds, recrawl_days)
 
     log.info(f"Running job {job_id} with {len(seeds)} seeds…")
 
@@ -191,7 +158,7 @@ async def cmd_crawl(config: dict, job_id: int):
         browser = await p.chromium.launch(headless=True)
         try:
             engine = CrawlerEngine(config=engine_config, cloud=cloud, job_id=job_id, browser=browser)
-            await engine.run(seeds, visited_bootstrap=resumed["visited_bootstrap"])
+            await engine.run(seeds, visited_bootstrap=visited_bootstrap)
             await cloud.finish_job(status="done")
         except Exception as e:
             log.error(f"Job {job_id} failed: {e}", exc_info=True)

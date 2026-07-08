@@ -18,8 +18,8 @@ import webbrowser
 from enum import Enum, auto
 from tkinter import messagebox, simpledialog, ttk
 
-from portal.paths import BROWSER_PATH, ICON_PATH
-from .. import identity
+from portal.paths import BROWSER_PATH, DATA_DIR, ICON_PATH
+from .. import identity, localdb
 from .notifications import notify
 from .tray import TrayController
 
@@ -117,8 +117,33 @@ class CrawlerLauncher:
         self._access_token: str | None = None
         self._login_email: str | None = None
 
+        localdb.init(DATA_DIR / "agent_local.db")
+        self._ensure_cloud_url_configured()
+
         self._build_ui()
         self._render_state()
+
+    def _ensure_cloud_url_configured(self):
+        """First-run only: plan.md §19.1 Phase 9 Part 2, 2.1 — the agent must
+        be told which VPS to talk to before it can do anything real. Kept
+        deliberately simple (a blocking prompt, no validation beyond
+        non-empty) since this is a one-time-per-machine setup step, not a
+        recurring flow."""
+        if localdb.has_setting("cloud_api_base_url"):
+            return
+        url = simpledialog.askstring(
+            "Cloud Server URL",
+            "Enter your GovCrawler cloud server's base URL\n(e.g. https://govcrawler.example.com):",
+            parent=self.root,
+        )
+        url = (url or "").strip().rstrip("/")
+        if not url:
+            messagebox.showerror("Setup required", "A cloud server URL is required to use GovCrawler.")
+            sys.exit(1)
+        localdb.set_setting("cloud_api_base_url", url)
+
+    def _cloud_base_url(self) -> str:
+        return localdb.get_setting("cloud_api_base_url")
 
     # --- UI construction ------------------------------------------------
 
@@ -241,12 +266,14 @@ class CrawlerLauncher:
         if not refresh_token:
             return False
         try:
-            resp = self.http.post("/auth/refresh", json={"refresh_token": refresh_token}, timeout=5)
+            resp = httpx.post(f"{self._cloud_base_url()}/auth/refresh",
+                              json={"refresh_token": refresh_token}, timeout=5)
             resp.raise_for_status()
             data = resp.json()
             self._access_token = data["access_token"]
             keyring.set_password(_KEYRING_SERVICE, self._login_email, data["refresh_token"])
-            identity.update_access_token(data["access_token"])
+            identity.update_access_token(data["access_token"],
+                                         permissions=data["user"]["permissions"], is_admin=data["user"]["is_admin"])
             return True
         except Exception as e:
             log.warning(f"Token refresh failed: {e}")
@@ -318,12 +345,10 @@ class CrawlerLauncher:
         self._wait_for_server_ready(attempts=15)
 
     def _run_server_task(self):
-        from cloud.db import Database
-        from cloud.api.server import create_app
+        from ..bff.app import create_app
 
         try:
-            db = Database(self.config)
-            app = create_app(self.config, db)
+            app = create_app(self.config)
 
             u_config = uvicorn.Config(
                 app=app,
@@ -348,7 +373,7 @@ class CrawlerLauncher:
     def _wait_for_server_ready(self, attempts: int):
         def task():
             try:
-                self.http.get("/api/categories", timeout=2)
+                self.http.get("/ping", timeout=2)
                 self.root.after(0, self._on_server_ready)
             except Exception:
                 if attempts > 1:
@@ -376,7 +401,8 @@ class CrawlerLauncher:
 
     def _login_task(self, email: str, password: str):
         try:
-            resp = self.http.post("/auth/login", json={"email": email, "password": password}, timeout=10)
+            resp = httpx.post(f"{self._cloud_base_url()}/auth/login",
+                              json={"email": email, "password": password}, timeout=10)
             resp.raise_for_status()
             data = resp.json()
             self.root.after(0, self._on_login_success, email, data)
@@ -388,7 +414,8 @@ class CrawlerLauncher:
         self._login_email = email
         keyring.set_password(_KEYRING_SERVICE, _KEYRING_LAST_EMAIL_KEY, email)
         keyring.set_password(_KEYRING_SERVICE, email, data["refresh_token"])
-        identity.set_session(email, data["access_token"], self._base_url())
+        identity.set_session(email, data["access_token"], self._cloud_base_url(),
+                             permissions=data["user"]["permissions"], is_admin=data["user"]["is_admin"])
 
         self.state = AppState.RUNNING
         self._render_state()
@@ -582,9 +609,10 @@ class CrawlerLauncher:
     def open_browser(self):
         uri = self._base_url()
         if self._access_token:
-            # Hands the browser tab the launcher's own session via a cookie so
-            # the operator isn't asked to log in a second time in-browser.
-            uri = f"{uri}/auth/bootstrap?token={self._access_token}"
+            # Hands the browser tab a local session cookie so the operator
+            # isn't asked to log in a second time in-browser — the agent's
+            # own /local-bootstrap, not the old cross-process token hand-off.
+            uri = f"{uri}/local-bootstrap"
 
         if sys.platform.startswith("linux"):
             # PyInstaller overrides LD_LIBRARY_PATH with bundled libs; child processes

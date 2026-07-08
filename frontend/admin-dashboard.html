@@ -36,6 +36,103 @@
             <div class="empty-state">Loading...</div>
         </div>
     </section>
+
+    {% if user.can('users.manage') %}
+    <section>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <div class="section-label">Users &amp; Permissions</div>
+            <button class="btn-primary btn-sm" onclick="openNewUserModal()">+ New User</button>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Email</th>
+                    <th>Name</th>
+                    <th>Role</th>
+                    <th style="text-align:center">Active</th>
+                    <th style="text-align:center">Admin</th>
+                    <th></th>
+                </tr>
+                </thead>
+                <tbody id="ad-users-tbody"></tbody>
+            </table>
+        </div>
+    </section>
+    {% endif %}
+
+    {% if user.can('audit.view') %}
+    <section>
+        <div class="section-label" style="margin-bottom:8px;">Audit Log</div>
+        <div class="table-toolbar">
+            <input id="audit-filter-action" placeholder="Action prefix (e.g. user., lead., campaign.)"
+                   style="max-width:240px;" type="text">
+            <input id="audit-filter-from" title="From" type="datetime-local">
+            <input id="audit-filter-to" title="To" type="datetime-local">
+            <button class="btn-secondary btn-sm" onclick="loadAuditLog(1)">Filter</button>
+            <button class="btn-secondary btn-sm" onclick="clearAuditFilters()">Clear</button>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>User</th>
+                    <th>Action</th>
+                    <th>Target</th>
+                    <th>Detail</th>
+                    <th>IP</th>
+                </tr>
+                </thead>
+                <tbody id="audit-tbody"></tbody>
+            </table>
+        </div>
+        <div class="pagination">
+            <button class="btn-secondary btn-sm" id="btn-audit-prev" onclick="auditPrev()">← Prev</button>
+            <span id="audit-page-info" style="font-size:12px;color:var(--muted)">—</span>
+            <button class="btn-secondary btn-sm" id="btn-audit-next" onclick="auditNext()">Next →</button>
+        </div>
+    </section>
+    {% endif %}
+</div>
+
+<!-- New User Modal -->
+<div class="modal-overlay" id="modal-new-user" style="display:none;">
+    <div class="modal">
+        <h3>New User</h3>
+        <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:16px;">
+            <label>Email<input id="nu-email" type="email"></label>
+            <label>Password<input id="nu-password" type="password"></label>
+            <label>Full name<input id="nu-full-name" type="text"></label>
+            <label>Role
+                <select id="nu-role">
+                    <option value="">— none —</option>
+                    <option value="Admin">Admin</option>
+                    <option value="Operator">Operator</option>
+                    <option value="Viewer">Viewer</option>
+                </select>
+            </label>
+            <label><input id="nu-is-admin" type="checkbox"> Is admin (bypasses all permission checks)</label>
+        </div>
+        <div class="modal-actions">
+            <button class="btn-secondary" onclick="closeNewUserModal()">Cancel</button>
+            <button class="btn-primary" onclick="submitNewUser()">Create</button>
+        </div>
+    </div>
+</div>
+
+<!-- Permissions Modal -->
+<div class="modal-overlay" id="modal-permissions" style="display:none;">
+    <div class="modal modal-lg">
+        <h3>Permissions — <span id="perm-modal-email"></span></h3>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">
+            Each permission is either inherited from the user's role, explicitly granted, or explicitly denied.
+        </p>
+        <div id="perm-modal-grid" style="display:flex; flex-direction:column; gap:6px; max-height:50vh; overflow-y:auto;"></div>
+        <div class="modal-actions">
+            <button class="btn-secondary" onclick="closePermissionsModal()">Close</button>
+        </div>
+    </div>
 </div>
 
 <style>
@@ -55,4 +152,6 @@
 
 {% block init_js %}
 startAdminDashboardPoll();
+{% if user.can('users.manage') %}loadUsers();{% endif %}
+{% if user.can('audit.view') %}loadAuditLog(1);{% endif %}
 {% endblock %}

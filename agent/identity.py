@@ -10,37 +10,96 @@ import logging
 
 import httpx
 import keyring
+from keyring.errors import PasswordDeleteError
 
 log = logging.getLogger(__name__)
 
 _KEYRING_SERVICE = "govcrawler"
 
-_state = {"email": None, "access_token": None, "base_url": None}
+_state = {
+    "email": None, "access_token": None, "base_url": None,
+    "permissions": frozenset(), "is_admin": False,
+}
 _lock = asyncio.Lock()
 
 
-def set_session(email: str, access_token: str, base_url: str) -> None:
-    _state.update(email=email, access_token=access_token, base_url=base_url)
+class OperatorContext:
+    """Duck-typed to match cloud.api.deps.CurrentUser's `.can()` method, so
+    the same Jinja templates (`{% if user.can(...) %}`) render unchanged
+    whether `user` is a real CurrentUser (cloud-side) or this agent-local
+    stand-in built from identity.py's cached login/refresh response."""
+
+    def __init__(self, email: str, is_admin: bool, permissions: frozenset[str]):
+        self.email = email
+        self.is_admin = is_admin
+        self.permissions = permissions
+
+    def can(self, perm: str) -> bool:
+        return self.is_admin or perm in self.permissions
+
+
+def set_session(email: str, access_token: str, base_url: str,
+                permissions: list[str] = (), is_admin: bool = False) -> None:
+    _state.update(email=email, access_token=access_token, base_url=base_url,
+                  permissions=frozenset(permissions), is_admin=is_admin)
 
 
 def clear_session() -> None:
-    _state.update(email=None, access_token=None, base_url=None)
+    _state.update(email=None, access_token=None, base_url=None,
+                  permissions=frozenset(), is_admin=False)
+
+
+async def logout() -> None:
+    """Best-effort server-side session revocation (POSTs the keyring refresh
+    token to the cloud's /auth/logout, same dual-mode it already supports for
+    the browser's cookie-based logout) then always clears local state — a
+    failed revoke call must never leave the operator stuck 'logged in'
+    locally with no way out."""
+    email, base_url = _state["email"], _state["base_url"]
+    if email and base_url:
+        refresh_token = keyring.get_password(_KEYRING_SERVICE, email)
+        if refresh_token:
+            try:
+                async with httpx.AsyncClient(base_url=base_url, timeout=10) as http:
+                    await http.post("/auth/logout", json={"refresh_token": refresh_token})
+            except Exception as e:
+                log.warning(f"Cloud logout call failed (clearing local session anyway): {e}")
+        try:
+            keyring.delete_password(_KEYRING_SERVICE, email)
+        except PasswordDeleteError:
+            pass
+    clear_session()
 
 
 def has_session() -> bool:
     return _state["access_token"] is not None
 
 
-def update_access_token(access_token: str) -> None:
+def get_operator_context() -> OperatorContext:
+    if not has_session():
+        raise RuntimeError("No operator session — the launcher hasn't logged in yet")
+    return OperatorContext(_state["email"], _state["is_admin"], _state["permissions"])
+
+
+def update_access_token(access_token: str, permissions: list[str] | None = None,
+                        is_admin: bool | None = None) -> None:
     """Called by the launcher after its OWN (sync, Tk-thread) refresh cycle
     succeeds, so this module's cache doesn't go stale and trigger a second,
     avoidable refresh moments later. Doesn't fully eliminate the (rare, low-
     probability) case where both refresh concurrently against the same
     single-use rotating refresh token — a collision there just fails one
     side's refresh, which surfaces as a warning and one delayed heartbeat,
-    not data loss (writes stay safely queued in the local outbox)."""
+    not data loss (writes stay safely queued in the local outbox). Also
+    refreshes the cached permission set — /auth/refresh's response already
+    carries the user's current effective permissions for free, so a mid-
+    session role change is picked up on the next refresh without an extra
+    round trip."""
     if _state["access_token"] is not None:
         _state["access_token"] = access_token
+        if permissions is not None:
+            _state["permissions"] = frozenset(permissions)
+        if is_admin is not None:
+            _state["is_admin"] = is_admin
 
 
 async def get_valid_token() -> str:
@@ -58,7 +117,9 @@ async def refresh() -> str:
     return the new access token, and rotate the stored refresh token (it's
     single-use) — the same flow agent/launcher/app.py._try_refresh_sync
     already proves, just async and usable from a background crawl task that
-    outlives any one browser request or Tk-thread call."""
+    outlives any one browser request or Tk-thread call. The response's
+    embedded `user` also carries fresh effective permissions — no separate
+    /auth/me round trip needed to keep the cached permission set current."""
     async with _lock:
         email, base_url = _state["email"], _state["base_url"]
         if not email or not base_url:
@@ -71,6 +132,8 @@ async def refresh() -> str:
             r.raise_for_status()
             data = r.json()
         _state["access_token"] = data["access_token"]
+        _state["permissions"] = frozenset(data["user"]["permissions"])
+        _state["is_admin"] = data["user"]["is_admin"]
         keyring.set_password(_KEYRING_SERVICE, email, data["refresh_token"])
         log.info(f"Refreshed operator access token for {email}")
         return _state["access_token"]

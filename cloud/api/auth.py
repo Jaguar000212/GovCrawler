@@ -1,13 +1,11 @@
-"""Authentication endpoints (login/refresh/logout/me + loopback bootstrap).
-See .docs/authentication.md."""
+"""Authentication endpoints (login/refresh/logout/me). See .docs/authentication.md."""
 import datetime
 import logging
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from fastapi.responses import RedirectResponse
 
-from .deps import CurrentUser, decode_token_with_rotation, get_config, get_current_user, get_db, require_loopback
+from .deps import CurrentUser, get_config, get_current_user, get_db
 from ..db import Database, User
 from ..security.hashing import verify_password
 from ..security.jwt import create_access_token, generate_refresh_token, hash_refresh_token
@@ -123,8 +121,12 @@ async def refresh(req: RefreshRequest, request: Request, response: Response,
 
 
 @router.post("/auth/logout")
-async def logout(request: Request, response: Response, db: Database = Depends(get_db)):
-    presented = request.cookies.get("refresh")
+async def logout(request: Request, response: Response, req: RefreshRequest | None = None,
+                 db: Database = Depends(get_db)):
+    """Accepts the refresh token explicitly (agent/identity.py's logout —
+    it's a Bearer client, not a cookie jar, same as /auth/refresh's existing
+    dual-mode) or falls back to the `refresh` cookie (browser)."""
+    presented = (req.refresh_token if req else None) or request.cookies.get("refresh")
     if presented:
         session = db.get_session_by_hash(hash_refresh_token(presented))
         if session:
@@ -140,28 +142,3 @@ async def logout(request: Request, response: Response, db: Database = Depends(ge
 async def me(user: CurrentUser = Depends(get_current_user), db: Database = Depends(get_db)):
     db_user = db.get_user_by_id(user.id)
     return _user_out(db, db_user)
-
-
-@router.get("/auth/bootstrap", dependencies=[Depends(require_loopback)])
-async def bootstrap(token: str, db: Database = Depends(get_db), config: dict = Depends(get_config)):
-    """The launcher already holds a valid access token from its own login —
-    this lets the browser tab it opens inherit that session via a cookie
-    instead of prompting the operator to log in a second time. Loopback-only
-    (same trust boundary as /api/system/*) and re-validates the token itself
-    rather than trusting the query string blindly."""
-    payload = decode_token_with_rotation(token, config)
-    if payload is None:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-    if payload.get("type") != "access":
-        raise HTTPException(status_code=401, detail="Invalid token type")
-    user = db.get_user_by_id(int(payload["sub"]))
-    if not user or not user["is_active"] or payload.get("tv") != user["token_version"]:
-        raise HTTPException(status_code=401, detail="Token has been revoked")
-
-    response = RedirectResponse(url="/")
-    secure = config["auth"].get("cookie_secure", False)
-    response.set_cookie("access", token, httponly=True, secure=secure, samesite="strict",
-                        max_age=config["auth"]["access_ttl_minutes"] * 60)
-    response.set_cookie("csrf", secrets.token_urlsafe(32), httponly=False, secure=secure, samesite="strict",
-                        max_age=config["auth"]["access_ttl_minutes"] * 60)
-    return response

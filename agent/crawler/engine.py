@@ -170,10 +170,11 @@ class CrawlerEngine:
 
     async def run(self, seeds: list[tuple[str, int | None]], visited_bootstrap: list[str] = None,
                   frontier: dict | None = None):
-        """seeds: list of (url, domain_id) tuples. visited_bootstrap: URLs the
-        coordination API already computed as pre-visited for this job (own
-        prior-run history + global recrawl protection, minus this job's own
-        seed domains) — see cloud/api/coordination.py:_visited_bootstrap.
+        """seeds: list of (url, domain_id) tuples. visited_bootstrap: URLs
+        agent/api.py already computed as pre-visited for this job (this
+        machine's own recent crawl history, minus this job's own seed
+        domains — recrawl protection is 100% local, plan.md §19.1 Phase 9
+        Part 2) — see agent/api.py:_local_visited_bootstrap.
         frontier: a previous _save_checkpoint() snapshot (from agent/api.py's
         resume route) — when given, the queue is rehydrated from it instead
         of enqueueing `seeds` fresh, so a resumed run continues rather than
@@ -434,7 +435,7 @@ class CrawlerEngine:
         # (see .docs/crawler.md, .docs/resilience.md).
         if not item.is_seed:
             await self._loop.run_in_executor(
-                self._db_pool, self._cloud.mark_visited, url, self._job_id)
+                self._db_pool, self._cloud.mark_visited, url)
 
         leads, raw_links = await self._loop.run_in_executor(
             self._parse_pool, parse_for_engine, html, url, self._excfg)

@@ -959,35 +959,70 @@ They are ordered by dependency — 7 unblocks 9 — and each is independently sh
   every-startup recompute as *the* backfill mechanism for a freshly-added `lead_score` column on an old DB
   (server-default 0) — so `_ensure_columns()` now fires a narrower, one-time recompute specifically when
   that column is newly added in the current run, preserving the upgrade path without the unconditional cost.
-- **Phase 9 — True agent/process split (§2.2, §8, §15). Part 1 shipped 2026-07-08; Part 2 not started.**
-  The user's actual target is the full §2.2 vision — a VPS runs cloud independently; an operator runs their
-  launcher anywhere and connects to it remotely, neither side aware of how the other was started. Tracing
-  the real code showed reaching that needs a local BFF that proxies *every* operator-facing router
-  (domains/leads/campaigns/settings/templates/credentials/blacklist, not just job lifecycle) to a remote
-  cloud — a large, separately-planned undertaking (**Part 2**, not designed yet).
-  - **Part 1 (shipped): zero `cloud.*` imports in the agent tier's job-lifecycle runtime.**
+- **Phase 9 — True agent/process split (§2.2, §8, §15). Both parts shipped — Part 1 2026-07-08, Part 2
+  2026-07-08 (same audit cycle, later session).** The user's actual target was the full §2.2 vision — a VPS
+  runs cloud independently; an operator runs their launcher anywhere and connects to it remotely, neither
+  side aware of how the other was started — now fully realized, with two corrections to the original plan
+  the user made explicit partway through Part 2's design: (a) visited-URL history and frontier checkpoints
+  are **100% agent-local, never synced to the cloud at all** (only leads flow outward) — stronger than the
+  original "optional cross-machine resume" design; (b) a job may **only ever be resumed by the agent that
+  started it**, enforced server-side, not just a convention.
+  - **Part 1 (shipped 2026-07-08): zero `cloud.*` imports in the agent tier's job-lifecycle runtime.**
     `agent/api.py`'s three routes (create/resume/cancel) no longer import `cloud.db`, `cloud.security`, or
     `cloud.api.deps` — replaced by: `agent/identity.py` (the operator's standing session — a
     self-refreshing token via `/auth/refresh` + the OS keyring, the same mechanism the launcher already
-    used for its own polling, now shared) and `agent/state.py` (agent-owned config/browser/active-tasks,
-    wired once by `cloud/api/server.py`'s existing lifespan — the one remaining, deliberate `cloud → agent`
-    direction, unchanged from before). A real correctness trap surfaced and was fixed here: the old
-    `_make_token_provider` minted a fresh JWT via direct DB access on *every* call, which is why a
-    multi-hour crawl's heartbeats never 401'd — naively forwarding one browser request's token instead
-    would have silently broken any crawl outliving the access-token TTL. `CloudApiClient`'s
-    `token_provider` is now async with a retry-once-on-401-then-refresh wrapper, verified against a mock
-    401 response (not just import-checked). The `crawl.run` permission check moved to
-    `cloud/api/coordination.py` (now the only place it's checked, not a duplicate) since the local route no
-    longer has a `CurrentUser` to check it against — a bare loopback restriction is the route's remaining
-    gate, matching `/api/system/activity`'s existing posture. An `import-linter` CI contract
-    (`pyproject.toml`) enforces `agent ⊥ cloud` going forward, with one documented `ignore_imports`
-    exception for `agent/launcher/app.py` (the desktop process entrypoint — it still has to construct the
-    combined app until Part 2 genuinely separates the processes).
-  - **Part 2 (not started): agent as a genuinely separate, remotely-reachable process.** The local BFF
-    proxy layer described above, `cloud_api_base_url` pointing at a real VPS, CORS between two origins (or
-    just no shared origin at all once truly remote), the launcher managing its own standalone process, and
-    `GovCrawler.spec`/packaging changes. *Prereq:* Part 1 (done). *Risk:* highest of anything in this
-    roadmap — deserves its own dedicated plan, not a bullet here.
+    used for its own polling, now shared) and `agent/state.py` (agent-owned config/browser/active-tasks). A
+    real correctness trap surfaced and was fixed here: the old `_make_token_provider` minted a fresh JWT via
+    direct DB access on *every* call, which is why a multi-hour crawl's heartbeats never 401'd — naively
+    forwarding one browser request's token instead would have silently broken any crawl outliving the
+    access-token TTL. `CloudApiClient`'s `token_provider` is now async with a retry-once-on-401-then-refresh
+    wrapper, verified against a mock 401 response.
+  - **Part 2 (shipped 2026-07-08): agent as a genuinely separate, remotely-reachable process.**
+    - **2.0 — Admin dashboard completeness** (a prerequisite the user surfaced: "admin dashboard should
+      have everything needed"). Wired up the previously-unwritable `UserPermission` grant/deny table
+      (`PUT /api/admin/users/{id}/permissions/{key}`) and expanded audit logging from 8 action strings
+      (user admin only) to every mutating router, plus a new paginated `GET /api/admin/audit`
+      (`cloud/api/audit.py`, deliberately its own router — `audit.view` is a different permission than
+      `users.manage`). Incidentally fixed a pre-existing gap: `admin.router` was mounted without
+      `verify_csrf`.
+    - **2.1 — `agent/localdb.py`** (new): a local SQLite mirroring the cloud's own `config.yaml`/
+      `app_settings` split — `local_settings` (`cloud_api_base_url`, a durable `agent_id` UUID) plus (added
+      in 2.2) `visited_history`. `agent/identity.py` gained cached effective permissions + an
+      `OperatorContext` duck-typed to `CurrentUser.can()`, populated for free from login/refresh responses
+      (`UserOut.permissions` was already in the wire shape) rather than a separate `/auth/me` round trip.
+    - **2.2 — Visited-URL/frontier localization.** Per the user's correction, dropped `VisitedUrl`/
+      `JobFrontier` from the cloud schema entirely (Alembic `0023_drop_visited_and_frontier`) along with
+      `cross_machine_resume` (config key, env override, both tests) — recrawl protection became a pure
+      local computation (`agent/api.py:_local_visited_bootstrap` against `agent/localdb.py`'s history).
+    - **2.3 — Standalone `agent/bff/app.py`.** A genuinely separate FastAPI app (not
+      `cloud.api.server.create_app`) that the launcher now boots — owns Playwright directly, mounted with
+      its own session model (`agent/bff/security.py`: `require_loopback` — checks the real peer address,
+      not just the bind host — `require_local_session`, `verify_local_csrf` with a trusted-`Host` check
+      against DNS-rebinding). The launcher now logs in **directly against the cloud** (not its own local
+      server) and hands the browser a session via `GET /local-bootstrap`, replacing `/auth/bootstrap?token=`
+      (removed from `cloud/api/auth.py` entirely). Folded in what would have been Phase 9's originally-
+      separate "2.6": `cloud/api/server.py` lost the `agent.api.router` mount and the Playwright lifespan
+      block outright (leaving it half-removed for a sub-phase would have left the cloud app broken), and
+      `cloud/api/system.py`'s admin activity view — found to already be silently broken since Part 1 split
+      the `active_tasks` dict in two — was rewritten to be DB-backed (`JobMixin.get_running_jobs`).
+    - **2.4 — `agent/bff/proxy.py`** (one generic reverse-proxy for every remaining shared-data route,
+      built on a generalized `agent/cloud_client.py:request_with_retry`), **`agent/bff/pages.py`** (renders
+      `frontend/` templates locally, admin dashboard deliberately excluded — an admin-capable operator gets
+      an external link instead), **`agent/bff/local_system.py`** (`/api/system/activity`/`cancel-all`/
+      `/api/logs`, now genuinely reading this machine's own task registry instead of a dict nothing wrote to).
+    - **2.5 — Job resume ownership.** `crawl_jobs.agent_hostname` (previously a dead column) is now stamped
+      with the creating agent's `agent_id` at `POST /jobs`; `coordination_resume_job` rejects (403)
+      unconditionally if a different agent's `agent_id` is presented — a job with no data anywhere else to
+      resume from has nothing to gain from a soft/heartbeat-based check.
+    - **2.7 — Packaging.** `requirements/agent.txt` dropped its stale SQLAlchemy/psycopg2/PyJWT deps (a
+      leftover comment claiming Part 1 hadn't happened yet) and gained `jinja2`; `deploy/Dockerfile` switched
+      from the Playwright base image to plain `python:3.11-slim` and stopped copying `agent/` in;
+      `GovCrawler.spec` stopped bundling `alembic/` (the desktop agent never runs migrations); the
+      import-linter contract dropped its `agent.launcher.app` exception and gained the mirror direction
+      (`cloud` forbidden from importing `agent`) — `agent ⊥ cloud`, zero exceptions either way.
+    - **2.8 — Docs.** `.docs/architecture.md`, `api-reference.md`, `database-schema.md`, `configuration.md`,
+      `resilience.md`, `authentication.md`, `directory-structure.md`, `deployment.md`, `crawler.md` all
+      rewritten for the real split.
 
 > Redis-based real-time dashboard push (§11) remains a documented, deliberately-deferred upgrade — not planned
 > here. The current 3 s polling is adequate and the dispatcher's separate-process model would need Redis for

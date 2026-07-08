@@ -1,16 +1,18 @@
-"""System activity aggregation for the desktop launcher (loopback) and the
-browser admin dashboard, plus /healthz. Lets the launcher ask "safe to stop?"
-over HTTP instead of touching asyncio task dicts cross-thread. See
-.docs/api-reference.md."""
+"""System activity aggregation for the browser admin dashboard, plus
+/healthz. The desktop-launcher-facing counterparts (`/api/system/activity`,
+`/api/system/cancel-all`) moved to the agent's own standalone BFF
+(agent/bff/*) — the cloud process never runs a crawl engine itself anymore
+(plan.md §19.1 Phase 9 Part 2), so it has nothing local to report on or
+cancel; crawl-job activity here is DB-backed (`crawl_jobs.status`), not an
+in-process task registry. See .docs/api-reference.md."""
 
 import logging
 from fastapi import APIRouter, Depends, Response
 from sqlalchemy import text
 
 from . import campaigns as campaigns_module
-from .deps import get_active_tasks, get_db, require, require_loopback
+from .deps import get_db, require
 from ..db import Campaign, CampaignStatus, Database
-from agent.api import cancel_job_if_running
 
 log = logging.getLogger(__name__)
 
@@ -45,16 +47,18 @@ def _running_campaigns_without_task(db: Database, known_ids: set[int]) -> list[d
         return [{"id": c.id, "name": c.name} for c in q.all()]
 
 
-def _get_activity(db: Database, active_tasks: dict) -> dict:
-    crawl_jobs = []
-    for job_id, task in active_tasks.items():
-        if task.done():
-            continue
-        job = db.get_job(job_id, view_all=True)
-        label = f"Job #{job_id}"
-        if job:
-            label = f"Job #{job_id} ({job['crawled_domains']}/{job['total_domains']} domains, {job['leads_found']} leads)"
-        crawl_jobs.append({"id": job_id, "label": label})
+def _get_admin_activity(db: Database) -> dict:
+    """Org-wide live counts for the browser admin dashboard: crawl jobs come
+    straight from `crawl_jobs.status == 'running'` (DB-backed — there is no
+    in-process task registry to read on the cloud side anymore); campaign
+    dispatch genuinely still runs in this process (the dispatcher), so that
+    half stays task-registry-backed."""
+    crawl_jobs = [
+        {"id": j["id"],
+         "label": f"Job #{j['id']} ({j['crawled_domains']}/{j['total_domains']} domains, {j['leads_found']} leads)",
+         "agent_hostname": j["agent_hostname"]}
+        for j in db.get_running_jobs()
+    ]
 
     campaigns = []
     tracked_ids = set()
@@ -66,64 +70,21 @@ def _get_activity(db: Database, active_tasks: dict) -> dict:
         campaigns.append({"id": campaign_id, "name": campaign["name"] if campaign else f"Campaign #{campaign_id}"})
 
     campaigns.extend(_running_campaigns_without_task(db, tracked_ids))
+    for campaign in campaigns:
+        campaign["stats"] = db.get_campaign_stats(campaign["id"])
+
+    recent_jobs = db.list_jobs(limit=5, view_all=True)
+    recent_campaigns, _ = db.list_campaigns(limit=5, view_all=True)
 
     return {
         "crawl_jobs": crawl_jobs,
         "campaigns": campaigns,
         "total_active": len(crawl_jobs) + len(campaigns),
+        "recent_jobs": [j for j in recent_jobs if j["status"] not in ("pending", "running")],
+        "recent_campaigns": [c for c in recent_campaigns if c["status"] not in ("RUNNING",)],
     }
-
-
-@router.get("/api/system/activity", dependencies=[Depends(require_loopback)])
-async def get_activity(db: Database = Depends(get_db), active_tasks: dict = Depends(get_active_tasks)):
-    return _get_activity(db, active_tasks)
-
-
-def _get_admin_activity(db: Database, active_tasks: dict) -> dict:
-    """Same live counts as `_get_activity`, plus per-campaign dispatch
-    progress (from the existing `get_campaign_stats` aggregate) and a
-    recently-finished tail — the browser admin dashboard polls this instead
-    of `/api/system/activity` since it isn't running on localhost."""
-    activity = _get_activity(db, active_tasks)
-    for campaign in activity["campaigns"]:
-        campaign["stats"] = db.get_campaign_stats(campaign["id"])
-
-    recent_jobs = db.list_jobs(limit=5, view_all=True)
-    recent_campaigns, _ = db.list_campaigns(limit=5, view_all=True)
-    activity["recent_jobs"] = [j for j in recent_jobs if j["status"] not in ("pending", "running")]
-    activity["recent_campaigns"] = [c for c in recent_campaigns if c["status"] not in ("RUNNING",)]
-    return activity
 
 
 @router.get("/api/admin/activity", dependencies=[Depends(require("jobs.view_all"))])
-async def get_admin_activity(db: Database = Depends(get_db), active_tasks: dict = Depends(get_active_tasks)):
-    return _get_admin_activity(db, active_tasks)
-
-
-@router.post("/api/system/cancel-all", dependencies=[Depends(require_loopback)])
-async def cancel_all(db: Database = Depends(get_db), active_tasks: dict = Depends(get_active_tasks)):
-    """Loopback-only emergency stop for local shutdown — unlike the
-    coordination cancel endpoint, this flips status to 'cancelled' directly
-    rather than waiting for the engine to drain and self-report, since the
-    whole point is "the server is about to go away right now"."""
-    activity = _get_activity(db, active_tasks)
-
-    cancelled_jobs = 0
-    for job in activity["crawl_jobs"]:
-        db.set_cancel_requested(job["id"])
-        if cancel_job_if_running(job["id"], active_tasks):
-            db.finish_job(job["id"], status="cancelled")
-            cancelled_jobs += 1
-
-    for campaign in activity["campaigns"]:
-        db.update_campaign_status(campaign["id"], CampaignStatus.CANCELLED)
-
-    log.info(
-        f"cancel-all: {cancelled_jobs} crawl job(s), {len(activity['campaigns'])} campaign(s) signalled to stop"
-    )
-
-    return {
-        "crawl_jobs_cancelled": cancelled_jobs,
-        "campaigns_cancelled": len(activity["campaigns"]),
-        "message": "Cancellation signalled. Campaign dispatch loops may take up to ~90s to actually stop.",
-    }
+async def get_admin_activity(db: Database = Depends(get_db)):
+    return _get_admin_activity(db)
