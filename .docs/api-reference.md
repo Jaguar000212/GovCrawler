@@ -78,8 +78,10 @@ cloud router only exposes reads.
 
 ## Agent coordination — `cloud/api/coordination.py` (prefix `/api/coordination`)
 
-The contract a `CloudApiClient` speaks. All require an authenticated user; `/cancel` additionally checks job
-ownership (owner or `crawl.cancel_all`). See [resilience.md](resilience.md) for the durability guarantees.
+The contract a `CloudApiClient` speaks. Every job-scoped route authorizes on **job ownership** (the owner,
+or an admin; `/cancel` also accepts `crawl.cancel_all`) — writes are decoupled from the volatile `crawl.run`
+grant so revoking a permission mid-crawl can't strand the outbox. See [resilience.md](resilience.md) for the
+durability guarantees.
 
 | Method | Path | Purpose |
 |--------|------|---------|

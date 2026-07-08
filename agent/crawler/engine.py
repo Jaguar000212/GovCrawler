@@ -15,6 +15,8 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from urllib.parse import parse_qs, urlparse, urlsplit
 
+from shared.urls import strip_www
+
 from .parser import parse_for_engine
 from ..cloud_client import CloudApiClient
 
@@ -81,10 +83,6 @@ class CrawlerEngine:
     def _next_counter(self) -> int:
         self._counter += 1
         return self._counter
-
-    @staticmethod
-    def _strip_www(netloc: str) -> str:
-        return netloc.removeprefix("www.")
 
     @staticmethod
     def _url_key(url: str) -> str:
@@ -188,7 +186,7 @@ class CrawlerEngine:
         for url, did in seeds:
             parsed_url = url if "://" in url else "http://" + url
             netloc = urlparse(parsed_url).netloc.lower()
-            root = self._strip_www(netloc)
+            root = strip_www(netloc)
             if did is not None:
                 self._netloc_to_domain[netloc] = did
                 self._netloc_to_domain[root] = did
@@ -420,14 +418,6 @@ class CrawlerEngine:
         if depth > self._max_depth_seen:
             self._max_depth_seen = depth
         self._session_visited_count += 1
-        # Seeds are NOT written to visited_urls in the DB. They are always
-        # re-crawlable entry points (is_seed bypass in _enqueue) and writing them
-        # to the DB would pollute the recrawl protection set, causing their child
-        # pages to be treated as "recently visited by a seed" on future runs.
-        # Child pages ARE marked visited so recrawl protection and dedup work.
-        if not item.is_seed:
-            await self._loop.run_in_executor(
-                self._db_pool, self._cloud.mark_visited, url, self._job_id)
 
         html = await self._fetch(url, browser_context)
         if not html:
@@ -435,13 +425,23 @@ class CrawlerEngine:
                 self._crawled_domains += 1
             return
 
+        # Persist to visited_urls only AFTER a successful fetch: a failed fetch
+        # leaves the URL un-marked so it's retried next run instead of being
+        # stranded (and, for a pagination page, stranding the rest of its
+        # chain) for recrawl_days. Seeds are never marked — they must stay
+        # re-crawlable entry points; marking them would pollute the recrawl set
+        # (see .docs/crawler.md, .docs/resilience.md).
+        if not item.is_seed:
+            await self._loop.run_in_executor(
+                self._db_pool, self._cloud.mark_visited, url, self._job_id)
+
         leads, raw_links = await self._loop.run_in_executor(
             self._parse_pool, parse_for_engine, html, url, self._excfg)
 
         if domain_id is None:
             netloc = urlparse(url).netloc
             domain_id = (self._netloc_to_domain.get(netloc) or
-                         self._netloc_to_domain.get(self._strip_www(netloc)))
+                         self._netloc_to_domain.get(strip_www(netloc)))
 
         new_leads = await self._loop.run_in_executor(
             self._db_pool, self._save_leads, leads, domain_id, item.is_seed, depth)
@@ -583,27 +583,13 @@ class CrawlerEngine:
         return bool(value) and value.isascii() and value.isdigit()
 
     def _is_pagination_link(self, url: str, anchor_text: str, rel: list[str]) -> bool:
-        """Conservative pagination classifier (Story #9). Deliberately does
-        NOT check `pagination.enabled` — that gate lives at the call site in
-        `_enqueue_links` — so this stays a pure, independently-testable rule.
-
-        A paging query param, when present, is the DECIDING signal — numeric
-        value means pagination, non-numeric means NOT, full stop, regardless
-        of anchor text or rel. This is the entire firewall against session-URL
-        traps (e.g. tntenders.gov.in) that dress a non-numeric/base64 session
-        param up with a visible "Next" link — the link text lies, the query
-        value doesn't. Only when the URL carries NONE of the configured
-        paging params do we fall back to rel="next" / anchor-text signals.
-        Never loosen the numeric check to a substring or regex match.
-
-        Matching is case-insensitive on param NAMES (`?Page=2` must still
-        hit `page`) and blank values count as present-but-non-numeric
-        (`keep_blank_values=True` — a bare `?page=` must not silently fall
-        through to the rel/text fallback). If more than one configured
-        param_signal is present on the same URL, ANY non-numeric value among
-        them rejects the whole URL — fail closed rather than picking
-        whichever configured name happens to be checked first.
-        """
+        """Conservative pagination classifier — a pure rule (the
+        `pagination.enabled` gate lives at the call site). A paging query param,
+        when present, is the deciding signal: a plain-integer value = pagination,
+        anything else = not (fail closed; this is the firewall against session-URL
+        traps). Only with no configured param present do we fall back to
+        rel="next" / anchor-text. Never loosen the numeric check to a substring
+        match. See .docs/crawler.md#link-discovery--pagination."""
         param_signals = self._pag.get("param_signals", [])
         if isinstance(param_signals, str):
             param_signals = [param_signals]
@@ -692,18 +678,10 @@ class CrawlerEngine:
         for absolute, text, rel in raw_links:
             is_pag = pagination_target is not None and absolute == pagination_target
 
-            # The per-page link cap only governs pages OUTSIDE a pagination
-            # chain. A page that is itself part of a chain (chain_budget is
-            # not None) has its structural fan-out governed by the shared
-            # chain budget below instead (Task B4 / AC 7) — otherwise a
-            # 50-page chain would re-apply this cap on every single page.
-            #
-            # Gated on `pagination_target is not None` (does THIS page have
-            # an elected pagination hit), NOT the global `pagination_on`
-            # flag — a page with zero pagination links must keep the exact
-            # original `break` semantics (including the `_skipped` count)
-            # even when the feature is enabled elsewhere (AC 9; code review
-            # finding, 2026-07-02).
+            # Per-page link cap governs only non-chain pages (chain pages use the
+            # shared chain budget below). Gated on `pagination_target is not None`,
+            # not the global flag, so a page with no pagination link keeps the
+            # original break/_skipped semantics. See .docs/crawler.md.
             if not is_pag and chain_budget is None and max_links > 0 and links_added >= max_links:
                 self._skipped += 1
                 if pagination_target is not None:
@@ -720,20 +698,8 @@ class CrawlerEngine:
                 continue
 
             if is_pag:
-                # Pagination bypasses the per-page link cap and the priority-
-                # keyword filter (a "Next" anchor rarely carries a keyword) —
-                # it spends page_hops, not depth or links_added (AC 1, 2, 3).
-                #
-                # KNOWN INTERACTION (present & intentionally NOT fixed here —
-                # separate effort, Story #9 Task B5): mark_visited fires
-                # BEFORE _fetch in _process(), so a transient failure on any
-                # page mid-chain permanently strands the rest of that chain
-                # for `recrawl_days` — and because chain continuation depends
-                # entirely on parsing the current page, it also aborts the
-                # REST OF THE CURRENT crawl's discovery down this chain, not
-                # just future recrawls. Longer chains (this fix's whole
-                # point) hit that flake more often than today's depth-4
-                # chains did.
+                # Pagination bypasses the per-page link cap and priority filter;
+                # it spends page_hops, not depth/links_added. See .docs/crawler.md.
                 if page_hops >= max_pagination_pages:
                     self._skipped += 1
                     continue

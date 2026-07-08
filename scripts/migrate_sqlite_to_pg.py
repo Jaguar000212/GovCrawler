@@ -3,10 +3,10 @@ One-time SQLite -> Postgres data migration (Phase 1 — single source, no
 cross-operator merge; that's a later phase per plan.md §14.2).
 
 Copies every table 1:1 (remapping autoincrement PKs, since every table is
-moving databases), seeds/backfills the two tables that changed shape this
-phase (`categories`/`org_types`, `crawl_job_domains`), and leaves everything
-else — including `test_campaigns`/`test_campaign_emails` and plaintext SMTP
-passwords — untouched (those are Phase 2 work).
+moving databases) and seeds/backfills the tables that changed shape
+(`categories`/`org_types`, `crawl_job_domains`). It targets the current
+unified schema, so the pre-0016 `test_campaigns`/`test_campaign_emails`
+tables are not carried over (they were merged into `campaigns(kind='test')`).
 
 RUNBOOK ORDERING (do not skip):
     1. `docker compose -f deploy/docker-compose.yml up migrate` — creates the
@@ -362,14 +362,6 @@ def migrate(sqlite_path: str, pg_url: str) -> None:
             src_conn, dst_conn, "campaigns", {"email_templates": template_id_map},
             fk_map={"template_id": "email_templates"}, soft_fk={"template_id"},
         )
-        count("test_campaigns")
-        test_campaign_id_map = copy_table(
-            src_conn, dst_conn, "test_campaigns",
-            {"email_templates": template_id_map, "smtp_credentials": credential_id_map},
-            fk_map={"template_id": "email_templates", "test_credential_id": "smtp_credentials"},
-            soft_fk={"template_id", "test_credential_id"},
-        )
-
         count("campaign_credentials")
         copy_table(
             src_conn, dst_conn, "campaign_credentials",
@@ -384,14 +376,6 @@ def migrate(sqlite_path: str, pg_url: str) -> None:
             fk_map={"campaign_id": "campaigns", "lead_id": "leads", "credential_id": "smtp_credentials"},
             soft_fk={"credential_id"},
         )
-        count("test_campaign_emails")
-        copy_table(
-            src_conn, dst_conn, "test_campaign_emails",
-            {"test_campaigns": test_campaign_id_map, "smtp_credentials": credential_id_map},
-            fk_map={"test_campaign_id": "test_campaigns", "credential_id": "smtp_credentials"},
-            soft_fk={"credential_id"},
-        )
-
         count("blacklist")
         copy_table(src_conn, dst_conn, "blacklist", {})
 

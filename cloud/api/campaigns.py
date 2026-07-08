@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, model_validator
 
 from . import deps
-from .deps import CurrentUser, get_current_user, get_db, require
+from .deps import CurrentUser, forbid_unless_owner, get_current_user, get_db, require
 from .dispatcher import resolve_credential_pool, run_campaign_dispatch
 from ..db import Database, CampaignKind, CampaignStatus, Lead
 from ..services.campaign_service import render_draft_emails, render_template_string
@@ -90,8 +90,7 @@ def _get_owned_campaign(db: Database, campaign_id: int, user: CurrentUser) -> di
     campaign = db.get_campaign(campaign_id, view_all=True)
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
-    if campaign["owner_id"] != user.id and not user.is_admin:
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    forbid_unless_owner(campaign["owner_id"], user)
     return campaign
 
 

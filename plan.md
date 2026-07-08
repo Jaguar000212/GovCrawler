@@ -918,6 +918,44 @@ the Phase-1/2 target — there's no separate "fix schema" phase.
 - **Phase 6 — Polish.** Admin real-time dashboard (Redis only if pub/sub wanted); optional cross-machine resume; WAL
   archiving; CI/CD; docs; packaging refresh.
 
+### 19.1 Post-roadmap phases (architecture alignment)
+
+Phases 0–6 shipped. A 2026-07-08 docs/code audit surfaced deviations between §15's target layout and the built
+system, plus two latent flags (both now **fixed**: coordination writes authorize on job ownership, and the
+crawler marks a URL visited only after a successful fetch). The remaining, larger deviations are sequenced below.
+They are ordered by dependency — 7 unblocks 9 — and each is independently shippable. **Not started; planning only.**
+
+- **Phase 7 — Structural consolidation (mechanical, no behavior change).** Bring the tree in line with §15:
+  hoist `cloud/frontend/` to a top-level `frontend/` shared by both tiers; fold GovScraper's live pieces
+  (`get_categories`/`get_organization_types`/`get_entries_for_category` + `HEADERS`/`TARGET_SUFFIXES`) into
+  `cloud/scraper/` and retire the standalone package (or keep a thin `runner.py` shim — decide at build time);
+  split `requirements.txt` into `requirements/{shared,cloud,agent}.txt`; split `tests/` into
+  `tests/{shared,cloud,agent}`; extract the crawler's pagination logic (`_is_pagination_link`,
+  `_elect_pagination_target`, `_is_plain_int`, `_safe_int`) into `agent/crawler/pagination.py`. Update the
+  `Dockerfile`, `GovCrawler.spec`, `ci.yaml`, and all import sites. *Risk:* path churn; caught by import-sanity
+  + a green CI. *Prereq for:* Phase 9 (shared/ hoisting).
+- **Phase 8 — DB-backed crawl policy (`app_settings`, §3.2).** Move the *policy* half of `config.yaml`
+  (extraction, `lead_score.weights`, crawler policy knobs — NOT machine-local runtime: workers/timeouts/bind)
+  into an `app_settings(key TEXT PK, value JSONB, updated_by, updated_at)` table. New Alembic revision +
+  `AppSettingsMixin` (get/set with an optimistic `updated_at` check, §17); seed from the canonical `config.yaml`
+  on first migrate (expand → backfill → switch); `settings.manage` reads/writes the DB, and the job-create
+  `policy` payload is built from `app_settings` instead of the file so every crawler is guaranteed identical
+  policy; a score-weight change triggers a **background** recompute (replacing the every-startup
+  `_recompute_lead_scores`). *Risk:* two config sources during the transition; mitigate with the expand/contract
+  order and a one-release dual-read.
+- **Phase 9 — True agent/process split (§2.2, §8, §15).** Make the agent its own process with **zero
+  `cloud.*` imports**: the agent forwards the operator's real access token (from the keyring flow, §8) instead
+  of `_make_token_provider`'s `db.get_user_by_id` read, so it needs no DB URI, no `cloud.security`, no
+  `cloud.db`; move any genuinely-shared helpers into `shared/`; have the launcher start the agent against a
+  configurable `cloud_api_base_url` (loopback for desktop, the VPS for a remote operator). Add an
+  `import-linter` CI contract enforcing `agent ⊥ cloud`. *Prereq:* Phase 7 (shared/ hoisting). *Risk:* highest —
+  touches the run model, token lifetime for long crawls, and the desktop single-process assumption; stage behind
+  a flag and keep the in-process path working until the split is proven.
+
+> Redis-based real-time dashboard push (§11) remains a documented, deliberately-deferred upgrade — not planned
+> here. The current 3 s polling is adequate and the dispatcher's separate-process model would need Redis for
+> true push regardless.
+
 ---
 
 ## 20. What stays exactly the same

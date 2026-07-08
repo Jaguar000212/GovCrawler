@@ -131,6 +131,17 @@ def require(*perms: str):
     return dep
 
 
+def forbid_unless_owner(owner_id: int | None, user: CurrentUser, *, allow: str | None = None) -> None:
+    """403 unless the caller owns the row (or is admin, or holds `allow`). The
+    shared object-level-authorization check for per-owner resources — jobs
+    (coordination writes) and campaigns."""
+    if owner_id == user.id or user.is_admin:
+        return
+    if allow and user.can(allow):
+        return
+    raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+
 _LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 
 

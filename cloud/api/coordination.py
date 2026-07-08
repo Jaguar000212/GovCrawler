@@ -8,7 +8,9 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from .deps import CurrentUser, get_config as get_app_config, get_current_user, get_db
+from shared.urls import strip_www
+
+from .deps import CurrentUser, forbid_unless_owner, get_config as get_app_config, get_current_user, get_db
 from ..db import Database
 
 log = logging.getLogger(__name__)
@@ -16,15 +18,24 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/coordination", tags=["coordination"])
 
 
-def _strip_www(netloc: str) -> str:
-    return netloc.removeprefix("www.")
+def _authorized_job(db: Database, job_id: int, user: CurrentUser, *, allow: str | None = None) -> dict:
+    """Fetch a job for a coordination write, 404 if missing, and enforce
+    ownership (owner or admin; `allow` widens it, e.g. crawl.cancel_all for
+    cancel). Job writes authorize on ownership, not the volatile crawl.run
+    grant, so revoking a permission mid-crawl can't strand the outbox
+    (plan.md §16.2)."""
+    job = db.get_job(job_id, view_all=True)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    forbid_unless_owner(job["owner_id"], user, allow=allow)
+    return job
 
 
 def _seed_root_domains(seeds: list[tuple[str, int | None]]) -> set[str]:
     roots = set()
     for url, _ in seeds:
         parsed = url if "://" in url else "http://" + url
-        roots.add(_strip_www(urlsplit(parsed).netloc.lower()))
+        roots.add(strip_www(urlsplit(parsed).netloc.lower()))
     return roots
 
 
@@ -36,7 +47,7 @@ def _visited_bootstrap(db: Database, job_id: int, seeds: list[tuple[str, int | N
     seed_roots = _seed_root_domains(seeds)
     bootstrap = set(db.get_visited_urls(job_id))
     for url in db.get_recently_visited_global():
-        root = _strip_www(urlsplit(url).netloc.lower())
+        root = strip_www(urlsplit(url).netloc.lower())
         is_seed_related = any(root == r or root.endswith("." + r) for r in seed_roots)
         if not is_seed_related:
             bootstrap.add(url)
@@ -103,6 +114,7 @@ async def coordination_save_leads(
         db: Database = Depends(get_db),
         user: CurrentUser = Depends(get_current_user),
 ):
+    _authorized_job(db, job_id, user)
     for item in batch.items:
         item["job_id"] = job_id
     results = db.bulk_save_leads(batch.items, captured_by=user.id)
@@ -119,6 +131,7 @@ async def coordination_mark_visited(
         db: Database = Depends(get_db),
         user: CurrentUser = Depends(get_current_user),
 ):
+    _authorized_job(db, job_id, user)
     db.bulk_mark_visited(job_id, batch.urls)
     return {"marked": len(batch.urls)}
 
@@ -139,6 +152,7 @@ async def coordination_heartbeat(
         db: Database = Depends(get_db),
         user: CurrentUser = Depends(get_current_user),
 ):
+    _authorized_job(db, job_id, user)
     cancel_requested = db.heartbeat(job_id, metrics.model_dump())
     return {"cancel_requested": cancel_requested}
 
@@ -153,6 +167,7 @@ async def coordination_save_frontier(
         db: Database = Depends(get_db),
         user: CurrentUser = Depends(get_current_user),
 ):
+    _authorized_job(db, job_id, user)
     db.save_frontier_snapshot(job_id, payload.snapshot)
     return {"status": "ok"}
 
@@ -163,6 +178,7 @@ async def coordination_load_frontier(
         db: Database = Depends(get_db),
         user: CurrentUser = Depends(get_current_user),
 ):
+    _authorized_job(db, job_id, user)
     snapshot = db.load_frontier_snapshot(job_id)
     return {"snapshot": snapshot}
 
@@ -178,6 +194,7 @@ async def coordination_finish_job(
         db: Database = Depends(get_db),
         user: CurrentUser = Depends(get_current_user),
 ):
+    _authorized_job(db, job_id, user)
     db.finish_job(job_id, status=payload.status, error=payload.error)
     return {"status": "ok"}
 
@@ -192,11 +209,7 @@ async def coordination_cancel_job(
     itself. Whoever is actually running the engine (this machine's agent
     today, a real remote one later) is responsible for calling `finish`
     once it has actually stopped and drained its outbox."""
-    job = db.get_job(job_id, view_all=True)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    if job["owner_id"] != user.id and not user.can("crawl.cancel_all"):
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    _authorized_job(db, job_id, user, allow="crawl.cancel_all")
     db.set_cancel_requested(job_id)
     return {"cancel_requested": True}
 
@@ -208,9 +221,7 @@ async def coordination_resume_job(
         config: dict = Depends(get_app_config),
         user: CurrentUser = Depends(get_current_user),
 ):
-    job = db.get_job(job_id, view_all=True)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+    job = _authorized_job(db, job_id, user)
     db.resume_job(job_id)
     if job["source_type"] == "custom_urls":
         seeds = [[c["main_url"], None] for c in db.get_job_custom_urls(job_id)]

@@ -65,8 +65,9 @@ Pagination (`crawler.pagination`, ships **disabled**) avoids the "numbered pager
   default 100); `page_hops` caps chain length (`max_pagination_pages`, default 50). The shared cell is
   preserved across checkpoints so resume can't reset the budget.
 
-> Known interaction (documented in code, not yet fixed): `mark_visited` fires before `_fetch`, so a
-> transient mid-chain failure can strand the rest of that chain for `recrawl_days`.
+A URL is marked visited (in the DB) **only after a successful fetch**, so a transient failure on a
+pagination page leaves it re-crawlable next run instead of stranding the rest of the chain for
+`recrawl_days`. Seeds are never marked (they must stay re-crawlable entry points).
 
 ## Thread pools
 

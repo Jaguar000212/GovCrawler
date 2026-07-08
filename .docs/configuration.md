@@ -7,9 +7,10 @@ applies environment-variable overrides (below). Crawl/extraction settings are al
 the **Settings** page (`GET`/`POST /api/config`, the latter gated by `settings.manage`), which writes back
 to `config.yaml`.
 
-> Note: `plan.md` proposed moving crawl policy into a cloud `app_settings` table. That table is **not**
+> Note: `plan.md` proposed moving crawl *policy* into a cloud `app_settings` table. That is **not yet**
 > implemented — policy remains file-based in `config.yaml` and is delivered to a crawl as the job's `policy`
-> payload at start. This is a deliberate deviation flagged in the change report.
+> payload at start. Migrating policy to `app_settings` is planned as Phase 8 (plan.md §19.1); machine-local
+> runtime knobs (workers, timeouts, bind address) stay in `config.yaml` regardless.
 
 ## Environment overrides (`load_config`)
 
