@@ -37,13 +37,21 @@ def _build_crawl_policy(config: dict, db: Database, *, strip_target_suffixes: bo
     runtime knobs from this box's config.yaml, crawl policy (depth/rate
     limits, filters, extraction rules, lead-score weights) from the cloud
     `app_settings` table — the DB values win on any overlapping `crawler` key
-    so every crawler gets identical policy regardless of its local file."""
+    so every crawler gets identical policy regardless of its local file.
+
+    Deliberately returns ONLY `crawler`/`extraction`/`lead_score` — never
+    `**config` — since this dict is serialized straight into the job
+    create/resume HTTP response body (`{"policy": ...}`), readable by any
+    caller with `crawl.run`. Spreading the whole cloud config here used to
+    leak `auth.jwt_secret` and `database.uri` (full connection string,
+    password included) to every operator who ever started a crawl — fixed
+    without a migration, since CrawlerEngine only ever read `config["crawler"]`
+    / `config["extraction"]` in the first place (plan.md §19.1 Phase 9 Part 2)."""
     stored = db.get_crawl_policy()
     crawler = {**config["crawler"], **stored.get("crawler", {})}
     if strip_target_suffixes:
         crawler["target_suffixes"] = []
     return {
-        **config,
         "crawler": crawler,
         "extraction": stored.get("extraction") or config.get("extraction", {}),
         "lead_score": {"weights": db._lead_score_weights},

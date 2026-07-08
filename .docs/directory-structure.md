@@ -111,12 +111,17 @@ GovCrawler/
 │       ├── tray.py            # TrayController (pystray)
 │       └── notifications.py   # notify() — notifypy toasts (cross-platform)
 │
-├── portal/                    # Thin entry-point + config shim (NOT the old monolith)
+├── portal/                    # Thin entry-point + config shim (NOT the old monolith) — the ONE place
+│   │                          #   allowed to import both cloud.* and agent.*, since it's the composition
+│   │                          #   root, not part of either tier's runtime
 │   ├── __main__.py            # `python -m portal` → portal.main.main()
-│   ├── main.py                # load_config() (+ env overrides), CLI: serve/import/import-json/crawl/create-admin
+│   ├── main.py                # cloud CLI: serve/import/import-json/crawl (debug)/create-admin
+│   ├── config.py              # load_config() (cloud, + env overrides) / load_agent_config() (agent) —
+│   │                          #   two separate config files, only this loader module is shared
 │   ├── paths.py               # path resolution + first-run bootstrap (dev + PyInstaller frozen)
-│   └── default_config.yaml    # shipped config template (config.yaml is the gitignored live copy) —
-│                              #   bootstrap-only keys now (data dir, log path, api host/port)
+│   ├── default_config.yaml    # cloud's shipped config template (config.yaml is the gitignored live copy)
+│   └── default_agent_config.yaml  # agent's shipped template (agent_config.yaml is its live copy) — just
+│                              #   api.host/port; everything else the agent needs lives in agent/localdb.py
 │
 ├── GovScraper/                # Standalone dev-time CLI, fully decoupled from cloud/agent/shared — its
 │   │                          # API-calling code is duplicated (inlined) into cloud/services/importer.py,

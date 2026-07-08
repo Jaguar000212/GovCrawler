@@ -110,12 +110,19 @@ each field to its backend — machine-local keys to `config.yaml`, policy keys t
 pagination text/param signals) are shown but not editable there — change them via a direct
 `db.set_app_setting("crawl_policy", ...)` call.
 
-## Agent-side configuration (`agent/localdb.py`)
+## Agent-side configuration (`portal/agent_config.yaml` + `agent/localdb.py`)
 
-The same bootstrap-file-vs-DB split the cloud tier has, mirrored on the agent side (plan.md §19.1 Phase 9
-Part 2, 2.1): `portal/config.yaml` stays bootstrap-only (data dir, log path — whatever must exist before any
-DB can be opened); everything operational moves to `agent/localdb.py`'s `local_settings` table, a plain
-`sqlite3` key/value store at `portal/data/agent_local.db`:
+The agent reads its own config file, `portal/agent_config.yaml` (shipped template:
+`portal/default_agent_config.yaml`) via `portal.config.load_agent_config()` — a **separate file from the
+cloud's** `config.yaml`, not a shared one, so a single machine can run a dev cloud server and an agent
+against it side by side without either overwriting the other's config. It carries exactly one thing: the
+agent's own local BFF bind address (`api.host`/`api.port`, default `127.0.0.1:8001`). Nothing else — no
+`database`, `auth`, `dispatch`, `scraper`, or crawl-policy keys, since the agent never uses any of them
+(crawl policy arrives from the cloud on every job create/resume instead, see
+[api-reference.md](api-reference.md#agent-coordination--cloudapicoordinationpy-prefix-apicoordination)).
+
+Everything else operational moves to `agent/localdb.py`'s `local_settings` table, a plain `sqlite3`
+key/value store at `portal/data/agent_local.db` (plan.md §19.1 Phase 9 Part 2, 2.1):
 
 | Key | Set by | Meaning |
 |-----|--------|---------|

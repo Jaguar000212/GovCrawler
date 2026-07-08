@@ -8,6 +8,13 @@ scraper (`GovScraper`) for domain discovery with an async HTTPX + Playwright cra
 (emails, personnel, designations), all behind an authenticated FastAPI application with role-based access
 control.
 
+**Genuinely two separate programs, not one app in two modes:** a **cloud server** you deploy once (Postgres,
+auth/RBAC, the admin dashboard, the SMTP dispatcher) and a lightweight **agent app** each operator installs
+on their own machine (a Tkinter control panel that owns the crawler and proxies its own web dashboard to
+the cloud). Neither needs to know how the other was started — the agent just needs the cloud's URL and a
+login. See [`.docs/server-manager-guide.md`](.docs/server-manager-guide.md) for the operational "how do I
+actually deploy this and roll it out to my team" walkthrough — this README is the technical overview.
+
 ## Architecture at a glance
 
 The code is split into three tiers plus a thin entry-point shim:
@@ -15,12 +22,17 @@ The code is split into three tiers plus a thin entry-point shim:
 | Tier | Package | Runs where |
 |------|---------|-----------|
 | **Shared** | `shared/` | enums, permission catalog, wire DTOs, lead-scoring — imported by both tiers |
-| **Cloud** | `cloud/` | the VPS: FastAPI app, auth/RBAC, Postgres database of record, SMTP dispatcher, admin UI |
-| **Agent** | `agent/` | each machine: the crawler engine + parser, durable local outbox/frontier, Tkinter launcher |
-| **Shim** | `portal/` | `load_config()`, path/bootstrap, and the `python -m portal` CLI |
+| **Cloud** | `cloud/` | the VPS: FastAPI app, auth/RBAC, Postgres database of record, SMTP dispatcher, admin dashboard. Genuinely crawler-free — no Playwright, no `agent.*` import |
+| **Agent** | `agent/` | each operator's machine: a standalone local web app (`agent/bff/`) that renders the operator dashboard, proxies shared-data calls to the cloud, and owns the crawler engine + Tkinter launcher |
+| **Shim** | `portal/` | `load_config()`, path/bootstrap, and the `python -m portal` CLI (the cloud's own entry point) |
 
-There is one trust boundary — the cloud API. Postgres is never exposed; clients reach shared data only
-through authenticated, RBAC-checked HTTP. See [`.docs/architecture.md`](.docs/architecture.md).
+The two tiers share **zero** imports in either direction (`agent ⊥ cloud`, enforced by an `import-linter` CI
+contract) — an agent process can be built, shipped, and run with no cloud code inside it at all, and vice
+versa. There is one trust boundary — the cloud API. Postgres is never exposed; clients reach shared data
+only through authenticated, RBAC-checked HTTP, and an agent never even holds the operator's real token in
+its browser (only a local session cookie — the token stays server-side in the agent process). Visited-URL
+history and crawl-resume state are 100% local to the machine that ran them; only the resulting **leads**
+and job records are shared. See [`.docs/architecture.md`](.docs/architecture.md).
 
 ## Key features
 
@@ -39,28 +51,13 @@ through authenticated, RBAC-checked HTTP. See [`.docs/architecture.md`](.docs/ar
 - **Resilience** — a durable local outbox (no lead lost on outage/crash), frontier checkpoint + exact
   resume, stale-job reaping, and dispatch recovery. See [`.docs/resilience.md`](.docs/resilience.md).
 
-## Two ways to run
+## Running it
 
-### 1. Desktop launcher (single operator)
+You always need **one cloud server** (Part 1) and **at least one agent** (Part 2) — even for solo/dev use.
+There is no more "everything in one process" mode; see [`.docs/server-manager-guide.md`](.docs/server-manager-guide.md)
+for the full step-by-step version of both.
 
-A Tkinter control panel, shipped as a signed-per-OS `.exe`/app for Windows, macOS, and Linux.
-
-- **Pre-compiled:** download the latest `GovCrawler-vX.Y.Z-<os>.zip` from the Releases page, extract, and
-  run `GovCrawler` — it opens the Control Panel.
-- **From source:**
-  ```bash
-  git clone <repo-url> && cd GovCrawler
-  python -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
-  pip install -r requirements.txt
-  playwright install chromium
-  python run.py
-  ```
-
-The launcher installs Chromium on first run (one click, ~600 MB), then starts the server on
-`http://127.0.0.1:8001`, prompts for login, and polls activity. Closing the window minimizes to the tray;
-Stop Server runs a confirm → cancel → drain shutdown. Desktop toasts fire on job/campaign completion.
-
-### 2. Cloud stack (multi-user, VPS)
+### 1. Cloud server (deploy once, on a VPS)
 
 ```bash
 cd deploy
@@ -70,9 +67,34 @@ docker compose exec api python -m portal create-admin you@example.com
 ```
 
 Services: `db` (Postgres + WAL archiving), `migrate` (one-shot Alembic), `api` (FastAPI + admin dashboard at
-`/admin/dashboard`), `dispatcher` (standalone SMTP loop), `proxy` (Caddy, automatic TLS). Full details in
-[`.docs/deployment.md`](.docs/deployment.md) and the `deploy/` runbooks
+`/admin/dashboard` — no Playwright, genuinely crawler-free), `dispatcher` (standalone SMTP loop), `proxy`
+(Caddy, automatic TLS). For local dev without a VPS, `python -m portal serve` (SQLite, no Docker) works too.
+Full details in [`.docs/deployment.md`](.docs/deployment.md) and the `deploy/` runbooks
 ([SECURITY.md](deploy/SECURITY.md), [BACKUP.md](deploy/BACKUP.md), [PITR.md](deploy/PITR.md)).
+
+### 2. Agent app (one per operator, their own machine)
+
+A Tkinter control panel, shipped as a signed-per-OS `.exe`/app for Windows, macOS, and Linux — it renders
+the operator's own dashboard locally and proxies shared-data calls to whichever cloud server you point it
+at. It never runs alongside the cloud in one process.
+
+- **Pre-compiled:** download the latest `GovCrawler-vX.Y.Z-<os>.zip` from the Releases page, extract, and
+  run `GovCrawler` — it opens the Control Panel.
+- **From source:**
+  ```bash
+  git clone <repo-url> && cd GovCrawler
+  python -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
+  pip install -r requirements/agent.txt
+  playwright install chromium
+  python run.py
+  ```
+
+First run prompts for your **Cloud Server URL** (e.g. `https://crawler.yourcompany.com`, or
+`http://127.0.0.1:8001` for a local dev server) — asked once per machine. Then: download Chromium (one
+click, ~600 MB), sign in (checked directly against the cloud server), and **Open Web Interface**. Closing
+the window minimizes to the tray; Stop Server runs a confirm → cancel → drain shutdown. Desktop toasts fire
+on job completion. Any number of agents can run against the same cloud server concurrently, each fully
+independent; a crawl can only ever be resumed from the machine that started it.
 
 ## CLI (`python -m portal`)
 
@@ -97,12 +119,14 @@ Services: `db` (Postgres + WAL archiving), `migrate` (one-shot Alembic), `api` (
 ## Building an executable
 
 ```bash
+pip install -r requirements/agent.txt
 pip install pyinstaller
 pyinstaller GovCrawler.spec        # output: dist/GovCrawler/GovCrawler(.exe)
 ```
 
-`GovCrawler.spec` bundles `frontend/`, `alembic`, `assets/favicon.ico`, and the default config. The
-tag-triggered `release.yaml` workflow builds this for Windows/macOS/Linux.
+`GovCrawler.spec` bundles `frontend/`, `assets/favicon.ico`, and the default config — no Alembic (the agent
+never runs migrations) and, since `agent.*` imports zero `cloud.*` code, none of the cloud stack either. The
+tag-triggered `release.yaml` workflow builds this for Windows/macOS/Linux automatically on every version tag.
 
 ## Development
 
@@ -120,6 +144,7 @@ tag-triggered `release.yaml` workflow builds this for Windows/macOS/Linux.
 
 | Doc | Covers |
 |-----|--------|
+| [server-manager-guide.md](.docs/server-manager-guide.md) | Step-by-step: deploy the cloud server (prod + dev), use the admin dashboard, package + roll out the agent app |
 | [architecture.md](.docs/architecture.md) | Tiers, trust model, data flow, threading |
 | [directory-structure.md](.docs/directory-structure.md) | Annotated file tree |
 | [authentication.md](.docs/authentication.md) | Auth, JWT/refresh, RBAC, permissions & roles |

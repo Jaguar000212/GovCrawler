@@ -1,0 +1,9 @@
+# The agent's own local BFF bind address (agent/bff/app.py) — nothing else.
+# Which cloud server to talk to, and this machine's durable agent_id, are set
+# via the launcher's first-run prompt and stored in agent/localdb.py, not
+# here (plan.md §19.1 Phase 9 Part 2). Crawl policy, extraction rules, and
+# lead-score weights come from the cloud on every job create/resume — this
+# file never carries any of that, unlike portal/default_config.yaml (cloud).
+api:
+  host: 127.0.0.1
+  port: 8001

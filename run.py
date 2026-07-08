@@ -2,9 +2,9 @@ import os
 import sys
 import tkinter as tk
 
-from portal.config import load_config
+from portal.config import load_agent_config
 
-config = load_config()
+config = load_agent_config()
 
 # ==========================================
 # SSL Certificate FIX
