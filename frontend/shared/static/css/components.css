@@ -1,0 +1,795 @@
+/* Generic, tier-agnostic primitives loaded by both the agent and cloud UIs —
+   see .docs/directory-structure.md. Keep this file free of any agent- or
+   cloud-specific IDs/classes; page-specific chrome belongs in agent.css or
+   cloud.css instead. */
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 14px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+a {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+code {
+    font-family: 'Courier New', monospace;
+}
+
+/* ── Buttons ── */
+button {
+    cursor: pointer;
+    border: none;
+    border-radius: var(--radius);
+    font-family: var(--font);
+    font-size: 13px;
+    font-weight: 500;
+    transition: background 0.12s, opacity 0.12s;
+}
+
+.btn-primary {
+    background: var(--accent);
+    color: #fff;
+    padding: 7px 16px;
+}
+
+.btn-primary:hover {
+    background: var(--accent-hover);
+}
+
+.btn-primary:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.btn-secondary {
+    background: var(--surface2);
+    color: var(--text);
+    padding: 7px 14px;
+    border: 1px solid var(--border);
+}
+
+.btn-secondary:hover {
+    background: var(--border);
+}
+
+.btn-danger {
+    background: transparent;
+    color: var(--red);
+    padding: 7px 14px;
+    border: 1px solid var(--red);
+}
+
+.btn-danger:hover {
+    background: rgba(248, 81, 73, .1);
+}
+
+.btn-sm {
+    padding: 5px 10px;
+    font-size: 12px;
+}
+
+.btn-icon {
+    background: transparent;
+    color: var(--muted);
+    padding: 5px 8px;
+    border-radius: var(--radius);
+    font-size: 16px;
+    line-height: 1;
+}
+
+.btn-icon:hover {
+    background: var(--surface2);
+    color: var(--text);
+}
+
+/* ── Header / footer shell (both tiers render a header+logo+footer, just
+   with different nav contents) ── */
+header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 20px;
+    height: 52px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.logo {
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: -0.4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.logo-icon {
+    width: 26px;
+    height: 26px;
+    background: var(--accent);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+}
+
+.logo span {
+    color: var(--accent);
+}
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.header-right .btn-secondary.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+}
+
+footer {
+    height: 36px;
+    flex-shrink: 0;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--muted);
+}
+
+/* ── Status dots (generic — reused by the agent's live-crawl badge and the
+   cloud's System/Health card) ── */
+@keyframes pulse {
+
+    0%,
+    100% {
+        opacity: 1
+    }
+
+    50% {
+        opacity: .3
+    }
+}
+
+.dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.dot-green {
+    background: var(--green);
+}
+
+.dot-yellow {
+    background: var(--yellow);
+    animation: pulse 1s infinite;
+}
+
+.dot-red {
+    background: var(--red);
+}
+
+/* ── Full-height content shell (a left <aside> sidebar + scrollable <main>
+   pane) — the agent's dashboard/leads/campaigns/settings pages and the
+   cloud's admin dashboard all build on this same shell ── */
+.layout {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    height: calc(100vh - 52px - 36px);
+}
+
+aside {
+    width: 268px;
+    min-width: 240px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    flex-shrink: 0;
+}
+
+.sidebar-section {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.section-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--small);
+    font-weight: 600;
+    margin-bottom: 10px;
+}
+
+/* ── Sidebar tab nav (settings.html and admin-dashboard.html both use this
+   pattern: a left <ul class="settings-nav"> driving switchTab()-style JS
+   that toggles matching .settings-tab panels) ── */
+.settings-nav {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.settings-nav li {
+    padding: 10px 16px;
+    cursor: pointer;
+    border-radius: 6px;
+    margin-bottom: 4px;
+    font-size: 14px;
+    color: var(--muted);
+    transition: background 0.2s, color 0.2s;
+}
+
+.settings-nav li:hover {
+    background: var(--surface2);
+    color: var(--text);
+}
+
+.settings-nav li.active {
+    background: var(--surface2);
+    color: var(--accent);
+    font-weight: 500;
+}
+
+.settings-tab {
+    padding: 24px;
+}
+
+.tab-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+}
+
+.tab-header h2 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 500;
+}
+
+/* ── Form basics ── */
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 10px;
+}
+
+.form-group:last-child {
+    margin-bottom: 0;
+}
+
+label {
+    font-size: 11px;
+    color: var(--muted);
+    font-weight: 500;
+}
+
+select,
+input[type="text"] {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    padding: 6px 10px;
+    font-size: 13px;
+    font-family: var(--font);
+    width: 100%;
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+select:focus,
+input[type="text"]:focus {
+    border-color: var(--accent);
+}
+
+.cfg-label {
+    flex: 1;
+    font-size: 13px;
+    color: var(--text);
+}
+
+.cfg-input {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    padding: 5px 8px;
+    font-size: 13px;
+    font-family: var(--font);
+    width: 80px;
+    outline: none;
+    text-align: right;
+}
+
+.cfg-input:focus {
+    border-color: var(--accent);
+}
+
+/* ── Tables (Users/Audit on the cloud side, domains/leads/seeds on the
+   agent side all share this base) ── */
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th {
+    background: var(--surface);
+    color: var(--small);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    font-weight: 600;
+    padding: 8px 14px;
+    text-align: left;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    border-bottom: 1px solid var(--border);
+}
+
+td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+    font-size: 13px;
+}
+
+tr:hover td {
+    background: var(--surface);
+}
+
+input[type="checkbox"] {
+    accent-color: var(--accent);
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+}
+
+.table-wrap {
+    flex: 1;
+    overflow-y: auto;
+}
+
+.empty-state {
+    padding: 32px;
+    text-align: center;
+    color: var(--muted);
+    font-style: italic;
+}
+
+/* ── Pagination ── */
+.pagination {
+    padding: 8px 16px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--surface);
+    font-size: 12px;
+    color: var(--muted);
+    flex-shrink: 0;
+}
+
+/* ── Info tooltip ── */
+.info-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 10px;
+    cursor: help;
+    position: relative;
+    font-style: normal;
+    user-select: none;
+    flex-shrink: 0;
+}
+
+.info-icon::after {
+    content: attr(data-tip);
+    position: absolute;
+    /* Default: pop out to the LEFT of the icon — correct for right-side
+       drawers (e.g. the agent's config panel). Pages built on a left
+       <aside> sidebar need the OPPOSITE direction — see the
+       `.layout .info-icon::after` override below — otherwise a tooltip near
+       the content area's left edge pops behind the sidebar and gets
+       clipped. */
+    right: calc(100% + 8px);
+    top: 50%;
+    transform: translateY(-50%);
+    width: 220px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.5;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 1000;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, .12);
+    white-space: normal;
+}
+
+.layout .info-icon::after {
+    right: auto;
+    left: calc(100% + 8px);
+}
+
+.info-icon:hover::after {
+    opacity: 1;
+}
+
+/* ── Modals ── */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    width: 100%;
+    max-width: 400px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.25);
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-lg {
+    max-width: 600px;
+}
+
+.modal h3 {
+    margin: 0 0 20px 0;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 16px;
+}
+
+.form-group label {
+    font-size: 12px;
+    color: var(--small);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+}
+
+.form-group input, .form-group textarea {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    color: var(--text);
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.form-group input:focus, .form-group textarea:focus {
+    border-color: var(--accent);
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 24px;
+}
+
+.chip {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 4px 10px;
+    font-size: 12px;
+    color: var(--text);
+    cursor: pointer;
+    font-family: monospace;
+    transition: all 0.2s;
+}
+
+.chip:hover {
+    background: var(--bg-hover);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.form-group.checkbox-group {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+}
+
+.form-group.checkbox-group input {
+    width: auto;
+}
+
+.btn-remove {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--red);
+    border-radius: var(--radius);
+    padding: 3px 7px;
+    font-size: 12px;
+    cursor: pointer;
+    line-height: 1;
+    transition: background 0.12s;
+}
+
+.btn-remove:hover {
+    background: #f5e5e3;
+    border-color: var(--red);
+}
+
+/* ── Status badge (generic pill — Users table "Super Admin"/"Active" flags,
+   the System/Health card, etc.) ── */
+.badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    border: 1px solid var(--border);
+}
+
+.badge-green {
+    background: #ddeee2;
+    color: var(--green);
+    border-color: #a8cdb4;
+}
+
+.badge-red {
+    background: #f5e5e3;
+    color: var(--red);
+    border-color: #e0b8b4;
+}
+
+.badge-muted {
+    background: var(--surface2);
+    color: var(--muted);
+}
+
+/* Aliases used by the lead-score badge (leads.js) — success/warning/secondary
+   are semantic names for the same green/yellow/muted treatment above. */
+.badge-success {
+    background: #ddeee2;
+    color: var(--green);
+    border-color: #a8cdb4;
+}
+
+.badge-warning {
+    background: #fef9e7;
+    color: var(--yellow);
+    border-color: #d4be8c;
+}
+
+.badge-secondary {
+    background: var(--surface2);
+    color: var(--muted);
+}
+
+/* ── Table toolbar (select-page / select-all / clear rows above a table) ── */
+.table-toolbar {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--surface);
+    flex-shrink: 0;
+}
+
+.toolbar-sep {
+    width: 1px;
+    height: 18px;
+    background: var(--border);
+    margin: 0 2px;
+}
+
+/* ── Name/URL/state display (domains table, leads table) ── */
+.d-name {
+    font-weight: 500;
+    line-height: 1.3;
+    color: var(--text);
+}
+
+.d-url {
+    font-size: 11px;
+    color: var(--small);
+    margin-top: 2px;
+    font-family: monospace;
+}
+
+.d-state {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 1px;
+}
+
+/* ── Category tags ── */
+.tag {
+    display: inline-block;
+    border-radius: 3px;
+    padding: 2px 6px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    white-space: nowrap;
+    border: 1px solid;
+}
+
+.tag-sg {
+    background: #e8e0d5;
+    border-color: #c4b8a8;
+    color: #5e4e38;
+}
+
+.tag-ug {
+    background: #e5ddf0;
+    border-color: #c0aed8;
+    color: #5c4480;
+}
+
+.tag-dist {
+    background: #ddeee2;
+    border-color: #a8cdb4;
+    color: #2e6640;
+}
+
+.tag-jud {
+    background: #f0e8d0;
+    border-color: #d4be8c;
+    color: #6e4e00;
+}
+
+.tag-leg {
+    background: #f0e0d5;
+    border-color: #d4a88c;
+    color: #7a3a1a;
+}
+
+.tag-ims {
+    background: #f0ddd8;
+    border-color: #d4a8a0;
+    color: #7a2e28;
+}
+
+.tag-apex {
+    background: #d8eae8;
+    border-color: #9cc4c0;
+    color: #2a5e5a;
+}
+
+.tag-default {
+    background: var(--surface2);
+    border-color: var(--border);
+    color: var(--muted);
+}
+
+/* ── Toasts (frontend/shared/static/js/toast.js) ── */
+#toast-stack {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 360px;
+}
+
+.toast {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--muted);
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    font-size: 13px;
+    color: var(--text);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .15);
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    animation: toast-in 0.15s ease-out;
+}
+
+@keyframes toast-in {
+    from {
+        opacity: 0;
+        transform: translateY(-6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.toast-message {
+    flex: 1;
+    line-height: 1.4;
+}
+
+.toast-close {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+}
+
+.toast-error {
+    border-left-color: var(--red);
+}
+
+.toast-warning {
+    border-left-color: var(--orange);
+}
+
+.toast-success {
+    border-left-color: var(--green);
+}
+
+.toast-info {
+    border-left-color: var(--accent);
+}

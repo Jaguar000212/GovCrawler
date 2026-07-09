@@ -2,9 +2,13 @@ import logging
 import os
 import sys
 from logging.config import fileConfig
-from sqlalchemy import engine_from_config, pool
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from alembic import context
+from sqlalchemy import engine_from_config, pool
+
+from cloud.db import Base
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -21,14 +25,13 @@ config = context.config
 if config.config_file_name is not None and not logging.getLogger().hasHandlers():
     fileConfig(config.config_file_name)
 
-# add your model's MetaData object here
-# for 'autogenerate' support
-# from myapp import mymodel
-# target_metadata = mymodel.Base.metadata
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from portal.db import Base
-
 target_metadata = Base.metadata
+
+# The bare `alembic upgrade head` CLI (deploy/docker-compose.yml's one-shot
+# `migrate` service) has no app config to read from — point it at Postgres
+# via env var instead of the SQLite URL baked into alembic.ini.
+if os.environ.get("DATABASE_URL"):
+    config.set_main_option("sqlalchemy.url", os.environ["DATABASE_URL"])
 
 
 # other values from the config, defined by the needs of env.py,

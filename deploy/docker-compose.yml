@@ -1,0 +1,114 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: govcrawler
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: govcrawler
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./wal_archive:/wal_archive
+    # WAL archiving (Phase 6, plan.md §19) — tightens RPO below backup.sh's
+    # daily pg_dump (deploy/BACKUP.md), enabling point-in-time recovery per
+    # deploy/PITR.md. Filesystem-based, same "back this up offsite too"
+    # caveat as ./backups already carries.
+    command:
+      - postgres
+      - -c
+      - archive_mode=on
+      - -c
+      - wal_level=replica
+      - -c
+      - "archive_command=test ! -f /wal_archive/%f && cp %p /wal_archive/%f"
+    # Loopback-only, for running scripts/migrate_sqlite_to_pg.py from the host.
+    # Remove this once the one-time migration is done — nothing else needs it,
+    # migrate/api/proxy all reach `db` over the internal compose network.
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U govcrawler" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: alembic upgrade head
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      CREDENTIAL_ENC_KEY: ${CREDENTIAL_ENC_KEY}
+      GOVCRAWLER_APP_PASSWORD: ${GOVCRAWLER_APP_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL_APP: ${DATABASE_URL_APP}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET_PREV: ${JWT_SECRET_PREV:-}
+      CREDENTIAL_ENC_KEY: ${CREDENTIAL_ENC_KEY}
+      CREDENTIAL_ENC_KEY_PREV: ${CREDENTIAL_ENC_KEY_PREV:-}
+      DISPATCH_MODE: external
+      ADMIN_ORIGIN: https://${DOMAIN}
+    expose:
+      - "8001"
+    # Loopback-only, for local dev/test (server-manager-guide.md Part 1B Option 2) — lets an
+    # agent on the same machine reach the API directly over plain HTTP, bypassing Caddy. Caddy
+    # can't get a real cert for `localhost`/an IP (falls back to its own untrusted internal CA),
+    # so this is the practical way to rehearse the Docker stack without a real domain. Host port
+    # 18001, not 8001 — the agent's own local BFF (portal/default_agent_config.yaml) binds 8001
+    # on the same machine for this exact dev loop, so 8001 would collide. Remove this mapping for
+    # a real VPS deploy, where the proxy service is the only public entry point.
+    ports:
+      - "127.0.0.1:18001:8001"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/healthz')" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  dispatcher:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: python -m cloud.dispatch_service
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL_APP: ${DATABASE_URL_APP}
+      CREDENTIAL_ENC_KEY: ${CREDENTIAL_ENC_KEY}
+      CREDENTIAL_ENC_KEY_PREV: ${CREDENTIAL_ENC_KEY_PREV:-}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  proxy:
+    image: caddy:2
+    environment:
+      DOMAIN: ${DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  pgdata: { }
+  caddy_data: { }

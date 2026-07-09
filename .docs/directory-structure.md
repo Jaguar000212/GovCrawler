@@ -1,364 +1,217 @@
 # Directory Structure
 
-Annotated file tree for the GovCrawler project. Runtime artefacts (`__pycache__`, `playwright_browsers/`,
-`portal/data/`) and IDE folders are omitted.
+Annotated file tree. Runtime artefacts (`__pycache__/`, `playwright_browsers/`, `portal/data/`,
+`deploy/.env`, `deploy/wal_archive/`, `deploy/backups/`) and IDE folders are omitted.
 
 ```
 GovCrawler/
 │
-├── run.py                          # Thin GUI entry point: SSL/cert fixes, the
-│                                   # "INSTALL_BROWSERS" argv sentinel (headless
-│                                   # browser install), and the __main__ block that
-│                                   # hands off to launcher.app.CrawlerLauncher
+├── run.py                     # Desktop entry point (PyInstaller target): SSL cert fix,
+│                              # "INSTALL_BROWSERS" argv sentinel, no-console stdio guard,
+│                              # then launches agent.launcher.app.CrawlerLauncher
+├── GovCrawler.spec            # PyInstaller spec — bundles frontend, assets, config (no alembic — the
+│                              #   desktop agent never runs Alembic migrations)
+├── alembic.ini                # Alembic config; env.py targets cloud.db.Base (cloud/VPS only)
+├── pyproject.toml             # ruff + black (line-length 120, py311) + pytest + import-linter config
+├── requirements.txt           # Dev shim: -r requirements/cloud.txt + -r requirements/agent.txt (the VPS
+│                              #   Docker image installs requirements/cloud.txt directly, not this shim)
+├── requirements/               # Per-tier pins — shared.txt, cloud.txt (+shared), agent.txt (+shared, incl. jinja2)
+├── requirements-dev.txt       # -r requirements.txt + pytest/ruff/black/import-linter
+├── README.md
 │
-├── launcher/                        # Tkinter Control Panel (not part of portal/ —
-│   │                                 # this is the desktop wrapper, not the web app)
-│   ├── __init__.py
-│   ├── app.py                      # CrawlerLauncher: AppState machine, sv-ttk UI,
-│   │                               # HTTP polling of /api/system/activity, the
-│   │                               # confirm → cancel-all → drain → shutdown flow
-│   ├── tray.py                     # TrayController: pystray icon + its own thread
-│   └── notifications.py            # notify() — thin notifypy wrapper (cross-platform;
-│                                   # NOT winotify, which crashes on macOS/Linux)
+├── shared/                    # Framework-light; imported by BOTH cloud and agent, imports neither
+│   ├── enums.py               # CampaignStatus, CampaignKind, EmailStatus, JobStatus
+│   ├── permissions.py         # PERMISSIONS catalog (19 keys) + ROLE_DEFAULTS + BUILTIN_ROLES
+│   ├── scoring.py             # compute_lead_score(), DEFAULT_WEIGHTS (pure function)
+│   └── schemas/
+│       └── auth.py            # Pydantic DTOs: LoginRequest, RefreshRequest, UserOut, TokenResponse
 │
-├── assets/                          # Desktop app icon, shared by window/taskbar,
-│   └── favicon.ico                 # tray icon, and the compiled .exe (GovCrawler.spec)
+├── cloud/                     # THE VPS APP — FastAPI + Postgres, auth, admin, dispatcher. Genuinely
+│   │                          # crawler-free: no agent.* imports, no Playwright (plan.md §19.1 Phase 9 Part 2)
+│   ├── api/
+│   │   ├── server.py          # create_app(config, db): routers, lifespan (reaper only — no browser),
+│   │   │                      #   CORS/CSRF, static mount, JWT-secret bootstrap
+│   │   ├── deps.py            # get_current_user, require(), require_loopback, verify_csrf, client_ip,
+│   │   │                      #   CurrentUser, RedirectException, shared app state
+│   │   ├── auth.py            # /auth/login|refresh|logout|me (no /auth/bootstrap — retired, see agent/bff)
+│   │   ├── admin.py           # /api/admin/users|roles|permissions + permission-override PUT (users.manage)
+│   │   ├── audit.py           # GET /api/admin/audit (audit.view — deliberately separate from users.manage)
+│   │   ├── coordination.py    # /api/coordination/* — the agent↔cloud contract; resume enforces agent_id match
+│   │   ├── frontend.py        # HTML page routes (Jinja2) — admin-only (login/admin-dashboard/admin-guide) +
+│   │   │                      #   /api/logs (cloud's own server log)
+│   │   ├── system.py          # /healthz, /api/admin/activity, /api/admin/system-status (DB-backed)
+│   │   ├── config.py          # GET/POST /api/config — the crawl-policy "settings" router
+│   │   ├── domains.py         # catalog browse + PATCH a no-URL domain's URL
+│   │   ├── imports.py         # /api/import/json|/api/import|/api/import/status (single-flight)
+│   │   ├── jobs.py            # read-only job list/detail/seeds (creation lives in agent/api.py)
+│   │   ├── leads.py           # shared-pool browse/export/import-csv/edit
+│   │   ├── campaigns.py       # campaign + email staging + dispatch routes
+│   │   ├── dispatcher.py      # run_campaign_dispatch() SMTP loop (shared by both modes)
+│   │   ├── credentials.py     # SMTP credential CRUD + live connection test
+│   │   ├── templates.py       # Jinja2 email-template CRUD (validated)
+│   │   └── blacklist.py       # email/domain blacklist CRUD
+│   ├── db/
+│   │   ├── base.py            # declarative_base() + SQLite WAL pragma listener
+│   │   ├── database.py        # Database class, composed from 7 mixins; _ensure_columns()
+│   │   ├── enums.py           # re-export of shared.enums (import compat)
+│   │   ├── migrations.py      # run_migrations(): stamp-then-upgrade on startup
+│   │   ├── tables/            # auth.py, crawl.py, leads.py, lookups.py, outreach.py, settings.py
+│   │   └── mixins/            # auth (+ permission overrides + audit list), domain, job (+ agent-ownership
+│   │                          #   guard), crawl_snapshot, lead, outreach, app_settings — no visited_mixin
+│   ├── security/
+│   │   ├── hashing.py         # argon2id hash/verify/needs_rehash
+│   │   ├── jwt.py             # HS256 access tokens + opaque refresh tokens
+│   │   └── crypto.py          # Fernet credential encryption + key rotation (MultiFernet)
+│   ├── services/
+│   │   ├── campaign_service.py # render_draft_emails() — blacklist filter + Jinja2 + missing-field detect
+│   │   ├── csv_import.py      # parse_contacts_csv(), build_template_csv()
+│   │   └── importer.py        # import_from_json() / import_all() into the domains catalog (india.gov.in
+│   │                          #   Web Directory API calls inlined here — see GovScraper/ below)
+│   └── dispatch_service.py    # `python -m cloud.dispatch_service` — standalone (external) dispatcher
 │
-├── requirements.txt                # Python package dependencies
-├── GovCrawler.spec                 # PyInstaller spec — builds Windows .exe
-├── alembic.ini                     # Alembic config; env.py points at portal.db.Base
-├── README.md                       # Project overview and quick start
+├── frontend/                   # Three clearly-separated trees — no template/asset is ambiguous about which
+│   │                          # tier renders it (UI overhaul, see .docs/architecture.md#frontend).
+│   ├── shared/                 # Tier-agnostic: login page, design tokens, generic components, the shared
+│   │   ├── templates/          #   error/toast JS. Loaded by BOTH cloud and agent apps.
+│   │   │   └── login.html      # standalone (doesn't extend either tier's base.html); identical on both
+│   │   └── static/
+│   │       ├── css/            # tokens.css (CSS vars) + components.css (buttons/tables/modals/badges/…)
+│   │       ├── js/             # http.js (apiFetch/ApiError/friendlyMessage + CSRF patch), toast.js
+│   │       │                   #   (showToast/showApiError), login.js
+│   │       └── img/favicon.ico
+│   ├── agent/                   # The crawler+outreach UI — rendered only by agent/bff/pages.py
+│   │   ├── templates/
+│   │   │   ├── base.html        # layout + nav; the Admin nav button is an external-only link-out
+│   │   │   │                    #   ("Admin Portal ↗") to the cloud's own login, never rendered UI
+│   │   │   ├── index.html       # domains browser + crawl job creation + live status
+│   │   │   ├── leads.html
+│   │   │   ├── campaigns.html
+│   │   │   ├── settings.html    # crawler policy + outreach (SMTP/templates/blacklist) config
+│   │   │   ├── test-campaign.html
+│   │   │   └── user-guide.html
+│   │   └── static/
+│   │       ├── css/             # agent.css (dock/sidebar/config-drawer chrome) + leads/campaigns/settings.css
+│   │       └── js/              # base.js, leads.js, campaigns.js, settings.js, test-campaign.js
+│   └── cloud/                    # The admin-only UI — rendered only by cloud/api/frontend.py
+│       ├── templates/
+│       │   ├── base.html         # layout + nav (Admin Dashboard / Admin Guide / Logout) — no crawler links
+│       │   ├── admin-dashboard.html  # /admin/dashboard + / (require jobs.view_all) — sidebar-tab page:
+│       │   │                    #   Overview / Users / Roles (read-only) / Audit Log / System (health card)
+│       │   └── admin-guide.html  # short admin-only workflow doc
+│       └── static/
+│           ├── css/cloud.css    # admin-card-grid, health-stat cards, role-grid, admin wordmark
+│           └── js/admin-dashboard.js
 │
-├── .docs/                          # Internal documentation (this folder)
-│   ├── architecture.md             # System design and data flow
-│   ├── directory-structure.md      # This file
-│   ├── api-reference.md            # All REST endpoints
-│   ├── database-schema.md          # ORM models and column reference
-│   ├── crawler.md                  # Crawler engine internals
-│   ├── outreach.md                 # Email campaign system
-│   └── configuration.md            # Full config file reference
+├── agent/                     # THE LOCAL APP (per machine) — crawler + standalone BFF + launcher.
+│   │                          # Zero cloud.* imports (import-linter enforced, both directions)
+│   ├── api.py                 # Job routes: POST /api/jobs, /api/jobs/{id}/resume, .../cancel — mounted
+│   │                          #   into agent/bff/app.py; loopback + local-session + CSRF gated
+│   ├── identity.py            # The operator's standing session: self-refreshing token via /auth/refresh
+│   │                          #   + OS keyring + cached effective permissions; OperatorContext for templates
+│   ├── localdb.py             # Local SQLite (agent_local.db): local_settings (cloud_api_base_url, agent_id)
+│   │                          #   + visited_history (recrawl protection) — never synced to the cloud
+│   ├── state.py                # Agent-owned config/browser/active_tasks, set by agent/bff/app.py's lifespan
+│   ├── cloud_client.py        # CloudApiClient + create_remote_job/resume_remote_job + outbox flusher (leads
+│   │                          #   only) + request_with_retry (shared retry-on-401 helper, also used by proxy.py)
+│   ├── local_store.py         # LocalOutbox: durable SQLite (outbox, outbox_dead, frontier) — per-job
+│   ├── bff/                   # The standalone local BFF app (plan.md §19.1 Phase 9 Part 2)
+│   │   ├── app.py              # create_app(config): fresh FastAPI, owns Playwright, mounts everything below
+│   │   ├── security.py        # require_loopback, require_local_session, verify_local_csrf (+ Host check)
+│   │   ├── local_auth.py      # /auth/login (relay), /local-bootstrap, /auth/logout, /auth/me
+│   │   ├── local_system.py    # /api/system/activity|cancel-all, /api/logs — this machine's own view
+│   │   ├── pages.py            # Renders frontend/ templates locally (no admin dashboard)
+│   │   └── proxy.py            # One generic reverse-proxy for every remaining /api/* shared-data route
+│   ├── crawler/
+│   │   ├── engine.py          # CrawlerEngine: priority queue, httpx/playwright, checkpoint, orchestration
+│   │   ├── pagination.py      # Stateless pagination-link classifiers (is_pagination_link, safe_int, ...)
+│   │   └── parser.py          # 6-stage lead-extraction pipeline + Lead dataclass + parse_for_engine
+│   └── launcher/
+│       ├── app.py             # CrawlerLauncher (AppState machine) + LoginDialog (logs in directly against
+│       │                      #   the cloud) + first-run cloud-URL prompt; keyring; drain shutdown
+│       ├── tray.py            # TrayController (pystray)
+│       └── notifications.py   # notify() — notifypy toasts (cross-platform)
 │
-├── alembic/                        # Database migration scripts
-│   ├── env.py                      # Migration environment; `from portal.db import Base`
-│   └── versions/
-│       ├── 0001_add_outreach_models.py    # campaigns, email_templates, smtp_credentials,
-│       │                                  # campaign_emails, blacklist tables
-│       ├── 0002_patch_campaign_fields.py  # template_id FK on campaigns
-│       ├── 0003_add_test_campaign_models.py  # test_campaigns, test_campaign_emails
-│       ├── 0004_add_email_selection.py    # is_selected + missing_fields columns
-│       ├── 0005_add_lead_depth.py         # leads.depth (branch A)
-│       ├── 0005_add_lead_grading.py       # entity_kind, phone, channel_tag,
-│       │                                  # confidence_band, field_provenance (branch B)
-│       ├── 0006_add_job_custom_urls.py    # crawl_jobs.source_type + job_custom_urls table
-│       ├── 0007_add_domain_external_id.py # domains.external_id (null-url dedup key)
-│       ├── 0008_add_campaign_credentials.py  # campaign_credentials table,
-│       │                                     # smtp_credentials.daily_send_limit,
-│       │                                     # campaign_emails/test_campaign_emails.credential_id
-│       ├── 0009_add_campaign_pause_reason.py # campaigns/test_campaigns.pause_reason
-│       ├── 0010_add_lead_score.py            # leads.lead_score (values populated by
-│       │                                     # Database._recompute_lead_scores(), not the migration)
-│       └── 0011_add_crawl_snapshots.py       # crawl_snapshots table only — leads.snapshot_id
-│                                             # column + backfill deliberately live in
-│                                             # Database._ensure_columns()/_backfill_snapshots()
-│                                             # instead (see that file's docstring for why)
+├── portal/                    # Thin entry-point + config shim (NOT the old monolith) — the ONE place
+│   │                          #   allowed to import both cloud.* and agent.*, since it's the composition
+│   │                          #   root, not part of either tier's runtime
+│   ├── __main__.py            # `python -m portal` → portal.main.main()
+│   ├── main.py                # cloud CLI: serve/import/import-json/crawl (debug)/create-admin
+│   ├── config.py              # load_config() (cloud, + env overrides) / load_agent_config() (agent) —
+│   │                          #   two separate config files, only this loader module is shared
+│   ├── paths.py               # path resolution + first-run bootstrap (dev + PyInstaller frozen)
+│   ├── default_config.yaml    # cloud's shipped config template (config.yaml is the gitignored live copy)
+│   └── default_agent_config.yaml  # agent's shipped template (agent_config.yaml is its live copy) — just
+│                              #   api.host/port; everything else the agent needs lives in agent/localdb.py
 │
-├── GovScraper/                     # Standalone domain-discovery tool (no dependency on
-│   │                               # the portal app/DB; run with GovScraper/ as CWD since
-│   │                               # its modules use bare imports, e.g. `from api import ...`)
-│   ├── __init__.py                 # Package root (empty — only GovScraper.api is a package)
-│   ├── README.md                   # GovScraper-specific documentation + CLI usage
-│   └── api/
-│       ├── __init__.py             # Re-exports: get_categories, get_organization_types,
-│       │                           # get_entries_for_category, HEADERS, TARGET_SUFFIXES,
-│       │                           # extract_from_entries
-│       ├── api.py                  # HTTP calls to india.gov.in Web Directory API
-│       │                           # Functions: get_categories(), get_organization_types(),
-│       │                           # get_entries_for_category() (paginated)
-│       ├── config.py               # Constants: WEB_DIR_API URL, PAGE_SIZE, HEADERS,
-│       │                           # TARGET_SUFFIXES (.gov.in, .nic.in, .res.in, .ac.in)
-│       ├── extractor.py            # extract_from_entries() — groups full entry records
-│       │                           # (title, url, contact_url, external_id) into
-│       │                           # {state → {org_type → [record, ...]}}; url is None
-│       │                           # for entries with no valid target-domain URL instead
-│       │                           # of dropping them
-│       ├── docs.md                 # API shape documentation
-│       └── runner.py               # run_all_domains(config) → flat dict keyed by
-│                                   # external_id (npi_sanitized_id): {title, url,
-│                                   # contact_url, category, state, org_type}
-│                                   # build_gov_domains_json(config) → nested dict ready
-│                                   # to json.dump as gov_domains.json
-│                                   # main() — CLI entry point (`python runner.py [output]
-│                                   # [--category] [--org-type]`), invoked via `if __name__`
+├── GovScraper/                # Standalone dev-time CLI, fully decoupled from cloud/agent/shared — its
+│   │                          # API-calling code is duplicated (inlined) into cloud/services/importer.py,
+│   │                          # this package is only for regenerating gov_domains.json by hand
+│   ├── runner.py              # CLI: `python runner.py [out.json] [--category] [--org-type]`
+│   ├── README.md
+│   └── api/                   # api.py, config.py, extractor.py, __init__.py, docs.md
 │
-└── portal/                         # Core FastAPI application package
-    │
-    ├── __init__.py                 # Empty package marker
-    ├── __main__.py                 # python -m portal entry: calls portal.main.main()
-    │
-    ├── main.py                     # CLI dispatcher + server factory
-    │                               # Functions: load_config(), cmd_serve(), cmd_import(),
-    │                               # cmd_import_json(), cmd_crawl(), main()
-    │                               # Calls portal.paths.bootstrap() on import
-    │
-    ├── paths.py                    # Path resolution + first-run bootstrap
-    │                               # get_app_dir(), get_bundle_dir(), bootstrap()
-    │                               # APP_DIR, DATA_DIR, LOG_FILE_PATH, LIVE_CONFIG_PATH,
-    │                               # BROWSER_PATH, DEFAULT_CONFIG_PATH, ICON_PATH
-    │                               # Handles both dev and PyInstaller frozen modes;
-    │                               # shared by portal/main.py and launcher/app.py
-    │
-    ├── default_config.yaml         # Shipped defaults (read-only in .exe mode)
-    ├── config.yaml                 # Live user config; overrides defaults (gitignored)
-    │
-    ├── api/                        # REST API layer — one APIRouter per concern
-    │   ├── __init__.py
-    │   │
-    │   ├── server.py               # FastAPI app factory: create_app(config, db)
-    │   │                           # Pure app wiring only — no route logic:
-    │   │                           # - Playwright browser lifespan (start/stop)
-    │   │                           # - Static file mount (/static)
-    │   │                           # - Wires deps._db/_config/_config_path
-    │   │                           # - app.include_router(...) × 11
-    │   │
-    │   ├── deps.py                 # Shared app state + FastAPI dependency providers
-    │   │                           # _db, _config, _config_path, _browser,
-    │   │                           # _playwright_instance, _active_tasks
-    │   │                           # get_db(), get_config(), get_config_path(),
-    │   │                           # get_browser(), get_active_tasks()
-    │   │                           # Routes pull state via Depends(...) instead of closures
-    │   │
-    │   ├── frontend.py             # HTML page routes + small UI-support endpoints
-    │   │                           # /, /leads, /settings, /test-campaign, /campaigns,
-    │   │                           # /user-guide, GET /api/logs, DELETE /api/visited-urls
-    │   │                           # Owns the Jinja2Templates(frontend/) instance
-    │   │
-    │   ├── domains.py              # Domain metadata + browsing routes
-    │   │                           # /api/categories, /api/states, /api/org-types,
-    │   │                           # /api/domains, /api/domains/ids, /api/domains/stats,
-    │   │                           # PATCH /api/domains/{id} (set a no-URL domain's URL)
-    │   │
-    │   ├── config.py               # Crawler/extraction settings routes
-    │   │                           # GET/POST /api/config — reads/writes config.yaml
-    │   │
-    │   ├── imports.py              # Domain import routes
-    │   │                           # /api/import/json, /api/import, /api/import/status
-    │   │                           # _run_json_import()/_run_import() background tasks
-    │   │
-    │   ├── jobs.py                 # Crawl job routes
-    │   │                           # /api/jobs, /api/jobs/{id}, /api/jobs/{id}/seeds,
-    │   │                           # /api/jobs/{id}/cancel
-    │   │                           # Seeds via domain_ids OR custom_urls (mutually
-    │   │                           # exclusive); custom_urls validated/deduped/capped
-    │   │                           # by crawler.max_custom_urls and bypass target_suffixes
-    │   │                           # _run_crawl() background task (drives CrawlerEngine)
-    │   │
-    │   ├── leads.py                # Lead browsing, export, and editing routes
-    │   │                           # /api/leads, /api/leads/ids, /api/leads/score-weights,
-    │   │                           # /api/leads/categories, /api/leads/states,
-    │   │                           # /api/leads/org-types, /api/leads/export,
-    │   │                           # /api/leads/import-csv(/template), PUT /api/leads/{id}
-    │   │
-    │   ├── campaigns.py            # Campaign generation + management routes (APIRouter)
-    │   │                           # - Draft generation via services/campaign_service.py
-    │   │                           # - Status management (RUNNING/PAUSED/CANCELLED)
-    │   │                           # - Per-campaign SMTP credential assignment
-    │   │                           #   (PUT /api/campaigns/{id}/credentials)
-    │   │                           # - Email editing, selection (incl. bulk selection-all)
-    │   │                           # - Test campaign routes (same structure, dummy data,
-    │   │                           #   + parse-csv for dummy_details)
-    │   │
-    │   ├── dispatcher.py           # Async SMTP dispatch background tasks
-    │   │                           # run_campaign_dispatch(campaign_id, db)
-    │   │                           # run_test_campaign_dispatch(campaign_id, db)
-    │   │                           # - Flips DRAFT → QUEUED → SENT/FAILED
-    │   │                           # - resolve_credential_pool(): assigned credentials
-    │   │                           #   (else all active), excluding daily_send_limit-capped
-    │   │                           # - Round-robin over that pool; per-credential send
-    │   │                           #   pacing shared across all campaigns in the process
-    │   │                           # - Hard-bounce → blacklist; rate-limit/network error
-    │   │                           #   → cooldown; auth failure → disable credential
-    │   │                           # - No usable credential → campaign PAUSED + pause_reason
-    │   │
-    │   ├── credentials.py          # SMTP credential CRUD (APIRouter)
-    │   │                           # - Password masking on list
-    │   │                           # - daily_send_limit on create/update
-    │   │                           # - Live SMTP connection test (auto-disables on
-    │   │                           #   failure, re-activates on success)
-    │   │
-    │   ├── templates.py            # Email template CRUD (APIRouter)
-    │   │                           # - Jinja2 syntax validation on create/update
-    │   │
-    │   ├── blacklist.py            # Email/domain blacklist CRUD (APIRouter)
-    │   │
-    │   └── system.py               # Activity aggregation for the desktop Control Panel
-    │                               # GET /api/system/activity, POST /api/system/cancel-all
-    │                               # Reads deps._active_tasks + campaigns._active_campaign_tasks
-    │                               # directly (ground truth); test campaigns via DB status only
-    │
-    ├── services/                   # Business logic shared across route handlers
-    │   ├── __init__.py
-    │   ├── campaign_service.py     # render_template_string(), render_draft_emails()
-    │   │                           # Blacklist/exclude filtering + Jinja2 rendering +
-    │   │                           # missing-field detection, used by campaigns.py's
-    │   │                           # create_campaign and add_emails_to_campaign
-    │   ├── csv_import.py           # parse_contacts_csv(), build_template_csv() — shared
-    │   │                           # by leads.py's import-csv and campaigns.py's
-    │   │                           # test-campaigns/parse-csv
-    │   └── lead_scoring.py         # compute_lead_score(), DEFAULT_WEIGHTS — 0-100 lead
-    │                               # score from email confidence_band + name/designation/
-    │                               # phone presence; manual (channel_tag="manual") leads
-    │                               # always score 0
-    │
-    ├── crawler/
-    │   ├── __init__.py
-    │   │
-    │   ├── engine.py               # CrawlerEngine class
-    │   │                           # - asyncio.PriorityQueue for URL scheduling
-    │   │                           # - HTTPX-first fetch, Playwright fallback
-    │   │                           # - Per-domain politeness locking
-    │   │                           # - Recrawl protection via visited set
-    │   │                           # - Offloads HTML parsing + DB writes to thread pools
-    │   │                           #   (thread-pool target: parser.parse_for_engine)
-    │   │                           # - _reporter() task: pushes metrics to DB every 2 s
-    │   │
-    │   └── parser.py               # Lead/email/phone extraction — 6-stage pipeline
-    │                               # Lead dataclass: email, person_name, designation,
-    │                               #   department, source_url, source_title, context_snippet,
-    │                               #   entity_kind, phone, channel_tag, confidence_band,
-    │                               #   field_provenance
-    │                               # extract_leads(soup, url, config):
-    │                               #   1. extract_candidates — mailto:/tel: hrefs, microdata
-    │                               #      itemprop, table rows, proximity-text regex scan
-    │                               #   2. bind_channels — group by email into entities;
-    │                               #      classify channel_tag (office/personal-external/role)
-    │                               #   3. enrich_fields — name/designation/department per entity
-    │                               #   4. normalise_spans — guarded de-obfuscation, bracketed
-    │                               #      forms only (never a global text rewrite)
-    │                               #   5. score — confidence_band (HIGH/LOW) + field_provenance
-    │                               #   6. flatten_emit — one Lead per email; band never drops one
-    │                               # parse_for_engine(html, url, excfg) — CrawlerEngine's
-    │                               #   thread-pool target: builds the soup once, harvests
-    │                               #   links (incl. rel="next" for pagination), then calls
-    │                               #   extract_leads()
-    │
-    ├── db/                         # SQLAlchemy models + Database access wrapper
-    │   ├── __init__.py             # Re-exports Base, Database, enums, and all table classes
-    │   ├── base.py                 # declarative_base() + SQLite WAL pragma listener
-    │   ├── enums.py                # CampaignStatus, EmailStatus
-    │   ├── database.py             # Database class: __init__, _ensure_columns()
-    │   │                           # (incl. _recompute_lead_scores(), _backfill_snapshots()),
-    │   │                           # close(). Composed from the mixins below — same public
-    │   │                           # API as before, just organized by concern
-    │   ├── migrations.py           # run_migrations(db_uri): stamps a pre-Alembic DB at
-    │   │                           # head (first contact), then always runs
-    │   │                           # `alembic upgrade head` — called from Database.__init__
-    │   │                           # after _ensure_columns(), every startup
-    │   │
-    │   ├── tables/                 # ORM model definitions
-    │   │   ├── __init__.py
-    │   │   ├── crawl.py            # Domain, CrawlJob, CrawlSnapshot, VisitedUrl, JobCustomUrl
-    │   │   ├── leads.py            # Lead
-    │   │   └── outreach.py         # Campaign, CampaignCredential, CampaignEmail,
-    │   │                           # EmailTemplate, SMTPCredential, Blacklist,
-    │   │                           # TestCampaign, TestCampaignEmail
-    │   │
-    │   └── mixins/                 # Database's methods, grouped by concern
-    │       ├── __init__.py
-    │       ├── domain_mixin.py     # upsert_domain, update_domain_url, get_domain_stats,
-    │       │                       # get_domains, get_categories, get_states, get_org_types,
-    │       │                       # get_domain_ids, get_domains_by_ids, clear_domains,
-    │       │                       # count_domains
-    │       ├── job_mixin.py        # create_job (domain_ids or custom_urls), start_job,
-    │       │                       # finish_job, increment_job_progress, update_job_metrics,
-    │       │                       # get_job, list_jobs, _job_dict,
-    │       │                       # add_job_custom_urls, get_job_custom_urls
-    │       ├── crawl_snapshot_mixin.py  # create_crawl_snapshot (get-or-insert, per
-    │       │                       # (job_id, source_domain_id)), get_crawl_snapshots(job_id)
-    │       │                       # — freezes seed domain metadata per crawl so leads
-    │       │                       # (and a job's seed view) are immune to domains refreshes
-    │       ├── lead_mixin.py       # get_lead_score_weights, save_lead, get_leads,
-    │       │                       # get_lead_ids, get_all_leads_for_export,
-    │       │                       # get_lead_categories, get_lead_states, get_lead_org_types,
-    │       │                       # bulk_upsert_manual_leads, update_lead
-    │       │                       # Domain-derived fields (title, category, state, org_type)
-    │       │                       # are read via CrawlSnapshot (joined on Lead.snapshot_id),
-    │       │                       # not the live domains catalog — see database-schema.md
-    │       │                       # _apply_lead_filters(): shared filter-building
-    │       │                       # helper used by all three list/export methods
-    │       │                       # so pagination totals can never diverge from rows
-    │       │                       # _apply_lead_sort(): separate helper for score/contact/name
-    │       │                       # sort — deliberately not folded into the filter helper
-    │       ├── visited_mixin.py    # mark_visited, get_visited_urls,
-    │       │                       # get_recently_visited_global, clear_visited_urls
-    │       └── outreach_mixin.py   # Templates, blacklist, campaigns (incl. per-campaign
-    │                               # credential assignment), campaign emails, credentials,
-    │                               # test campaigns (largest mixin)
-    │
-    ├── scraper/
-    │   ├── __init__.py
-    │   └── importer.py             # Domain import into portal DB
-    │                               # import_from_json(db, path, config)
-    │                               # import_all(db, config)  ← live API
-    │                               # import_status dict — polled by /api/import/status
-    │
-    ├── frontend/                   # Web UI
-    │   ├── base.html               # Base Jinja2 layout: navbar, footer, CSS/JS links
-    │   ├── index.html              # Domains browser + crawl job creation + live job status
-    │   ├── leads.html              # Lead table: filter, search, inline edit, CSV export
-    │   ├── campaigns.html          # Campaign list + creation + email staging + dispatch
-    │   ├── settings.html           # Crawler config editor (live YAML edit)
-    │   ├── test-campaign.html      # Test campaign creation with dummy recipients
-    │   ├── user-guide.html         # In-app user guide
-    │   └── static/
-    │       ├── img/
-    │       │   └── favicon.ico     # Browser tab icon (same source as assets/favicon.ico)
-    │       ├── css/
-    │       │   ├── base.css        # CSS variables, layout, navbar, modals
-    │       │   ├── leads.css       # Lead table, edit overlay
-    │       │   ├── campaigns.css   # Campaign cards, email table, status badges
-    │       │   └── settings.css    # Config form sections, textarea inputs
-    │       └── js/
-    │           ├── base.js         # Shared: apiFetch(), debounce, modal helpers
-    │           ├── leads.js        # Lead table rendering, edit forms, export
-    │           ├── campaigns.js    # Campaign creation, email review, dispatch polling
-    │           ├── settings.js     # Config form submit, SMTP credential test
-    │           └── test-campaign.js # Test campaign form handling
-    │
-    └── data/                       # Created on first run (gitignored)
-        ├── govcrawler.db           # SQLite database file
-        └── portal.log              # Application log (last 1000 lines via /api/logs)
+├── alembic/
+│   ├── env.py                 # targets `from cloud.db import Base`; honors DATABASE_URL env
+│   └── versions/              # 0000_add_core_tables … 0023_drop_visited_and_frontier (chain head)
+│
+├── deploy/                    # Production VPS deployment
+│   ├── docker-compose.yml     # db · migrate · api · dispatcher · proxy
+│   ├── Dockerfile             # Plain python:3.11-slim — no Playwright, no agent/ code; the cloud tier
+│   │                          #   is genuinely crawler-free
+│   ├── Caddyfile              # reverse_proxy api:8001 + automatic TLS
+│   ├── config.docker.yaml     # container-tuned config (baked to portal/config.yaml)
+│   ├── .env.example           # secrets + env template
+│   ├── SECURITY.md            # hardening checklist + rotation runbooks
+│   ├── BACKUP.md              # daily pg_dump + rehearsed restore (RPO ≤24h)
+│   ├── PITR.md                # WAL archiving + point-in-time recovery (RPO minutes)
+│   ├── backup.sh · restore.sh · harden-vps.sh
+│
+├── scripts/
+│   ├── migrate_sqlite_to_pg.py        # one-time SQLite→Postgres data migration (PK remap)
+│   ├── rotate_credential_encryption_key.py  # re-encrypt SMTP creds under a new key
+│   ├── generate_version_info.py       # PyInstaller Windows version resource from a git tag
+│   └── fault_injection_check.md       # manual resilience acceptance runbook
+│
+├── tests/                     # Split by tier, mirroring shared/cloud/agent
+│   ├── shared/                # test_imports.py (portal.main), test_config.py (env-override behavior)
+│   ├── cloud/                 # test_imports.py (cloud.api.server)
+│   └── agent/                 # test_imports.py (agent.api)
+│
+├── .github/workflows/
+│   ├── ci.yaml                # lint (diff-scoped) · import-sanity · pytest · import-boundaries (both
+│   │                          #   agent⊥cloud directions) · migration smoke test
+│   └── release.yaml           # tag-triggered PyInstaller build/release (win/mac/linux)
+│
+├── assets/favicon.ico
+└── .docs/                     # This documentation tree
 ```
 
-## Notable Files
+## Where the old `portal/` code went
 
-| File                                 | Size       | Notes                                                                          |
-|--------------------------------------|------------|--------------------------------------------------------------------------------|
-| `portal/api/campaigns.py`            | ~605 lines | Campaign + test-campaign creation, staging, dispatch routes (APIRouter)        |
-| `portal/db/mixins/outreach_mixin.py` | ~500 lines | Largest single db file — templates through test campaigns                      |
-| `portal/crawler/parser.py`           | ~670 lines | 6-stage extraction pipeline + `parse_for_engine` thread-pool entry point       |
-| `portal/crawler/engine.py`           | ~530 lines | Core async crawler implementation, incl. pagination-chain logic                |
-| `portal/api/dispatcher.py`           | ~330 lines | SMTP dispatch loop for both real + test campaigns                              |
-| `portal/scraper/importer.py`         | ~330 lines | JSON and live-API import                                                       |
-| `portal/db/mixins/lead_mixin.py`     | ~325 lines | Lead CRUD + shared `_apply_lead_filters`/`_apply_lead_sort` helpers            |
-| `portal/api/leads.py`                | ~205 lines | Lead browsing, export, CSV import, and editing routes                          |
-| `portal/api/jobs.py`                 | ~200 lines | Crawl job routes (domain- or custom-URL-seeded) + `_run_crawl` background task |
-| `portal/db/mixins/domain_mixin.py`   | ~215 lines | Domain CRUD, stats, and metadata queries                                       |
-| `GovScraper/api/api.py`              | ~110 lines | Three HTTP functions for india.gov.in API                                      |
-| `launcher/app.py`                    | ~400 lines | CrawlerLauncher: state machine, polling, shutdown flow, UI                     |
-| `portal/api/server.py`               | ~65 lines  | Pure app wiring — lifespan + `include_router` × 11                             |
-| `portal/api/system.py`               | ~100 lines | Activity aggregation + cancel-all for the desktop GUI                          |
-| `launcher/tray.py`                   | ~50 lines  | pystray icon lifecycle                                                         |
-| `run.py`                             | ~50 lines  | Bootstrap only — SSL fix, INSTALL_BROWSERS sentinel, entry                     |
+The pre-overhaul monolith lived entirely under `portal/`. It was split by tier:
 
-## Generated / Ignored Paths
+| Old location                        | New location                                                                 |
+|-------------------------------------|------------------------------------------------------------------------------|
+| `portal/api/*` (data routers)       | `cloud/api/*`                                                                |
+| `portal/api/jobs.py` (job creation) | `agent/api.py` (local BFF)                                                   |
+| `portal/db/*`                       | `cloud/db/*`                                                                 |
+| `portal/crawler/*`                  | `agent/crawler/*`                                                            |
+| `portal/services/lead_scoring.py`   | `shared/scoring.py`                                                          |
+| `portal/db/enums.py`                | `shared/enums.py` (re-exported by `cloud/db/enums.py`)                       |
+| `launcher/` (repo root)             | `agent/launcher/`                                                            |
+| `portal/frontend/`                  | `frontend/` (hoisted from `cloud/frontend/` in Phase 7, plan.md §19.1)       |
+| `cloud/scraper/importer.py`         | `cloud/services/importer.py` (Phase 7 — GovScraper's live-API calls inlined) |
+| `portal/main.py`, `portal/paths.py` | unchanged (the surviving shim)                                               |
 
-| Path                        | Why excluded from git           |
-|-----------------------------|---------------------------------|
-| `portal/data/govcrawler.db` | Runtime database, user-specific |
-| `portal/data/portal.log`    | Runtime log output              |
-| `portal/config.yaml`        | User-edited live config         |
-| `playwright_browsers/`      | ~600 MB Chromium binary         |
-| `dist/`                     | PyInstaller build output        |
-| `build/`                    | PyInstaller build temp          |
-| `**/__pycache__/`           | Python bytecode                 |
-| `venv/`                     | Virtual environment             |
+## Generated / ignored paths
+
+| Path                                                    | Why excluded from git                                       |
+|---------------------------------------------------------|-------------------------------------------------------------|
+| `portal/data/govcrawler.db`                             | Runtime SQLite DB (cloud, desktop/dev)                      |
+| `portal/data/agent_local.db`                            | Agent-local settings + visited history (`agent/localdb.py`) |
+| `portal/data/outbox_job_*.db`                           | Per-job durable outbox                                      |
+| `portal/data/portal.log`                                | Runtime log                                                 |
+| `portal/config.yaml`                                    | User-edited live config                                     |
+| `playwright_browsers/`                                  | ~600 MB Chromium                                            |
+| `deploy/.env`, `deploy/backups/`, `deploy/wal_archive/` | Secrets + backup artefacts                                  |
+| `dist/`, `build/`, `**/__pycache__/`, `venv/`           | Build/temp/env                                              |

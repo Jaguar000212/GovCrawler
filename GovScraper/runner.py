@@ -35,9 +35,9 @@ def run_all_domains(config: dict = None) -> dict[str, dict[str, str | None]]:
     domain_metadata = {}
 
     with httpx.Client(
-            headers=HEADERS,
-            follow_redirects=True,
-            timeout=httpx.Timeout(20.0),
+        headers=HEADERS,
+        follow_redirects=True,
+        timeout=httpx.Timeout(20.0),
     ) as client:
         log.info("Fetching categories from GovScraper API...")
         try:
@@ -57,7 +57,7 @@ def run_all_domains(config: dict = None) -> dict[str, dict[str, str | None]]:
             # Fetch Org Types to resolve names
             try:
                 org_types = get_organization_types(client, code)
-                org_mapping = {ot['organization_type']: ot['title'] for ot in org_types} if org_types else {}
+                org_mapping = {ot["organization_type"]: ot["title"] for ot in org_types} if org_types else {}
             except Exception as e:
                 log.warning(f"Failed to fetch org types for {code}: {e}")
                 org_mapping = {}
@@ -107,12 +107,14 @@ def build_gov_domains_json(config: dict = None) -> dict:
         state = record["state"] or "National / Unknown"
         by_state = gov_domains.setdefault(record["category"], {})
         by_org = by_state.setdefault(state, {})
-        by_org.setdefault(record["org_type"], []).append({
-            "title": record["title"],
-            "url": record["url"],
-            "contact_url": record["contact_url"],
-            "external_id": external_id,
-        })
+        by_org.setdefault(record["org_type"], []).append(
+            {
+                "title": record["title"],
+                "url": record["url"],
+                "contact_url": record["contact_url"],
+                "external_id": external_id,
+            }
+        )
 
     return gov_domains
 
@@ -123,11 +125,8 @@ def main():
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-    parser = argparse.ArgumentParser(
-        description="Scrape the india.gov.in Web Directory into a gov_domains.json file."
-    )
-    parser.add_argument("output", nargs="?", default="gov_domains.json",
-                        help="Output path (default: gov_domains.json)")
+    parser = argparse.ArgumentParser(description="Scrape the india.gov.in Web Directory into a gov_domains.json file.")
+    parser.add_argument("output", nargs="?", default="gov_domains.json", help="Output path (default: gov_domains.json)")
     parser.add_argument("--category", default="", help="Only scrape this category code (e.g. 'ug')")
     parser.add_argument("--org-type", default="", help="Only scrape this organization_type code")
     args = parser.parse_args()

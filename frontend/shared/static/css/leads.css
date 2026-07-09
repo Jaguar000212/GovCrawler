@@ -1,0 +1,189 @@
+/* Leads page — overrides and extensions on top of the shared components.css */
+
+/* components.css' .table-wrap has overflow-y:auto; add x-scroll for wide tables */
+.table-wrap {
+    overflow-x: auto;
+}
+
+/* ── Multi-select checkbox dropdown ── */
+.ms-dropdown {
+    position: relative;
+}
+
+.ms-dropdown-toggle {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    padding: 6px 10px;
+    font-size: 13px;
+    font-family: var(--font);
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+}
+
+.ms-dropdown-toggle:focus,
+.ms-dropdown.open .ms-dropdown-toggle {
+    border-color: var(--accent);
+    outline: none;
+}
+
+.ms-dropdown-toggle .ms-caret {
+    color: var(--muted);
+    font-size: 10px;
+}
+
+.ms-dropdown-panel {
+    display: none;
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    z-index: 20;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    max-height: 220px;
+    overflow-y: auto;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.ms-dropdown.open .ms-dropdown-panel {
+    display: block;
+}
+
+.ms-dropdown-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    font-size: 13px;
+    color: var(--text);
+}
+
+.ms-dropdown-option input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+    accent-color: var(--accent);
+    flex-shrink: 0;
+}
+
+
+/* .empty-state now lives in frontend/shared/static/css/components.css —
+   admin-dashboard.html (cloud tier) needs it too. */
+
+/* ── Missing-data warning flag ── */
+tr.row-warn td:first-child {
+    box-shadow: inset 3px 0 0 #d97706;
+}
+
+td.warn-cell {
+    text-align: center;
+    padding: 10px 4px;
+}
+
+.warn-flag {
+    font-size: 13px;
+    font-weight: 700;
+    color: #d97706;
+    cursor: default;
+    user-select: none;
+}
+
+/* ── Person cell: stacked name + designation ── */
+.lead-person-cell {
+    min-width: 140px;
+}
+
+/* ── Inline-editable cells (transparent until hovered/focused) ── */
+input.lead-cell-input {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    color: inherit;
+    font-family: var(--font);
+    font-size: inherit;
+    padding: 2px 5px;
+    width: 100%;
+    outline: none;
+    transition: border-color 0.15s, background 0.15s, opacity 0.15s;
+    box-sizing: border-box;
+}
+
+input.lead-cell-input:hover {
+    border-color: var(--border);
+}
+
+input.lead-cell-input:focus {
+    border-color: var(--accent);
+    background: var(--surface2);
+}
+
+input.lead-cell-input::placeholder {
+    color: var(--small);
+    font-style: italic;
+}
+
+.pagination {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+}
+
+.export-field-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    padding: 4px 0;
+}
+
+.export-field-row input[type=checkbox] {
+    width: 15px;
+    height: 15px;
+    cursor: pointer;
+    accent-color: var(--accent);
+    flex-shrink: 0;
+}
+
+input.lead-cell-input.saving {
+    opacity: 0.45;
+    cursor: wait;
+}
+
+input.lead-cell-input.saved {
+    border-color: var(--green);
+    background: #f0f8f2;
+}
+
+input.lead-cell-input.error {
+    border-color: var(--red);
+    background: #fdf0ef;
+}
+
+/* Primary input: mirrors .d-name */
+input.lead-primary-input {
+    display: block;
+    font-weight: 500;
+    line-height: 1.3;
+    font-size: 13px;
+    color: var(--text);
+}
+
+/* Sub input: mirrors .d-state */
+input.lead-sub-input {
+    display: block;
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 1px;
+}

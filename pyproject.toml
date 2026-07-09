@@ -1,0 +1,39 @@
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+
+[tool.black]
+line-length = 120
+target-version = ["py311"]
+extend-exclude = "alembic/versions"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.importlinter]
+root_packages = ["agent", "cloud", "shared", "portal"]
+
+[[tool.importlinter.contracts]]
+name = "Agent tier must not import the cloud tier"
+type = "forbidden"
+source_modules = ["agent"]
+forbidden_modules = ["cloud"]
+# Zero exceptions as of plan.md §19.1 Phase 9 Part 2 — agent.launcher.app used
+# to be the one deliberate exception (it constructed cloud.db.Database +
+# cloud.api.server.create_app to run both tiers in one process); it now boots
+# its own standalone agent.bff.app instead, so that seam is gone for good.
+
+[[tool.importlinter.contracts]]
+name = "Cloud tier must not import the agent tier"
+type = "forbidden"
+source_modules = ["cloud"]
+forbidden_modules = ["agent"]
+# The mirror direction — cloud/api/server.py used to mount agent.api.router
+# and own the Playwright browser lifecycle on the agent's behalf (both tiers
+# shared one process). The cloud tier is now genuinely crawler-free: it never
+# imports agent.* at all. Both contracts together (agent ⊥ cloud) are the
+# capstone verification that the process split is real, not just topological.

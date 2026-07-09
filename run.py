@@ -2,20 +2,21 @@ import os
 import sys
 import tkinter as tk
 
-from portal.main import load_config
+import certifi
 
-config = load_config()
+from portal.config import load_agent_config
+
+config = load_agent_config()
 
 # ==========================================
 # SSL Certificate FIX
 # ==========================================
-import certifi
 
-if getattr(sys, 'frozen', False):
+if getattr(sys, "frozen", False):
     # PyInstaller creates a temporary folder and stores path in _MEIPASS
-    cert_path = os.path.join(sys._MEIPASS, 'certifi', 'cacert.pem')
-    os.environ['REQUESTS_CA_BUNDLE'] = cert_path
-    os.environ['SSL_CERT_FILE'] = cert_path
+    cert_path = os.path.join(sys._MEIPASS, "certifi", "cacert.pem")
+    os.environ["REQUESTS_CA_BUNDLE"] = cert_path
+    os.environ["SSL_CERT_FILE"] = cert_path
 else:
     # Standard runtime environment
     cert_path = certifi.where()
@@ -47,7 +48,7 @@ if len(sys.argv) > 1 and sys.argv[1] == "INSTALL_BROWSERS":
         sys.exit(e.code)
 
 if __name__ == "__main__":
-    from launcher.app import CrawlerLauncher
+    from agent.launcher.app import CrawlerLauncher
 
     root = tk.Tk()
     app = CrawlerLauncher(root, config, entry_script=__file__)

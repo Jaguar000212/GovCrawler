@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <title>{% block title %}GovCrawler Admin{% endblock %}</title>
+    <link href="/assets/img/favicon.ico" rel="icon" type="image/x-icon">
+    <link href="/assets/css/tokens.css" rel="stylesheet">
+    <link href="/assets/css/components.css" rel="stylesheet">
+    <link href="/static/css/cloud.css" rel="stylesheet">
+
+    {% block extra_head %}{% endblock %}
+</head>
+
+<body>
+
+<header>
+    <div class="logo" onclick="window.location.href='/'" style="cursor:pointer">
+        <div class="logo-icon">⚡</div>
+        <div style="display:flex; align-items:center;">Gov<span>Crawler</span></div>
+        <span class="admin-wordmark">Admin</span>
+    </div>
+    <div class="header-right">
+        {% block header_actions %}{% endblock %}
+        <button class="btn-secondary btn-sm{{ ' active' if active_page == 'admin-dashboard' }}"
+                onclick="window.location.href='/admin/dashboard'">🛡️ Dashboard
+        </button>
+        <button class="btn-secondary btn-sm{{ ' active' if active_page == 'leads' }}"
+                onclick="window.location.href='/leads'">📋 Leads
+        </button>
+        <button class="btn-secondary btn-sm{{ ' active' if active_page == 'campaigns' }}"
+                onclick="window.location.href='/campaigns'">📣 Campaigns
+        </button>
+        <a class="btn-icon" href="/user-guide"
+           style="font-size:15px; text-decoration:none; padding:5px 10px; color:var(--text);"
+           title="Admin Guide">?</a>
+        <button class="btn-secondary btn-sm" onclick="logout()" title="Log out">⎋ Logout</button>
+    </div>
+</header>
+
+{% block content %}{% endblock %}
+
+<footer>
+    <span>GovCrawler Admin</span>
+    <a href="/user-guide">Help</a>
+</footer>
+
+<script src="/assets/js/http.js"></script>
+<script src="/assets/js/toast.js"></script>
+{% block extra_scripts %}{% endblock %}
+<script>
+    async function logout() {
+        try {
+            await fetch("/auth/logout", {method: "POST"});
+        } finally {
+            window.location.href = "/login";
+        }
+    }
+    {% block init_js %}
+    {% endblock %}
+    {% block extra_js %}
+    {% endblock %}
+</script>
+</body>
+
+</html>

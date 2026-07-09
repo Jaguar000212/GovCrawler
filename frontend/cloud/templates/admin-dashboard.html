@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Dashboard — GovCrawler{% endblock %}
+
+{% block content %}
+<div class="layout">
+    <aside>
+        <div class="sidebar-section">
+            <div class="section-label">Admin</div>
+            <ul class="settings-nav">
+                <li class="active" id="nav-overview" onclick="switchAdminTab('overview')">Overview</li>
+                {% if user.can('users.manage') %}
+                <li id="nav-users" onclick="switchAdminTab('users')">Users</li>
+                {% endif %}
+                <li id="nav-roles" onclick="switchAdminTab('roles')">Roles</li>
+                {% if user.can('audit.view') %}
+                <li id="nav-audit" onclick="switchAdminTab('audit')">Audit Log</li>
+                {% endif %}
+                <li id="nav-system" onclick="switchAdminTab('system')">System</li>
+            </ul>
+        </div>
+    </aside>
+
+    <main>
+        <!-- Overview Tab -->
+        <div class="settings-tab" id="tab-overview" style="overflow-y:auto;">
+            <div class="tab-header">
+                <h2>Overview</h2>
+                <div style="font-size:12px; color:var(--muted);">Auto-refreshes every 3s · <span
+                        id="ad-last-updated">—</span></div>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:20px;">
+                <section>
+                    <div class="section-label">Active Crawl Jobs</div>
+                    <div class="admin-card-grid" id="ad-active-jobs">
+                        <div class="empty-state">Loading...</div>
+                    </div>
+                </section>
+                <section>
+                    <div class="section-label">Active Campaigns</div>
+                    <div class="admin-card-grid" id="ad-active-campaigns">
+                        <div class="empty-state">Loading...</div>
+                    </div>
+                </section>
+                <section>
+                    <div class="section-label">Recently Finished Jobs</div>
+                    <div class="admin-card-grid" id="ad-recent-jobs">
+                        <div class="empty-state">Loading...</div>
+                    </div>
+                </section>
+                <section>
+                    <div class="section-label">Recently Finished Campaigns</div>
+                    <div class="admin-card-grid" id="ad-recent-campaigns">
+                        <div class="empty-state">Loading...</div>
+                    </div>
+                </section>
+            </div>
+        </div>
+
+        {% if user.can('users.manage') %}
+        <!-- Users Tab -->
+        <div class="settings-tab" id="tab-users" style="display:none;">
+            <div class="tab-header">
+                <h2>Users &amp; Permissions</h2>
+                <button class="btn-primary btn-sm" onclick="openNewUserModal()">+ New User</button>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                    <tr>
+                        <th>Email</th>
+                        <th>Name</th>
+                        <th>Role</th>
+                        <th style="text-align:center">Status</th>
+                        <th style="text-align:center">Super Admin</th>
+                        <th></th>
+                    </tr>
+                    </thead>
+                    <tbody id="ad-users-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Roles Tab -->
+        <div class="settings-tab" id="tab-roles" style="display:none;">
+            <div class="tab-header">
+                <h2>Roles</h2>
+                <div style="font-size:13px; color:var(--muted);">Built-in roles are fixed — grant or deny individual
+                    permissions per user from the Users tab instead.
+                </div>
+            </div>
+            <div class="table-wrap" id="ad-roles-grid">
+                <div class="empty-state">Loading...</div>
+            </div>
+        </div>
+
+        {% if user.can('audit.view') %}
+        <!-- Audit Log Tab -->
+        <div class="settings-tab" id="tab-audit" style="display:none;">
+            <div class="tab-header">
+                <h2>Audit Log</h2>
+            </div>
+            <div class="table-toolbar">
+                <input id="audit-filter-action" placeholder="Action prefix (e.g. user., lead., campaign.)"
+                       style="max-width:240px;" type="text">
+                <input id="audit-filter-from" title="From" type="datetime-local">
+                <input id="audit-filter-to" title="To" type="datetime-local">
+                <button class="btn-secondary btn-sm" onclick="loadAuditLog(1)">Filter</button>
+                <button class="btn-secondary btn-sm" onclick="clearAuditFilters()">Clear</button>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>User</th>
+                        <th>Action</th>
+                        <th>Target</th>
+                        <th>Detail</th>
+                        <th>IP</th>
+                    </tr>
+                    </thead>
+                    <tbody id="audit-tbody"></tbody>
+                </table>
+            </div>
+            <div class="pagination">
+                <button class="btn-secondary btn-sm" id="btn-audit-prev" onclick="auditPrev()">← Prev</button>
+                <span id="audit-page-info" style="font-size:12px;color:var(--muted)">—</span>
+                <button class="btn-secondary btn-sm" id="btn-audit-next" onclick="auditNext()">Next →</button>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- System Tab -->
+        <div class="settings-tab" id="tab-system" style="display:none; overflow-y:auto;">
+            <div class="tab-header">
+                <h2>System</h2>
+                <div style="font-size:12px; color:var(--muted);"><span id="sys-last-updated">—</span></div>
+            </div>
+            <div class="health-stat-row" id="ad-system-status">
+                <div class="empty-state">Loading...</div>
+            </div>
+            <div style="margin-top:20px;">
+                <div class="section-label">Agents seen recently</div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                        <tr>
+                            <th>Agent ID</th>
+                            <th>Jobs</th>
+                            <th>Last active</th>
+                        </tr>
+                        </thead>
+                        <tbody id="ad-agents-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- New User Modal -->
+<div class="modal-overlay" id="modal-new-user" style="display:none;">
+    <div class="modal">
+        <h3>New User</h3>
+        <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:16px;">
+            <label>Email<input id="nu-email" type="email"></label>
+            <label>Password<input id="nu-password" type="password"></label>
+            <label>Full name<input id="nu-full-name" type="text"></label>
+            <label>Role
+                <select id="nu-role">
+                    <option value="">— none —</option>
+                    <option value="Admin">Admin</option>
+                    <option value="Operator">Operator</option>
+                    <option value="Viewer">Viewer</option>
+                </select>
+            </label>
+            <label><input id="nu-is-admin" type="checkbox"> Super Admin (bypasses every permission check — distinct
+                from the "Admin" role above, which is just a permission bundle)</label>
+        </div>
+        <div class="modal-actions">
+            <button class="btn-secondary" onclick="closeNewUserModal()">Cancel</button>
+            <button class="btn-primary" onclick="submitNewUser()">Create</button>
+        </div>
+    </div>
+</div>
+
+<!-- Permissions Modal -->
+<div class="modal-overlay" id="modal-permissions" style="display:none;">
+    <div class="modal modal-lg">
+        <h3>Permissions — <span id="perm-modal-email"></span></h3>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">
+            Each permission is either inherited from the user's role, explicitly granted, or explicitly denied.
+        </p>
+        <div id="perm-modal-grid"
+             style="display:flex; flex-direction:column; gap:6px; max-height:50vh; overflow-y:auto;"></div>
+        <div class="modal-actions">
+            <button class="btn-secondary" onclick="closePermissionsModal()">Close</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="/static/js/admin-dashboard.js"></script>
+{% endblock %}
+
+{% block init_js %}
+switchAdminTab('overview');
+startAdminDashboardPoll();
+loadRoles();
+loadSystemStatus();
+{% if user.can('users.manage') %}loadUsers();{% endif %}
+{% if user.can('audit.view') %}loadAuditLog(1);{% endif %}
+{% endblock %}

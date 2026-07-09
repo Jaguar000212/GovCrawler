@@ -1,282 +1,157 @@
 # GovCrawler
 
-## Overview
+![CI](https://github.com/Jaguar000212/GovCrawler/actions/workflows/ci.yaml/badge.svg)
 
-GovCrawler is a full-stack platform for discovering, crawling, and extracting contact data from Indian Government
-domains (`.gov.in`, `.nic.in`). It combines a direct API scraper (`GovScraper`) for domain discovery with an async
-Playwright + HTTPX crawler for deep extraction (emails, personnel, designations). A FastAPI portal manages all jobs,
-leads, and an email outreach system backed by SQLite or PostgreSQL.
+A multi-user platform for discovering, crawling, and extracting contact data from Indian government domains
+(`.gov.in`, `.nic.in`), with an email-outreach system on top of the harvested leads. It pairs a direct API
+scraper (`GovScraper`) for domain discovery with an async HTTPX + Playwright crawler for deep extraction
+(emails, personnel, designations), all behind an authenticated FastAPI application with role-based access
+control.
 
-## Key Features
+**Genuinely two separate programs, not one app in two modes:** a **cloud server** you deploy once (Postgres,
+auth/RBAC, the admin dashboard, the SMTP dispatcher) and a lightweight **agent app** each operator installs
+on their own machine (a Tkinter control panel that owns the crawler and proxies its own web dashboard to
+the cloud). Neither needs to know how the other was started — the agent just needs the cloud's URL and a
+login. See [`.docs/server-manager-guide.md`](.docs/server-manager-guide.md) for the operational "how do I
+actually deploy this and roll it out to my team" walkthrough — this README is the technical overview.
 
-- **Centralized Portal:** FastAPI web application (`portal/`) with a browser-based UI for all workflows.
-- **Domain Discovery:** `GovScraper` extracts domains from the `india.gov.in` Web Directory API — no CAPTCHA needed.
-  Organizations with no listed URL are kept (not dropped) and marked "not crawlable" until a URL is added manually.
-- **Deep Crawler Engine:** Async crawling via HTTPX (fast path) with Playwright fallback for JavaScript-heavy sites.
-- **Data Extraction:** Configurable regex/keyword extraction for emails, phone numbers, and key personnel (name,
-  designation, department), via a 6-stage confidence-scored pipeline (mailto/tel links, microdata, tables, and
-  proximity-text scanning).
-- **Lead Scoring:** Every crawled lead gets a 0–100 score from email confidence, name, designation, and phone
-  presence — configurable weights, manual (CSV-imported) leads always score 0.
-- **Email Outreach System:** Full campaign lifecycle — Jinja2 email templates, lead-to-draft generation, SMTP dispatch
-  with rate-limit handling, blacklist, and test campaigns.
-- **Scalable Database:** SQLAlchemy ORM with SQLite (default) or PostgreSQL. Schema managed via Alembic migrations.
+## Architecture at a glance
 
-## Project Structure
+The code is split into three tiers plus a thin entry-point shim:
 
-```
-GovCrawler/
-├── run.py                   # Thin GUI entry point (bootstrap only)
-├── launcher/                # Tkinter Control Panel — CrawlerLauncher, tray icon, notifications
-├── assets/                  # Desktop app icon (window/taskbar, tray, compiled .exe)
-├── requirements.txt
-├── GovCrawler.spec          # PyInstaller build configuration
-├── alembic.ini              # Alembic database migration config
-├── alembic/versions/        # Incremental schema migration scripts
-├── GovScraper/              # Standalone domain-discovery tool (india.gov.in API); has
-│                            # its own CLI to generate gov_domains.json — see its README
-└── portal/                  # Core FastAPI application package
-    ├── main.py              # CLI dispatcher and server factory
-    ├── paths.py             # Path resolution + first-run bootstrap (dev + PyInstaller)
-    ├── default_config.yaml  # Shipped default configuration
-    ├── config.yaml          # Live user configuration (gitignored)
-    ├── api/                 # REST API layer — one APIRouter per concern
-    │   ├── server.py        # App factory: lifespan, static mount, include_router × 11
-    │   ├── deps.py          # Shared app state (db/config/browser) + Depends() providers
-    │   ├── frontend.py      # HTML page routes + /api/logs, /api/visited-urls
-    │   ├── domains.py       # Domain metadata, browsing, stats, and URL-edit routes
-    │   ├── config.py        # Crawler/extraction settings routes
-    │   ├── imports.py       # Domain import routes + background tasks
-    │   ├── jobs.py          # Crawl job routes + background crawl task
-    │   ├── leads.py         # Lead browsing, export, and editing routes
-    │   ├── campaigns.py     # Campaign generation + dispatch routes
-    │   ├── dispatcher.py    # Async SMTP background worker
-    │   ├── credentials.py   # SMTP credential CRUD
-    │   ├── templates.py     # Email template CRUD (Jinja2 validated)
-    │   ├── blacklist.py     # Email/domain blacklist CRUD
-    │   └── system.py        # Activity aggregation for the desktop Control Panel
-    ├── services/
-    │   └── campaign_service.py  # Draft rendering shared by campaign create/add-emails
-    ├── crawler/
-    │   ├── engine.py        # CrawlerEngine: priority queue, httpx-first, Playwright fallback
-    │   └── parser.py        # Email + personnel extraction + parse_for_engine entry point
-    ├── db/
-    │   ├── base.py          # declarative_base() + SQLite WAL pragma
-    │   ├── enums.py         # CampaignStatus, EmailStatus
-    │   ├── tables/          # ORM models (crawl, leads, outreach)
-    │   ├── mixins/          # Database's methods, grouped by concern
-    │   └── database.py      # Database class, composed from the mixins
-    ├── scraper/
-    │   └── importer.py      # JSON and live-API domain import handlers
-    ├── frontend/            # Jinja2 HTML templates + vanilla JS/CSS
-    └── data/                # Runtime data (SQLite DB, log file)
-```
+| Tier       | Package   | Runs where                                                                                                                                                                                     |
+|------------|-----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Shared** | `shared/` | enums, permission catalog, wire DTOs, lead-scoring — imported by both tiers                                                                                                                    |
+| **Cloud**  | `cloud/`  | the VPS: FastAPI app, auth/RBAC, Postgres database of record, SMTP dispatcher, admin dashboard. Genuinely crawler-free — no Playwright, no `agent.*` import                                    |
+| **Agent**  | `agent/`  | each operator's machine: a standalone local web app (`agent/bff/`) that renders the operator dashboard, proxies shared-data calls to the cloud, and owns the crawler engine + Tkinter launcher |
+| **Shim**   | `portal/` | `load_config()`, path/bootstrap, and the `python -m portal` CLI (the cloud's own entry point)                                                                                                  |
 
-See [`.docs/directory-structure.md`](.docs/directory-structure.md) for a full annotated file tree.
+The two tiers share **zero** imports in either direction (`agent ⊥ cloud`, enforced by an `import-linter` CI
+contract) — an agent process can be built, shipped, and run with no cloud code inside it at all, and vice
+versa. There is one trust boundary — the cloud API. Postgres is never exposed; clients reach shared data
+only through authenticated, RBAC-checked HTTP, and an agent never even holds the operator's real token in
+its browser (only a local session cookie — the token stays server-side in the agent process). Visited-URL
+history and crawl-resume state are 100% local to the machine that ran them; only the resulting **leads**
+and job records are shared. See [`.docs/architecture.md`](.docs/architecture.md).
 
-## Quick Start (Pre-compiled Release)
+## Key features
 
-1. Download the latest `GovCrawler-vX.Y.Z-windows.zip` from the Releases page.
-2. Extract the `.zip` file.
-3. Double-click **`GovCrawler.exe`** to open the Control Panel GUI.
+- **Auth & RBAC** — argon2id passwords, short-lived JWTs with rotating refresh tokens, per-user permission
+  overrides, append-only audit log. See [`.docs/authentication.md`](.docs/authentication.md).
+- **Domain discovery** — `GovScraper` reads the `india.gov.in` Web Directory API (no browser, no CAPTCHA).
+  Organizations with no listed URL are kept and marked "not crawlable" rather than dropped.
+- **Deep crawler** — async HTTPX (fast path) with Playwright fallback for JavaScript-heavy sites; priority
+  queue, per-domain politeness, pagination-aware, recrawl protection.
+- **Extraction & scoring** — a 6-stage, confidence-scored pipeline (mailto/tel, microdata, tables,
+  proximity text) producing 0–100 lead scores from configurable weights.
+- **Shared lead pool** — global email dedup with enrich-on-conflict and per-job attribution
+  (`lead_occurrences`).
+- **Email outreach** — Jinja2 templates, lead-to-draft generation, centralized SMTP dispatch with
+  per-credential pacing, hard-bounce blacklisting, and at-most-once delivery.
+- **Resilience** — a durable local outbox (no lead lost on outage/crash), frontier checkpoint + exact
+  resume, stale-job reaping, and dispatch recovery. See [`.docs/resilience.md`](.docs/resilience.md).
 
-## Prerequisites (Source Installation)
+## Running it
 
-- Python 3.10+
-- Playwright Chromium browser (`playwright install chromium`)
-- The Tkinter Control Panel (`run.py`) runs on Windows, macOS, and Linux (see `.github/workflows/release.yaml` for
-  the build matrix). On Linux, the tray icon needs a desktop environment with a systray host (most have one; a
-  minimal window manager may not) — everything else works regardless.
+You always need **one cloud server** (Part 1) and **at least one agent** (Part 2) — even for solo/dev use.
+There is no more "everything in one process" mode; see [`.docs/server-manager-guide.md`](.docs/server-manager-guide.md)
+for the full step-by-step version of both.
 
-## Installation from Source
-
-1. **Clone the repository:**
-   ```bash
-   git clone <repo-url>
-   cd GovCrawler
-   ```
-
-2. **Create a virtual environment:**
-   ```bash
-   python -m venv venv
-   # Windows
-   venv\Scripts\activate
-   # Linux/Mac
-   source venv/bin/activate
-   ```
-
-3. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Install Playwright browsers:**
-   ```bash
-   playwright install chromium
-   ```
-
-## Usage
-
-### Graphical User Interface (GUI)
+### 1. Cloud server (deploy once, on a VPS)
 
 ```bash
-python run.py
+cd deploy
+cp .env.example .env          # fill in POSTGRES_PASSWORD, JWT_SECRET, CREDENTIAL_ENC_KEY, DOMAIN, ...
+docker compose up --build -d
+docker compose exec api python -m portal create-admin you@example.com
 ```
 
-Opens the **GovCrawler Control Panel** (`launcher.app.CrawlerLauncher`):
+Services: `db` (Postgres + WAL archiving), `migrate` (one-shot Alembic), `api` (FastAPI + admin dashboard at
+`/admin/dashboard` — no Playwright, genuinely crawler-free), `dispatcher` (standalone SMTP loop), `proxy`
+(Caddy, automatic TLS). For local dev without a VPS, `python -m portal serve` (SQLite, no Docker) works too.
+Full details in [`.docs/deployment.md`](.docs/deployment.md) and the `deploy/` runbooks
+([SECURITY.md](deploy/SECURITY.md), [BACKUP.md](deploy/BACKUP.md), [PITR.md](deploy/PITR.md)).
 
-- **Playwright Browsers** — Detected automatically on launch; the download button only needs clicking once, on
-  first-time setup (~600 MB Chromium). Starting the server is disabled until browsers are present.
-- **Start / Stop Server** — A single toggle button launches the FastAPI server on `http://127.0.0.1:8001` (or stops
-  it). If a crawl job or email campaign is active when you click Stop, a confirmation dialog lists what's running;
-  confirming cancels everything first and waits for it to actually stop (up to ~90 s for email campaigns, since the
-  dispatch loop only re-checks its status once per send) before shutting the server down.
-- **Activity** — Live count of running crawl jobs / campaigns / test campaigns, polled every 1.5 s.
-- **Tray icon** — Closing the window minimizes it to the system tray instead of quitting; the server keeps running.
-  Use the tray menu's **Quit** (or the in-window **Stop Server**) to actually shut down.
-- **Notifications** — Desktop toast notifications (via `notifypy`, native on each OS) on server start/stop, crawl job
-  or campaign completion, and browser download results. If toasts don't appear on Windows, check Focus Assist / Do
-  Not Disturb; on Linux, a notification daemon (e.g. `dunst`, or your desktop environment's built-in one) must be
-  running. Notification failures are logged but never crash the app.
+### 2. Agent app (one per operator, their own machine)
 
-### CLI Usage
+A Tkinter control panel, shipped as a signed-per-OS `.exe`/app for Windows, macOS, and Linux — it renders
+the operator's own dashboard locally and proxies shared-data calls to whichever cloud server you point it
+at. It never runs alongside the cloud in one process.
 
-| Command                               | Description                                      |
-|---------------------------------------|--------------------------------------------------|
-| `python -m portal`                    | Start the server (default, same as `serve`)      |
-| `python -m portal serve`              | Start the server explicitly                      |
-| `python -m portal import-json [path]` | Seed DB from `gov_domains.json` (zero API calls) |
-| `python -m portal import`             | Refresh domains from the live `india.gov.in` API |
-| `python -m portal crawl <job_id>`     | Manually trigger a specific crawl job            |
-
-## Workflow Overview
-
-### 1. Seed the Database
-
-Import Indian government domains in one of two ways:
-
-- **JSON import (recommended):** Upload `gov_domains.json` via the Settings page or CLI. Zero API calls, instant.
-  Generate the file standalone with GovScraper's own CLI (see [`GovScraper/README.md`](GovScraper/README.md)):
+- **Pre-compiled:** download the latest `GovCrawler-vX.Y.Z-<os>.zip` from the Releases page, extract, and
+  run `GovCrawler` — it opens the Control Panel.
+- **From source:**
   ```bash
-  cd GovScraper && python runner.py ../gov_domains.json
-  ```
-  then import it:
-  ```bash
-  python -m portal import-json gov_domains.json
-  ```
-- **Live API import:** Fetches fresh data directly from `india.gov.in`. Use only when refreshing.
-  ```bash
-  python -m portal import
+  git clone <repo-url> && cd GovCrawler
+  python -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
+  pip install -r requirements/agent.txt
+  playwright install chromium
+  python run.py
   ```
 
-Organizations with no listed URL are imported anyway (metadata preserved, `main_url: null`) instead of being
-dropped — the domain browser marks them "not crawlable" and lets you add a URL later.
+First run prompts for your **Cloud Server URL** (e.g. `https://crawler.yourcompany.com`, or
+`http://127.0.0.1:8001` for a local dev server) — asked once per machine. Then: download Chromium (one
+click, ~600 MB), sign in (checked directly against the cloud server), and **Open Web Interface**. Closing
+the window minimizes to the tray; Stop Server runs a confirm → cancel → drain shutdown. Desktop toasts fire
+on job completion. Any number of agents can run against the same cloud server concurrently, each fully
+independent; a crawl can only ever be resumed from the machine that started it.
 
-### 2. Create a Crawl Job
+## CLI (`python -m portal`)
 
-From the web UI: filter domains by category/state/org-type, select them, and click **Start Crawl Job**. The engine
-crawls all selected domains up to `max_depth`, extracting emails and personnel.
+| Command                                            | Description                                               |
+|----------------------------------------------------|-----------------------------------------------------------|
+| `python -m portal` / `serve`                       | Start the server                                          |
+| `python -m portal import-json [path]`              | Seed the catalog from `gov_domains.json` (zero API calls) |
+| `python -m portal import`                          | Refresh domains from the live `india.gov.in` API          |
+| `python -m portal crawl <job_id>`                  | Re-run a crawl job synchronously (debug)                  |
+| `python -m portal create-admin <email> [password]` | Provision the first admin user                            |
 
-### 3. Review Leads
+## Workflow
 
-Navigate to `/leads`. Filter by category, state, job, or search term. Edit person names, designations, or departments
-inline. Export to CSV.
+1. **Seed the catalog.** Generate `gov_domains.json` standalone (`cd GovScraper && python runner.py
+   ../gov_domains.json`), then `python -m portal import-json gov_domains.json` — or use the live API import.
+2. **Create a crawl job.** Filter domains by category/state/org-type, select them, and start a job (or supply
+   custom URLs). The engine crawls to `max_depth`, extracting leads through the durable outbox.
+3. **Review leads.** Browse `/leads` — filter, search, edit names/designations/departments, export CSV.
+4. **Run a campaign.** Create a Jinja2 template, generate drafts from selected leads, review/deselect, assign
+   SMTP credentials, and dispatch. The dispatcher paces sends per credential and auto-blacklists hard bounces.
 
-### 4. Email Outreach
-
-1. Create an **Email Template** with Jinja2 variables (e.g., `{{ name }}`, `{{ designation }}`).
-2. Create a **Campaign** by selecting leads and a template. Drafts are auto-rendered.
-3. Review, edit, or deselect individual draft emails.
-4. Add **SMTP Credentials** (host, port, username, password).
-5. **Dispatch** the campaign. The background worker sends emails with per-credential rate-limit handling.
-
-## Building an Executable
+## Building an executable
 
 ```bash
+pip install -r requirements/agent.txt
 pip install pyinstaller
-pyinstaller GovCrawler.spec
+pyinstaller GovCrawler.spec        # output: dist/GovCrawler/GovCrawler(.exe)
 ```
 
-Output: `dist/GovCrawler/GovCrawler.exe`
+`GovCrawler.spec` bundles `frontend/`, `assets/favicon.ico`, and the default config — no Alembic (the agent
+never runs migrations) and, since `agent.*` imports zero `cloud.*` code, none of the cloud stack either. The
+tag-triggered `release.yaml` workflow builds this for Windows/macOS/Linux automatically on every version tag.
 
-`GovCrawler.spec` bakes `assets/favicon.ico` into the executable's icon and bundles it alongside the app for the
-window/taskbar and tray icons at runtime — make sure that file exists before building. To regenerate it from a new
-logo, convert the source image to a multi-resolution `.ico` (16/32/48/256 px) with Pillow and place it at
-`assets/favicon.ico`.
+## Development
 
-## Configuration
+- **Style:** PEP 8; `black` and `ruff` (config in `pyproject.toml`, line length 120). Type hints on all
+  functions. Logging only — never `print()` (CLI usage output excepted).
+- **Tests:** `pip install -r requirements-dev.txt && pytest -q`.
+- **Migrations:** ORM changes in `cloud/db/tables/` need an Alembic revision (`alembic revision
+  --autogenerate -m "..."`). `_ensure_columns()` is only for lightweight additive dev-time changes.
+- **CI** (`.github/workflows/ci.yaml`): diff-scoped lint, import-sanity, `pytest`, and a Postgres migration
+  smoke test.
+- **Branching:** feature/bugfix branches → PR into `develop`; `main` is stable/production.
+- **Async:** never block the event loop — use `asyncio.to_thread()` or the crawler's thread pools.
 
-Settings live in `portal/config.yaml`. The application ships with `portal/default_config.yaml` as a template. Key
-sections:
+## Documentation (`.docs/`)
 
-| Section                                  | Key Settings                                         |
-|------------------------------------------|------------------------------------------------------|
-| `database.uri`                           | SQLite (default) or `postgresql://user:pass@host/db` |
-| `api.host` / `api.port`                  | Server bind address (default `127.0.0.1:8001`)       |
-| `crawler.workers`                        | Concurrent async workers (default 10)                |
-| `crawler.max_depth`                      | Max crawl depth per seed (default 4)                 |
-| `crawler.recrawl_days`                   | Skip URLs visited within N days (default 30)         |
-| `extraction.email.valid_suffixes`        | Only keep emails matching these domains              |
-| `extraction.person.designation_keywords` | Keywords that trigger designation detection          |
-
-See [`.docs/configuration.md`](.docs/configuration.md) for the full reference.
-
----
-
-## Team Workflow & Collaboration Guidelines
-
-### 1. Branching Strategy
-
-- `main` — Stable, production-ready.
-- `develop` — Integration branch.
-- Feature branches: `feature/<issue-number>-<brief-desc>`
-- Bugfix branches: `bugfix/<issue-number>-<brief-desc>`
-
-### 2. Development Workflow
-
-1. Pull the latest `develop` before starting work.
-2. Create your feature branch from `develop`.
-3. Commit often with clear messages (e.g., `feat(crawler): add depth tracking to job metrics`).
-4. Open a PR against `develop`.
-
-### 3. Code Review & Pull Requests
-
-- All PRs require at least **one reviewer** before merging.
-- Ensure code is locally tested and all relevant tests pass.
-- Provide a clear description: what it fixes, how it was tested, any side effects.
-- Do not merge your own PRs without approval.
-
-### 4. Coding Standards
-
-- **Style:** Follow [PEP 8](https://peps.python.org/pep-0008/). Use `black` for formatting and `ruff` for linting.
-- **Type Hints:** Required on all functions and class members.
-- **Docstrings:** Write module/class/function docstrings explaining *why*, not just *what*.
-- **Logging:** Use the `logging` module exclusively (`log.info()`, `log.error()`). Never use `print()`.
-
-### 5. Database Migrations
-
-Changes to ORM models in `portal/db/tables/` must be accompanied by an Alembic migration script in
-`alembic/versions/`. For backward-compatible column additions, `_ensure_columns()` in `Database.__init__`
-(`portal/db/database.py`) can be used as a lightweight alternative during development. Communicate schema changes to
-the team before merging.
-
-### 6. Async Patterns
-
-- Never call blocking I/O directly inside `async` functions that share the Uvicorn event loop.
-- Use `asyncio.to_thread()` or a `ThreadPoolExecutor` for synchronous DB calls and CPU-bound parsing.
-- Each worker has a dedicated Playwright browser context to prevent `TargetClosedError` across workers.
-- Handle timeouts and network errors so one page failure never halts the entire crawl.
-
----
-
-## Further Documentation
-
-| Doc                                                            | Description                       |
-|----------------------------------------------------------------|-----------------------------------|
-| [`.docs/architecture.md`](.docs/architecture.md)               | System architecture and data flow |
-| [`.docs/directory-structure.md`](.docs/directory-structure.md) | Annotated file tree               |
-| [`.docs/api-reference.md`](.docs/api-reference.md)             | All REST endpoints                |
-| [`.docs/database-schema.md`](.docs/database-schema.md)         | ORM models and column reference   |
-| [`.docs/crawler.md`](.docs/crawler.md)                         | Crawler engine internals          |
-| [`.docs/outreach.md`](.docs/outreach.md)                       | Email outreach system             |
-| [`.docs/configuration.md`](.docs/configuration.md)             | Full config reference             |
+| Doc                                                      | Covers                                                                                                        |
+|----------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|
+| [server-manager-guide.md](.docs/server-manager-guide.md) | Step-by-step: deploy the cloud server (prod + dev), use the admin dashboard, package + roll out the agent app |
+| [architecture.md](.docs/architecture.md)                 | Tiers, trust model, data flow, threading                                                                      |
+| [directory-structure.md](.docs/directory-structure.md)   | Annotated file tree                                                                                           |
+| [authentication.md](.docs/authentication.md)             | Auth, JWT/refresh, RBAC, permissions & roles                                                                  |
+| [api-reference.md](.docs/api-reference.md)               | Every REST endpoint + its permission guard                                                                    |
+| [database-schema.md](.docs/database-schema.md)           | Cloud schema, local store, migrations                                                                         |
+| [crawler.md](.docs/crawler.md)                           | Crawler engine + 6-stage extraction pipeline                                                                  |
+| [outreach.md](.docs/outreach.md)                         | Campaigns, dispatcher, credentials, blacklist                                                                 |
+| [resilience.md](.docs/resilience.md)                     | Outbox, resume, reaping, dispatch recovery, DR                                                                |
+| [configuration.md](.docs/configuration.md)               | Full config + env-var reference                                                                               |
+| [deployment.md](.docs/deployment.md)                     | Docker/VPS stack, secrets, backups                                                                            |

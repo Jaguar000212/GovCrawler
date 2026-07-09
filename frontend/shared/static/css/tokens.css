@@ -1,0 +1,25 @@
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+:root {
+    --bg: #f5f0ea;
+    --surface: #fdfaf6;
+    --surface2: #ece5db;
+    --border: #d4cbbe;
+    --accent: #7c6f5e;
+    --accent-hover: #5e5448;
+    --green: #4a7a56;
+    --red: #a63830;
+    --yellow: #8a6a00;
+    --orange: #9c5c2a;
+    --text: #2c2620;
+    --muted: #6e6157;
+    --small: #9e9085;
+    --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    --radius: 6px;
+}

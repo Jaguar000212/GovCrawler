@@ -1,0 +1,174 @@
+database:
+  uri: sqlite:///portal/data/govcrawler.db
+api:
+  host: 0.0.0.0
+  port: 8001
+scraper:
+  category_filter: ''
+  org_type_filter: ''
+crawler:
+  workers: 10
+  max_depth: 4
+  recrawl_days: 30
+  httpx_first: true
+  playwright_fallback: false
+  httpx_timeout:
+    connect: 10
+    read: 30
+  playwright_timeout: 45
+  js_settle_time: 3.0
+  per_url_timeout: 100
+  request_delay: 1.5
+  max_links_per_page:
+    0: 100
+    1: 50
+    2: 40
+    default: 20
+  target_suffixes:
+    - .gov.in
+    - .nic.in
+  max_custom_urls: 50
+  priority_keywords:
+    - contact
+    - officer
+    - directory
+    - whos-who
+    - who-is-who
+    - staff
+    - personnel
+    - secretariat
+    - about-us
+    - division
+    - minister
+    - committee
+    - administration
+    - team
+    - telephone
+    - tele-directory
+    - phone-directory
+    - email
+  skip_extensions:
+    - .pdf
+    - .doc
+    - .docx
+    - .xls
+    - .xlsx
+    - .ppt
+    - .pptx
+    - .zip
+    - .rar
+    - .7z
+    - .tar
+    - .gz
+    - .jpg
+    - .jpeg
+    - .png
+    - .gif
+    - .svg
+    - .ico
+    - .mp4
+    - .mp3
+    - .avi
+    - .mov
+  js_indicators:
+    - <div id="__next"
+    - <div id="root"
+    - Please enable JavaScript
+    - You need to enable JavaScript
+    - This page requires JavaScript
+  user_agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36
+extraction:
+  email:
+    enabled: true
+    regex: '[a-zA-Z0-9._%+\-]+@(?:[a-zA-Z0-9\-]+\.)+[a-zA-Z]{2,6}'
+    valid_suffixes:
+      - .gov.in
+      - .nic.in
+      - .res.in
+      - .ac.in
+      - .com
+    obfuscation:
+      - - \s*\[at\]\s*
+        - '@'
+      - - \s*\(at\)\s*
+        - '@'
+      - - \s*\[dot\]\s*
+        - .
+      - - \s*\(dot\)\s*
+        - .
+      - - \s*\[hyphen\]\s*
+        - '-'
+      - - \s*\(hyphen\)\s*
+        - '-'
+    context_chars: 200
+  max_input_chars: 200000
+  role_local_parts:
+    - webmaster
+    - info
+    - admin
+    - contact
+    - support
+    - helpdesk
+    - grievance
+  confidence:
+    high_rungs:
+      - mailto_tel
+      - microdata
+    mid_rungs:
+      - table_block
+      - proximity_text
+  person:
+    enabled: true
+    title_prefixes:
+      - Shri
+      - Smt
+      - Dr
+      - Mr
+      - Mrs
+      - Ms
+      - Prof
+      - Sh
+      - Shrimati
+      - Km
+    designation_keywords:
+      - Secretary
+      - Director
+      - Commissioner
+      - Collector
+      - Superintendent
+      - Inspector
+      - Officer
+      - Manager
+      - Chairman
+      - President
+      - Minister
+      - Deputy
+      - Additional
+      - Principal
+      - Chief
+      - Joint
+      - Under Secretary
+      - IAS
+      - IPS
+      - IFS
+      - IRS
+      - Jt
+      - Jr
+      - Junior
+    proximity_chars: 300
+lead_score:
+  weights:
+    email_high: 20
+    email_low: 10
+    person_name: 40
+    designation: 30
+    phone: 10
+auth:
+  jwt_secret: ''
+  access_ttl_minutes: 15
+  refresh_ttl_days: 14
+  cookie_secure: true
+  lockout_threshold: 5
+  lockout_minutes: 15
+dispatch:
+  mode: embedded  # overridden to 'external' via DISPATCH_MODE env for the api service

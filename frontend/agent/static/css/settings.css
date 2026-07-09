@@ -1,0 +1,41 @@
+/* settings.css */
+
+/* .settings-nav / .settings-tab / .tab-header now live in
+   frontend/shared/static/css/components.css — admin-dashboard.html (cloud
+   tier) uses the same sidebar-tab pattern. */
+
+.modal-lg {
+    max-width: 600px !important;
+}
+
+textarea {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: monospace;
+    font-size: 13px;
+    resize: vertical;
+}
+
+textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.cred-limit-input {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    padding: 4px 8px;
+    font-size: 13px;
+    font-family: var(--font);
+    outline: none;
+}
+
+.cred-limit-input:focus {
+    border-color: var(--accent);
+}

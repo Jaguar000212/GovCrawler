@@ -1,835 +1,209 @@
 # API Reference
 
-Base URL: `http://127.0.0.1:8000`
+Two separate FastAPI apps now serve this system (plan.md §19.1 Phase 9 Part 2): the **cloud** app
+(`cloud/api/`, on the VPS — everything in this doc unless marked otherwise) and each operator's **agent
+BFF** (`agent/bff/`, loopback-only, one per machine). The agent renders every operator page itself and
+proxies almost every call below straight through to the cloud with the operator's bearer token
+(`agent/bff/proxy.py` — one generic reverse-proxy, not a route-by-route list); only the routes explicitly
+marked **(agent-local)** have their own, different implementation on the agent side. The admin dashboard is
+cloud-only and not reachable from the agent at all.
 
-All API responses are JSON unless noted. Pagination parameters use `page` (1-indexed) and `limit`.
+- **Auth (cloud)** — every `/api/*` router requires a valid session (`get_current_user`: `Authorization:
+  Bearer <jwt>` header, or the `access` cookie for a direct cloud-side browser session — e.g. the admin
+  dashboard) plus CSRF (`verify_csrf`). Mutating routes add a `require(<permission>)` check and write an
+  `audit_log` row.
+- **Auth (agent)** — every agent-side route requires loopback (`require_loopback`, checked against the
+  actual peer address) plus a local session (`require_local_session`: the browser's own `session` cookie,
+  established by the launcher's login) plus local CSRF (`verify_local_csrf`: double-submit **and** a
+  trusted-`Host` check against DNS-rebinding). The agent forwards the operator's real bearer token upstream
+  server-side — it never reaches the browser.
+- **CSRF (cloud)** — double-submit: unsafe methods from a cookie session must send `X-CSRF-Token` matching
+  the `csrf` cookie. Requests carrying a `Bearer` header are exempt (not CSRF-able) — this is also why the
+  agent's proxied calls to the cloud need no CSRF handling of their own.
+- **Ownership** — list/detail endpoints filter to the caller's own rows unless they hold the matching
+  `*.view_all` permission (or are admin).
+- **Permissions** in the tables below name the `require(...)` guard; "auth" means "any authenticated user".
 
----
-
-## Frontend Pages
-
-| Method | Path             | Description                          |
-|--------|------------------|--------------------------------------|
-| GET    | `/`              | Domains browser + crawl job creation |
-| GET    | `/leads`         | Lead table with edit and export      |
-| GET    | `/campaigns`     | Campaign management                  |
-| GET    | `/settings`      | Crawler and extraction configuration |
-| GET    | `/test-campaign` | Test campaign creation               |
-| GET    | `/user-guide`    | In-app user guide                    |
-
----
-
-## Metadata
-
-### `GET /api/categories`
-
-Returns all domain categories with domain counts.
-
-**Response:**
-
-```json
-[
-  { "code": "ug", "title": "Union Government", "count": 1247 },
-  { "code": "sg", "title": "State / UT Government", "count": 834 }
-]
-```
+See [authentication.md](authentication.md) for the token model and permission catalog.
 
 ---
 
-### `GET /api/states`
-
-Returns distinct states. Optionally filtered by category.
-
-**Query params:** `category` (optional)
-
-**Response:** `["Andhra Pradesh", "Bihar", ...]`
-
----
-
-### `GET /api/org-types`
-
-Returns organization types with counts. Optionally filtered.
-
-**Query params:** `category` (optional), `state` (optional)
-
-**Response:**
-
-```json
-[
-  { "code": "dept", "title": "Departments", "count": 320 }
-]
-```
-
----
-
-## Domains
-
-### `GET /api/domains`
-
-Paginated domain list with filters.
-
-**Query params:**
-| Param | Type | Default | Description |
-|---|---|---|---|
-| `category` | string | — | Filter by category code |
-| `state` | string | — | Filter by state name |
-| `org_type` | string | — | Filter by org type code |
-| `search` | string | — | Search in title or URL |
-| `sort_by` | string | — | Only `crawlable` is supported — groups domains with a `main_url` set ahead of (or behind) those without one |
-| `sort_dir` | string | desc | `asc` or `desc` |
-| `page` | int | 1 | Page number |
-| `limit` | int | 50 | Max 200 |
-
-**Response:**
-
-```json
-{
-  "domains": [...],
-  "total": 1234,
-  "page": 1,
-  "limit": 50,
-  "pages": 25
-}
-```
-
-Each domain object: `id, category_code, category_title, state, org_type, org_type_title, title, main_url, contact_url`
-
-`main_url` (and `contact_url`) may be `null` — organizations imported from the india.gov.in directory with no
-listed URL are kept rather than dropped, so metadata (title, category, state) isn't lost. The frontend marks these
-"not crawlable" until a URL is added via `PATCH /api/domains/{id}`.
-
----
-
-### `GET /api/domains/ids`
-
-Returns matching, **crawlable** domain IDs (used by "Select All" in the UI). Domains with `main_url: null` are
-excluded — they can't be used as crawl seeds, so select-all skips them.
-
-**Query params:** same filters as `GET /api/domains` (no pagination)
-
-**Response:** `{ "ids": [1, 2, 3, ...], "total": 150 }`
-
----
-
-### `GET /api/domains/stats`
-
-Total / crawlable / duplicate counts for domains matching the given filters — powers the stats strip above the
-domain table.
-
-**Query params:** same filters as `GET /api/domains` (no pagination). Omit all to get whole-table stats.
-
-**Response:**
-
-```json
-{ "total": 1234, "crawlable": 1100, "not_crawlable": 134, "duplicate": 42 }
-```
-
-`duplicate` counts rows sharing a `main_url` with another row in the filtered set, minus one per group (the
-redundant extra rows, not the whole group).
-
----
-
-### `PATCH /api/domains/{id}`
-
-Set or update a domain's crawlable URL — used to fix up organizations imported with `main_url: null`.
-
-**Body:**
-
-```json
-{ "main_url": "https://example.gov.in", "contact_url": "https://example.gov.in/contact" }
-```
-
-`contact_url` is optional.
-
-**Response:** the updated domain object. `404` if the domain doesn't exist, `422` if the URL is malformed.
-
----
-
-## Configuration
-
-### `GET /api/config`
-
-Returns the current crawler and extraction settings as a flat object suitable for the settings form.
-
----
-
-### `POST /api/config`
-
-Saves updated settings to `portal/config.yaml`. New crawler settings take effect on the next job.
-
-**Body:** flat JSON object with any subset of config fields (see [configuration.md](configuration.md) for keys).
-
-**Response:** `{ "message": "Settings saved. Crawler settings take effect on the next job." }`
-
----
-
-## Domain Import
-
-### `POST /api/import/json`
-
-Upload a `gov_domains.json` file. Zero API calls to india.gov.in. Runs in background. If an import is already
-running, short-circuits with `{ "message": "Import already running", "status": <import_status> }` instead of
-starting a second one.
-
-**Body:** `multipart/form-data` with field `file` (JSON file).
-
-**Response:** `{ "message": "JSON import started from <filename>" }`
-
----
-
-### `POST /api/import`
-
-Trigger a live refresh from the india.gov.in Web Directory API. Use only to update existing data. Same
-already-running short-circuit as `POST /api/import/json`.
-
-**Response:** `{ "message": "API import started" }`
-
----
-
-### `GET /api/import/status`
-
-Poll import progress.
-
-**Response:**
-
-```json
-{
-  "running": true,
-  "source": "json",
-  "total_categories": 7,
-  "done_categories": 3,
-  "total_entries": 1500,
-  "inserted": 620,
-  "error": null
-}
-```
-
----
-
-## Crawl Jobs
-
-### `POST /api/jobs`
-
-Create and immediately start a crawl job. Seed with **either** known `domain_ids` **or** ad-hoc `custom_urls` —
-exactly one must be provided (a request with both, or neither, gets a `422`).
-
-**Body (domain-based):**
-
-```json
-{
-  "domain_ids": [1, 2, 3],
-  "category_filter": "ug",
-  "title_filter": null
-}
-```
-
-**Body (custom-URL-based):**
-
-```json
-{
-  "custom_urls": ["https://example.gov.in", "another.gov.in/contact"],
-  "category_filter": null,
-  "title_filter": null
-}
-```
-
-For `custom_urls`: each URL is trimmed, auto-prefixed with `http://` if it has no scheme, and deduplicated. The
-`crawler.target_suffixes` restriction (e.g. `.gov.in`, `.nic.in`) is **not** applied — custom URLs are crawled as
-given, since the caller chose them deliberately. Validation errors (`422`):
-
-- `"Invalid URL(s): ..."` — one or more entries have no resolvable netloc.
-- `"No valid custom URLs provided"` — nothing left after filtering blanks/invalid entries.
-- `"Too many custom URLs (N); max is {max}"` — exceeds `crawler.max_custom_urls` (default 50).
-
-For `domain_ids`: `404` if none of the IDs match an existing domain; `422 "Selected domains have no crawlable
-URLs"` if every matched domain has `main_url: null`.
-
-**Response:** `{ "id": 42, "message": "Crawl started for 3 seed URL(s)" }`
-
----
-
-### `GET /api/jobs`
-
-List recent crawl jobs.
-
-**Query params:** `limit` (default 20, max 100)
-
-**Response:** Array of job objects.
-
----
-
-### `GET /api/jobs/{job_id}`
-
-Get a single job's status and metrics. `404` if the job doesn't exist. `status` is dynamically overridden to
-`"running"` if the job has a live, not-yet-done in-process task, even if the DB row hasn't caught up yet.
-
-**Response:**
-
-```json
-{
-  "id": 42,
-  "status": "running",
-  "total_domains": 10,
-  "crawled_domains": 3,
-  "seed_domains": 10,
-  "queued_urls": 145,
-  "visited_urls": 78,
-  "skipped_urls": 22,
-  "leads_found": 14,
-  "current_depth": 2,
-  "active_workers": 8,
-  "error_message": null,
-  "created_at": "2024-01-01T10:00:00",
-  "started_at": "2024-01-01T10:00:01",
-  "finished_at": null
-}
-```
-
----
-
-### `GET /api/jobs/{job_id}/seeds`
-
-Resolves a job's seeds. `404 "Job not found"` if it doesn't exist. The response shape depends on `source_type`:
-
-- **Domain-based job:** array of domain objects (same shape as `GET /api/domains` rows).
-- **Custom-URL job (`source_type == "custom_urls"`):** array of raw custom-URL records from `job_custom_urls`
-  (`{id, job_id, url, created_at}`), **not** domain objects.
-
----
-
-### `POST /api/jobs/{job_id}/cancel`
-
-Cancel a running job. Marks status as `cancelled`.
-
-**Response:** `{ "message": "Job cancelled" }`, or `{ "message": "Job is not currently running" }` if it wasn't
-actively running when called.
-
----
-
-## Leads
-
-### `GET /api/leads`
-
-Paginated leads with filters and sorting.
-
-**Query params:**
-| Param | Type | Default | Description |
-|---|---|---|---|
-| `job_id` | int, repeatable | — | Filter to one or more jobs (multi-select — repeat the param, e.g. `?job_id=1&job_id=2`) |
-| `category` | string, repeatable | — | Filter by domain category (manual leads always bypass this — see `entry_type`) |
-| `state` | string, repeatable | — | Filter by domain state (manual leads always bypass this — see `entry_type`) |
-| `org_type` | string, repeatable | — | Filter by domain org type (manual leads always bypass this — see `entry_type`) |
-| `search` | string | — | Search email, name, designation, department |
-| `complete_only` | bool | false | Only leads with name + designation + department filled |
-| `min_score` | int | — | Minimum `lead_score` (0-100); never excludes manual leads (always score 0) |
-| `entry_type` | string | both | `manual` (CSV-imported only), `extracted` (crawled only), or `both` |
-| `require_name` | bool | false | Only leads with `person_name` set |
-| `require_designation` | bool | false | Only leads with `designation` set |
-| `require_phone` | bool | false | Only leads with `phone` set |
-| `sort_by` | string | — | `score`, `contact` (has phone), or `name` (has `person_name`, ignores designation) |
-| `sort_dir` | string | desc | `asc` or `desc` |
-| `page` | int | 1 | Page number |
-| `limit` | int | 100 | Max 500 |
-
-**Response:**
-
-```json
-{
-  "leads": [...],
-  "total": 500,
-  "page": 1,
-  "pages": 5
-}
-```
-
-Each lead:
-`id, email, person_name, designation, department, source_url, source_title, context_snippet, domain_title, category_code, domain_state, domain_org_type, confidence_band, field_provenance, channel_tag, phone, lead_score, depth, captured_at`
-
----
-
-### `GET /api/leads/ids`
-
-All matching lead IDs (for bulk operations). Same filters as `GET /api/leads` (no sort/pagination params).
-
-**Response:** `{ "ids": [...], "total": 500 }`
-
----
-
-### `GET /api/leads/score-weights`
-
-Returns the active lead-scoring point weights (from `lead_score.weights` config, or the built-in defaults). Powers
-the frontend's score-breakdown tooltip.
-
-**Response:** `{ "email_high": 20, "email_low": 10, "person_name": 40, "designation": 30, "phone": 10 }`
-
----
-
-### `GET /api/leads/categories`
-
-Lead counts grouped by category.
-
-**Query params:** `job_id` (optional, repeatable)
-
----
-
-### `GET /api/leads/states`
-
-Distinct states with leads.
-
-**Query params:** `job_id` (optional, repeatable), `category` (optional, repeatable)
-
----
-
-### `GET /api/leads/org-types`
-
-Organization-type counts for leads — like `GET /api/org-types` but scoped to leads that actually exist (inner-joined
-to `domains`), not every domain in the directory.
-
-**Query params:** `job_id` (optional, repeatable)
-
-**Response:** `[{ "code": "dept", "title": "Departments", "count": 42 }]`
-
----
-
-### `POST /api/leads/import-csv`
-
-Bulk-create or update manual leads from an uploaded CSV. Existing manual leads (matched by email) are updated;
-leads that already exist as crawled (non-manual) are left untouched and reported in `skipped`.
-
-**Body:** `multipart/form-data` with field `file` (CSV with columns `name, email, designation, department, phone`).
-
-**Response:**
-`{ "imported": 12, "updated": 2, "skipped": [{ "row": 5, "email": "x@y.gov.in", "reason": "email already exists as a crawled lead" }] }`
-
----
-
-### `GET /api/leads/import-csv/template`
-
-Downloads a blank CSV template (`text/csv`) with the expected columns and one example row.
-
----
-
-### `POST /api/leads/export`
-
-Download a CSV file of selected leads. Accepts the same filters as `GET /api/leads` (sorting is irrelevant to
-export and is not accepted here).
-
-**Body:**
-
-```json
-{
-  "job_ids": [42],
-  "categories": null,
-  "states": null,
-  "search": null,
-  "complete_only": false,
-  "min_score": null,
-  "org_types": null,
-  "entry_type": "both",
-  "require_name": false,
-  "require_designation": false,
-  "require_phone": false,
-  "lead_ids": [1, 2, 3],
-  "fields": ["email", "person_name", "designation", "phone", "source_url"]
-}
-```
-
-`lead_ids` and `fields` are optional. `email` is always included. If `fields` is omitted, all fields are exported.
-Note the plural, list-typed filter fields (`job_ids`, `categories`, `states`, `org_types`) — these mirror the
-multi-select filters on `GET /api/leads` and are NOT the same shape as that endpoint's repeatable query params.
-
-**Available fields:**
-`email, person_name, designation, department, phone, domain_title, domain_state, domain_org_type, category_title, source_url, source_title, context_snippet, lead_score, depth, captured_at`
-
-**Response:** `text/csv` download.
-
----
-
-### `PUT /api/leads/{lead_id}`
-
-Update editable fields of a lead. Recomputes `lead_score` after the edit.
-
-**Body:**
-
-```json
-{
-  "person_name": "Dr. Rajesh Kumar",
-  "designation": "Secretary",
-  "department": "Ministry of Finance",
-  "domain_state": "Delhi"
-}
-```
-
-All fields are optional. Blank strings are stored as `null`.
-
----
-
-## System
-
-### `GET /api/logs`
-
-Returns the last 1000 lines of `portal/data/portal.log`.
-
-**Response:** `{ "logs": "..." }`
-
----
-
-### `DELETE /api/visited-urls`
-
-Clears the `visited_urls` table. Useful before a fresh full crawl.
-
-**Response:** `{ "message": "Visited URLs cleared." }`
-
----
-
-### `GET /api/system/activity`
-
-Live counts of everything currently running — crawl jobs, real campaigns, and test campaigns. Powers the desktop
-Control Panel's activity indicator and its "is it safe to stop the server?" check; not used by the web frontend.
-Crawl jobs and real campaigns come from live in-memory task state (exact); test campaigns are inferred from
-`status == RUNNING` in the DB, since test-campaign dispatch has no task handle to check — this can lag if the
-process was killed mid-dispatch in a previous run.
-
-**Response:**
-
-```json
-{
-  "crawl_jobs": [{ "id": 12, "label": "Job #12 (4/10 domains, 7 leads)" }],
-  "campaigns": [{ "id": 3, "name": "Q2 Outreach" }],
-  "test_campaigns": [{ "id": 7, "name": "SMTP Test" }],
-  "total_active": 2
-}
-```
-
----
-
-### `POST /api/system/cancel-all`
-
-Cancels every currently active crawl job, campaign, and test campaign in one call. Crawl jobs stop promptly; campaign
-dispatch loops only re-check their status once per send cycle, so they can take **up to ~90 seconds** to actually
-stop after this call returns.
-
-**Response:**
-
-```json
-{
-  "crawl_jobs_cancelled": 1,
-  "campaigns_cancelled": 1,
-  "test_campaigns_cancelled": 0,
-  "message": "Cancellation signalled. Campaign dispatch loops may take up to ~90s to actually stop."
-}
-```
-
----
-
-## Email Templates
-
-### `GET /api/templates`
-
-List all templates.
-
----
-
-### `GET /api/templates/{template_id}`
-
-Get a single template.
-
-**Response:** `{ "id", "name", "subject", "raw_body" }`
-
----
-
-### `POST /api/templates`
-
-Create a template. Subject and body are validated for Jinja2 syntax.
-
-**Body:** `{ "name": "...", "subject": "Dear {{ name }}", "raw_body": "..." }`
-
-**Response:** `{ "id": 1, "message": "Template created" }`
-
----
-
-### `PUT /api/templates/{template_id}`
-
-Update a template. Any field can be updated; Jinja2 fields are re-validated.
-
-**Body:** `{ "name": null, "subject": "...", "raw_body": "..." }` (all optional)
-
----
-
-### `DELETE /api/templates/{template_id}`
-
-Delete a template.
-
----
-
-## Email Blacklist
-
-### `GET /api/blacklist`
-
-Paginated blacklist.
-
-**Query params:** `page`, `limit` (max 200)
-
----
-
-### `POST /api/blacklist`
-
-Manually blacklist an email. Domain is auto-extracted from the email address.
-
-**Body:** `{ "email": "foo@example.gov.in", "reason": "opt-out" }`
-
-**Status:** 201 Created, or 409 if already blacklisted.
-
----
-
-### `DELETE /api/blacklist/{blacklist_id}`
-
-Remove a blacklist entry.
-
----
-
-## SMTP Credentials
-
-### `GET /api/credentials`
-
-List all credentials. Passwords are masked (`••••••••`).
-
----
-
-### `POST /api/credentials`
-
-Add a new SMTP credential.
-
-**Body:**
-
-```json
-{
-  "host": "smtp.gmail.com",
-  "port": 587,
-  "username": "sender@example.com",
-  "password": "app-password",
-  "daily_send_limit": null
-}
-```
-
-`daily_send_limit` is optional; `null`/omitted = unlimited. Once a credential hits its limit for the day it's
-excluded from dispatch until the next UTC day.
-
-**Supported ports:** 465 (TLS), 587 (STARTTLS)
-
----
-
-### `PUT /api/credentials/{credential_id}`
-
-Update a credential. All fields optional: `host`, `port`, `username`, `password`, `is_active`, `daily_send_limit`.
-
----
-
-### `DELETE /api/credentials/{credential_id}`
-
-Delete a credential.
-
----
-
-### `POST /api/credentials/{credential_id}/test`
-
-Test SMTP connection and authentication. **Side effects on credential state:** success re-activates the credential
-if it was disabled; any failure (auth or otherwise) sets `is_active = false`.
-
-**Response:**
-
-```json
-{ "success": true, "message": "Connection successful" }
-{ "success": false, "error": "Authentication failed: ..." }
-```
-
----
-
-## Campaigns
-
-### `POST /api/campaigns`
-
-Generate draft emails for a new campaign. Blacklisted leads are skipped. Missing template variables (`name`,
-`designation`) are detected and the email is automatically deselected.
-
-**Body:**
-
-```json
-{
-  "name": "Q2 Outreach",
-  "template_id": 1,
-  "lead_ids": [10, 11, 12],
-  "credential_ids": []
-}
-```
-
-`credential_ids` is optional — restricts which SMTP credentials this campaign may dispatch through. Empty (default)
-= any active credential. See [outreach.md](outreach.md#credential-assignment).
-
-**Response:**
-
-```json
-{
-  "campaign_id": 5,
-  "total_staged": 11,
-  "blacklisted_count": 1,
-  "message": "Campaign 'Q2 Outreach' created with 11 draft emails"
-}
-```
-
----
-
-### `GET /api/campaigns`
-
-Paginated campaign list (optionally including test campaigns).
-
-**Query params:** `page`, `limit`, `include_test` (default false)
-
-Each campaign includes an embedded `stats` object.
-
----
-
-### `GET /api/campaigns/{campaign_id}`
-
-Campaign detail including live `stats` and `credential_ids` (its current SMTP credential assignment).
-
----
-
-### `PUT /api/campaigns/{campaign_id}/credentials`
-
-Change which SMTP credentials a campaign may dispatch through, at any time before it's CANCELLED/COMPLETED. The
-dispatcher re-reads this assignment on every send, so an edit to a RUNNING campaign takes effect on its next send.
-
-**Body:** `{ "credential_ids": [1, 2, 3] }`
-
-**Response:** `{ "message": "Campaign credentials updated" }`, or `400` if the campaign is CANCELLED/COMPLETED.
-
----
-
-### `PATCH /api/campaigns/{campaign_id}`
-
-Update campaign status.
-
-**Body:** `{ "status": "PAUSED" }` — one of `RUNNING, PAUSED, CANCELLED, COMPLETED`
-
----
-
-### `GET /api/campaigns/{campaign_id}/stats`
-
-Live email counts by status (for UI polling every 3 s).
-
-**Response:**
-`{ "draft": 8, "queued": 2, "sent": 5, "failed": 1, "skipped": 2, "total": 18, "campaign_status": "RUNNING", "pause_reason": null }`
-
-`skipped` = deselected DRAFT emails; `draft` = selected drafts only. `pause_reason` is set when the dispatcher
-auto-pauses the campaign (e.g. every usable credential is disabled, cooling down, or capped) and cleared on any
-subsequent status change.
-
----
-
-### `GET /api/campaigns/{campaign_id}/emails`
-
-Paginated list of staged emails.
-
-**Query params:** `status` (optional filter), `page`, `limit` (max 200)
-
----
-
-### `PUT /api/campaigns/{campaign_id}/emails/{email_id}`
-
-Manually override subject and body of a DRAFT email.
-
-**Body:** `{ "subject": "...", "body": "..." }`
-
----
-
-### `PATCH /api/campaigns/{campaign_id}/emails/{email_id}/selection`
-
-Select or deselect a DRAFT or QUEUED email for the next dispatch. Deselecting a QUEUED email pulls it back to DRAFT.
-
-**Body:** `{ "is_selected": false }`
-
----
-
-### `PATCH /api/campaigns/{campaign_id}/emails/selection-all`
-
-Select or deselect every DRAFT email in the campaign in one call, regardless of pagination.
-
-**Body:** `{ "is_selected": false }`
-
-**Response:** `{ "message": "Updated selection for 8 email(s)", "updated": 8 }`
-
----
-
-### `DELETE /api/campaigns/{campaign_id}/emails/{email_id}`
-
-Permanently remove a DRAFT email from the campaign.
-
----
-
-### `POST /api/campaigns/{campaign_id}/emails`
-
-Add more leads to an existing campaign (renders template for new lead_ids, skips duplicates and blacklisted).
-
-**Body:** `{ "lead_ids": [20, 21] }`
-
----
-
-### `POST /api/campaigns/{campaign_id}/dispatch`
-
-Start the background SMTP dispatch worker for this campaign.
-
-**Validation before starting:**
-
-- `404` if the campaign doesn't exist.
-- `400 "No selected draft or queued emails to dispatch..."` if there's nothing to send.
-- `409 "Campaign is already running"` if a dispatch task is already active for it.
-- `400` if no usable SMTP credential exists — the message differs depending on whether none exist/are active at all
-  vs. every assigned credential is currently capped, cooling down, or disabled.
-
-**Response:** `{ "message": "Dispatch started" }`
-
----
-
-## Test Campaigns
-
-Mirror structure of production campaigns but use dummy recipient data instead of real leads.
-
-| Method | Path                                              | Description                                     |
-|--------|---------------------------------------------------|-------------------------------------------------|
-| POST   | `/api/test-campaigns/parse-csv`                   | Parse a CSV into `dummy_details` (no DB writes) |
-| POST   | `/api/test-campaigns`                             | Create test campaign with dummy recipients      |
-| POST   | `/api/test-campaigns/{id}/dispatch`               | Dispatch test emails                            |
-| GET    | `/api/test-campaigns/{id}`                        | Campaign detail + stats                         |
-| GET    | `/api/test-campaigns/{id}/stats`                  | Live stats (includes `pause_reason`)            |
-| GET    | `/api/test-campaigns/{id}/emails`                 | Email list                                      |
-| PUT    | `/api/test-campaigns/{id}/emails/{eid}`           | Edit subject/body                               |
-| PATCH  | `/api/test-campaigns/{id}/emails/{eid}/selection` | Select/deselect                                 |
-| PATCH  | `/api/test-campaigns/{id}/emails/selection-all`   | Select/deselect every DRAFT email               |
-| DELETE | `/api/test-campaigns/{id}/emails/{eid}`           | Remove draft                                    |
-| PATCH  | `/api/test-campaigns/{id}`                        | Update status                                   |
-
-**`POST /api/test-campaigns/parse-csv` body:** `multipart/form-data` with field `file` (same CSV shape as
-`POST /api/leads/import-csv`). **Response:**
-`{ "dummy_details": [{name, designation, email, department}, ...], "skipped": [...] }`
-— feed the result straight into `dummy_details` below without any DB round-trip.
-
-**`POST /api/test-campaigns` body:**
-
-```json
-{
-  "name": "SMTP Test",
-  "template_id": 1,
-  "test_credential_id": 2,
-  "dummy_details": [
-    {
-      "name": "Dr. Test User",
-      "designation": "Director",
-      "email": "test@example.com",
-      "department": "Test Dept"
-    }
-  ]
-}
-```
-
-`test_credential_id` is optional; falls back to round-robin over active credentials.
+## Auth — `cloud/api/auth.py`
+
+| Method | Path            | Guard  | Purpose                                                                                                                          |
+|--------|-----------------|--------|----------------------------------------------------------------------------------------------------------------------------------|
+| POST   | `/auth/login`   | public | Verify email/password (argon2id); enforces lockout; issues access + refresh tokens, sets cookies; audits `user.login`            |
+| POST   | `/auth/refresh` | public | Rotate refresh token (accepts it in the body or the `refresh` cookie); reuse of a revoked token revokes the whole session family |
+| POST   | `/auth/logout`  | public | Revoke session (refresh token in the body or the `refresh` cookie); clears cookies                                               |
+| GET    | `/auth/me`      | auth   | Current `UserOut` (id, email, is_admin, role, effective permissions)                                                             |
+
+## Agent local auth — `agent/bff/local_auth.py` (agent-local, not proxied)
+
+| Method | Path               | Guard                    | Purpose                                                                                                                                                                                                                                                                                  |
+|--------|--------------------|--------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| POST   | `/auth/login`      | loopback + local CSRF    | Relays `{email, password}` to the cloud's real `/auth/login`; seeds `agent/identity.py`'s session cache and the browser's local `session`/`csrf` cookies. `frontend/login.html`'s existing JS calls this unmodified — mainly a fallback, since the launcher is the primary authenticator |
+| GET    | `/local-bootstrap` | loopback                 | Hands the browser a local session, once the launcher has already logged in — replaces the old cross-process `/auth/bootstrap?token=` hand-off, which no longer exists (there's no second process to bootstrap into)                                                                      |
+| POST   | `/auth/logout`     | loopback + local CSRF    | Best-effort revokes the cloud session (keyring refresh token), clears `agent/identity.py`'s cache + keyring + local cookies                                                                                                                                                              |
+| GET    | `/auth/me`         | loopback + local session | This machine's cached `{email, is_admin, permissions}` — no network round trip                                                                                                                                                                                                           |
+
+## Admin — `cloud/api/admin.py` (router-level `require("users.manage")`)
+
+| Method   | Path                                      | Purpose                                                                                                               |
+|----------|-------------------------------------------|-----------------------------------------------------------------------------------------------------------------------|
+| GET/POST | `/api/admin/users`                        | List / create users (409 on duplicate email)                                                                          |
+| GET      | `/api/admin/users/{id}`                   | Detail: resolved effective permissions + raw per-permission overrides                                                 |
+| PATCH    | `/api/admin/users/{id}`                   | Set `is_active` and/or `role`                                                                                         |
+| POST     | `/api/admin/users/{id}/reset-password`    | Set a new password                                                                                                    |
+| PUT      | `/api/admin/users/{id}/permissions/{key}` | Grant/deny/clear one permission override on top of the user's role (`{"effect": "grant"\|"deny"\|null}`)              |
+| GET      | `/api/admin/roles`                        | List the 3 built-in roles, each with its resolved `permissions` list — read-only, no create/edit-role endpoint exists |
+| GET      | `/api/admin/permissions`                  | The full permission catalog (key → description), for rendering the override grid                                      |
+
+## Audit log — `cloud/api/audit.py` (`require("audit.view")` — deliberately separate from `users.manage`)
+
+| Method | Path               | Guard        | Purpose                                                                                |
+|--------|--------------------|--------------|----------------------------------------------------------------------------------------|
+| GET    | `/api/admin/audit` | `audit.view` | Paginated, filterable (`user_id`, `action_prefix`, `date_from`, `date_to`) audit trail |
+
+## Settings (crawl policy) — `cloud/api/config.py`
+
+| Method | Path          | Guard             | Purpose                                                                                                                                                                                                                             |
+|--------|---------------|-------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| GET    | `/api/config` | auth              | Flattened crawler + extraction + lead-score-weight settings                                                                                                                                                                         |
+| POST   | `/api/config` | `settings.manage` | Update settings — machine-local keys persist to `config.yaml`, policy keys (incl. weights) persist to `app_settings` (plan.md §19.1 Phase 8); a weight change schedules a background lead-score recompute; audits `settings.update` |
+
+## Domains — `cloud/api/domains.py`
+
+| Method | Path                              | Guard            | Purpose                                                                          |
+|--------|-----------------------------------|------------------|----------------------------------------------------------------------------------|
+| GET    | `/api/categories`                 | auth             | Categories with counts                                                           |
+| GET    | `/api/states?category=`           | auth             | States, optionally category-filtered                                             |
+| GET    | `/api/org-types?category=&state=` | auth             | Org types filtered by category+state                                             |
+| GET    | `/api/domains`                    | auth             | Paginated catalog (filters, sort, page/limit ≤200)                               |
+| GET    | `/api/domains/ids`                | auth             | All matching crawlable domain IDs (select-all)                                   |
+| GET    | `/api/domains/stats`              | auth             | `{total, crawlable, not_crawlable, duplicate}`                                   |
+| PATCH  | `/api/domains/{id}`               | `domains.import` | Set a "not crawlable" domain's `main_url`/`contact_url`; audits `domain.set_url` |
+
+## Domain import — `cloud/api/imports.py` (single-flight)
+
+| Method | Path                 | Guard            | Purpose                                                                                    |
+|--------|----------------------|------------------|--------------------------------------------------------------------------------------------|
+| POST   | `/api/import/json`   | `domains.import` | Upload `gov_domains.json`; background import (zero API calls); audits `domain.import_json` |
+| POST   | `/api/import`        | `domains.import` | Background live import from india.gov.in; audits `domain.import_live`                      |
+| GET    | `/api/import/status` | auth             | Poll import progress                                                                       |
+
+## Crawl jobs — read (`cloud/api/jobs.py`) + lifecycle (`agent/api.py`, agent-local)
+
+Job **creation/resume/cancel** are the agent's own responsibility (they build the `CrawlerEngine` locally);
+the cloud router only exposes reads (proxied through by the agent like everything else). These agent routes
+check only loopback + local session + CSRF — the actual `crawl.run`/ownership authorization happens at
+`cloud/api/coordination.py`, using the operator's own standing session (see below), not whichever request
+reached this route.
+
+| Method | Path                    | Guard                                                                        | Purpose                                                                                                                     |
+|--------|-------------------------|------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------|
+| POST   | `/api/jobs`             | agent-local (→ coordination checks `crawl.run`)                              | **(agent-local)** Create + start a crawl (domain_ids XOR custom_urls); stamps this agent's `agent_id`                       |
+| POST   | `/api/jobs/{id}/resume` | agent-local (→ coordination checks ownership + `crawl.run` + agent_id match) | **(agent-local)** Resume an interrupted job from its (local-only) frontier checkpoint — 403 if a different agent started it |
+| POST   | `/api/jobs/{id}/cancel` | agent-local (→ coordination checks ownership/`crawl.cancel_all`)             | **(agent-local)** Cancel a running job (local task or via coordination)                                                     |
+| GET    | `/api/jobs?limit=`      | auth                                                                         | List recent jobs (owner-filtered unless `jobs.view_all`) — includes `agent_hostname` (the owning agent's id)                |
+| GET    | `/api/jobs/{id}`        | auth                                                                         | Single job status + live metrics + `agent_hostname`                                                                         |
+| GET    | `/api/jobs/{id}/seeds`  | auth                                                                         | Resolve seeds (custom URLs or frozen snapshots)                                                                             |
+
+## Agent coordination — `cloud/api/coordination.py` (prefix `/api/coordination`)
+
+The contract a `CloudApiClient` speaks over the real network — authenticated as the operator's own
+standing session (`agent/identity.py`). Writes on an **already-started** job (`leads`/`heartbeat`/`finish`)
+authorize on **job ownership** only (the owner, or an admin; `/cancel` also accepts `crawl.cancel_all`) —
+decoupled from the volatile `crawl.run` grant, so revoking a permission mid-crawl can't strand the outbox.
+**Starting or resuming** a job (`/jobs`, `/jobs/{id}/resume`) additionally requires `crawl.run`. **Resuming**
+also requires the caller's `agent_id` to match the job's — unconditionally, regardless of status/heartbeat
+freshness, since a different agent has no frontier/visited data to resume from at all (plan.md §19.1
+Phase 9 Part 2, judgment call #2). There is no `/visited` or `/frontier` route anymore — both are 100%
+local to the agent that owns the job (`agent/localdb.py` / `agent/local_store.py`), never synced to the
+cloud. See [resilience.md](resilience.md) for the durability guarantees.
+
+| Method | Path                   | Guard                                    | Purpose                                                                                                                |
+|--------|------------------------|------------------------------------------|------------------------------------------------------------------------------------------------------------------------|
+| POST   | `/jobs`                | `crawl.run`                              | Create job (stamps `agent_hostname` from the request's `agent_id`); freeze snapshots; return `{job_id, seeds, policy}` |
+| POST   | `/jobs/{id}/leads`     | ownership                                | Batch lead upsert (enrich-dedup + score + occurrence)                                                                  |
+| POST   | `/jobs/{id}/heartbeat` | ownership                                | Push metrics; returns `{cancel_requested}`                                                                             |
+| POST   | `/jobs/{id}/finish`    | ownership                                | Terminal status (`done`/`failed`/`cancelled`); audits `job.finish`                                                     |
+| POST   | `/jobs/{id}/cancel`    | ownership or `crawl.cancel_all`          | Set the cancel signal; audits `job.cancel`                                                                             |
+| POST   | `/jobs/{id}/resume`    | ownership + `crawl.run` + agent_id match | interrupted → running; rebuild seeds from custom URLs or snapshots; audits `job.resume`                                |
+
+## Leads (shared pool) — `cloud/api/leads.py`
+
+| Method | Path                                           | Guard          | Purpose                                                                                                                  |
+|--------|------------------------------------------------|----------------|--------------------------------------------------------------------------------------------------------------------------|
+| GET    | `/api/leads`                                   | auth           | Paginated leads (rich filters: job/category/state/org_type/search/min_score/entry_type/require_*)                        |
+| GET    | `/api/leads/ids`                               | auth           | All matching lead IDs (select-all)                                                                                       |
+| GET    | `/api/leads/score-weights`                     | auth           | Current lead-score point weights                                                                                         |
+| GET    | `/api/leads/categories`·`/states`·`/org-types` | auth           | Facet counts for the lead filters                                                                                        |
+| POST   | `/api/leads/export`                            | `leads.export` | CSV download (selectable field subset; email always included); audits `lead.export`                                      |
+| POST   | `/api/leads/import-csv`                        | `leads.import` | Bulk create/update manual leads from CSV; audits `lead.import_csv`                                                       |
+| GET    | `/api/leads/import-csv/template`               | auth           | Downloadable CSV template                                                                                                |
+| PUT    | `/api/leads/{id}`                              | `leads.edit`   | Edit name/designation/department/manual_state (400 `not_manual` if editing a crawled lead's state); audits `lead.update` |
+
+## Campaigns — `cloud/api/campaigns.py`
+
+| Method | Path                                         | Guard                | Purpose                                                                                                   |
+|--------|----------------------------------------------|----------------------|-----------------------------------------------------------------------------------------------------------|
+| POST   | `/api/campaigns/parse-csv`                   | auth                 | Parse CSV → dummy details (no writes)                                                                     |
+| POST   | `/api/campaigns`                             | `campaigns.manage`   | Generate drafts (production from leads, test from dummy details); starts PAUSED; audits `campaign.create` |
+| POST   | `/api/campaigns/{id}/dispatch`               | `campaigns.dispatch` | Start dispatch (embedded → spawn task; external → dispatcher picks it up); audits `campaign.dispatch`     |
+| GET    | `/api/campaigns`                             | auth                 | Paginated list (+stats), owner-filtered unless `campaigns.view_all`                                       |
+| GET    | `/api/campaigns/{id}`                        | auth                 | Detail + stats + assigned credential IDs                                                                  |
+| GET    | `/api/campaigns/{id}/stats`                  | auth                 | Lightweight polling stats + status/pause_reason                                                           |
+| GET    | `/api/campaigns/{id}/emails`                 | auth                 | Paginated staged emails (status filter)                                                                   |
+| PATCH  | `/api/campaigns/{id}`                        | `campaigns.dispatch` | Kill switch: pause/cancel; audits `campaign.set_status`                                                   |
+| PUT    | `/api/campaigns/{id}/credentials`            | `campaigns.manage`   | Change the SMTP credential pool; audits `campaign.set_credentials`                                        |
+| PUT    | `/api/campaigns/{id}/emails/{eid}`           | `campaigns.manage`   | Manual subject/body override; audits `campaign.email_update`                                              |
+| PATCH  | `/api/campaigns/{id}/emails/{eid}/selection` | `campaigns.manage`   | Toggle one email                                                                                          |
+| PATCH  | `/api/campaigns/{id}/emails/selection-all`   | `campaigns.manage`   | Select/deselect all drafts                                                                                |
+| DELETE | `/api/campaigns/{id}/emails/{eid}`           | `campaigns.manage`   | Delete a DRAFT email; audits `campaign.email_delete`                                                      |
+| POST   | `/api/campaigns/{id}/emails`                 | `campaigns.manage`   | Add leads to an existing production campaign; audits `campaign.add_emails`                                |
+
+## Templates / Credentials / Blacklist
+
+| Method          | Path                         | Guard                | Purpose                                                                                                      |
+|-----------------|------------------------------|----------------------|--------------------------------------------------------------------------------------------------------------|
+| GET             | `/api/templates`·`/{id}`     | auth                 | List / get email templates                                                                                   |
+| POST/PUT/DELETE | `/api/templates[/{id}]`      | `templates.manage`   | Create/update (Jinja2-validated) / delete; audits `template.create`/`update`/`delete`                        |
+| GET             | `/api/credentials`           | auth                 | List SMTP credentials (passwords masked; includes health)                                                    |
+| POST/PUT/DELETE | `/api/credentials[/{id}]`    | `credentials.manage` | CRUD (password Fernet-encrypted); audits `credential.create`/`update`/`delete` (password value never logged) |
+| POST            | `/api/credentials/{id}/test` | `credentials.manage` | Live SMTP connect+login test (auto-activate/disable); audits `credential.test`                               |
+| GET             | `/api/blacklist`             | auth                 | Paginated blacklist                                                                                          |
+| POST/DELETE     | `/api/blacklist[/{id}]`      | `blacklist.manage`   | Block (domain auto-extracted) / unblock; audits `blacklist.add`/`remove`                                     |
+
+## Frontend pages
+
+Rendered from three structurally separate trees under `frontend/` — see
+[directory-structure.md](directory-structure.md)
+and [architecture.md](architecture.md#8-frontend--frontendsharedagentcloud).
+The crawler/outreach pages are rendered only by **the agent** (`agent/bff/pages.py`, from `frontend/agent/`)
+— the browser never talks to the cloud directly for these. The admin UI is rendered only by **the cloud**
+(`cloud/api/frontend.py`, from `frontend/cloud/`) and is never mounted on the agent at all; an admin-capable
+operator reaches it via an external link on the agent's dashboard (opens in a new tab, requiring its own
+login). `/login` is the one page genuinely identical on both tiers (`frontend/shared/templates/login.html`).
+
+| Path                     | Rendered by                   | Guard           | Page                                                                                    |
+|--------------------------|-------------------------------|-----------------|-----------------------------------------------------------------------------------------|
+| `/login`                 | agent + cloud (same template) | public          | Login                                                                                   |
+| `/`                      | agent                         | local session   | Dashboard (domains + job creation + status)                                             |
+| `/leads`                 | agent                         | local session   | Leads browser                                                                           |
+| `/campaigns`             | agent                         | local session   | Campaigns                                                                               |
+| `/test-campaign`         | agent                         | local session   | Test campaign                                                                           |
+| `/settings`              | agent                         | local session   | Crawl-policy + outreach config editor                                                   |
+| `/user-guide`            | agent                         | local session   | In-app crawler/outreach guide                                                           |
+| `/` , `/admin/dashboard` | **cloud only**                | `jobs.view_all` | Admin dashboard (3 s poll; Overview / Users & Permissions / Roles / Audit Log / System) |
+| `/user-guide`            | **cloud only**                | auth            | Admin-only guide (a different template than the agent's)                                |
+
+## System & health
+
+| Method | Path                       | Served by       | Guard                           | Purpose                                                                                                                                                           |
+|--------|----------------------------|-----------------|---------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| GET    | `/healthz`                 | cloud           | public                          | Liveness/readiness (`SELECT 1`; 503 if DB unreachable)                                                                                                            |
+| GET    | `/api/admin/activity`      | cloud           | `jobs.view_all`                 | Org-wide active jobs (DB-backed — `crawl_jobs.status`, not an in-process registry) + per-campaign dispatch stats + recently-finished tail                         |
+| GET    | `/api/admin/system-status` | cloud           | `jobs.view_all`                 | Backs the admin dashboard's System tab: DB reachability, configured `dispatch.mode`, and a per-`agent_id` job-count/last-active summary derived from `crawl_jobs` |
+| GET    | `/api/system/activity`     | **agent-local** | loopback + local session        | This machine's own running crawl jobs (its local task registry — no campaign data, dispatch never runs here)                                                      |
+| POST   | `/api/system/cancel-all`   | **agent-local** | loopback + local session + CSRF | Emergency stop — cancels this machine's own running jobs directly and best-effort signals the cloud                                                               |
+| GET    | `/api/logs`                | **agent-local** | loopback + local session        | This machine's own crawl log tail (last 1000 lines) — the VPS's server log is only visible from the cloud admin dashboard                                         |
