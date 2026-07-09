@@ -22,14 +22,21 @@ log = logging.getLogger(__name__)
 # that lives in app_settings (everything else in `crawler` is machine-local:
 # workers, timeouts, js_settle_time).
 _CRAWLER_POLICY_KEYS = (
-    "target_suffixes", "priority_keywords", "skip_extensions", "pagination",
-    "js_indicators", "max_links_per_page", "max_depth", "recrawl_days",
-    "request_delay", "user_agent", "max_custom_urls",
+    "target_suffixes",
+    "priority_keywords",
+    "skip_extensions",
+    "pagination",
+    "js_indicators",
+    "max_links_per_page",
+    "max_depth",
+    "recrawl_days",
+    "request_delay",
+    "user_agent",
+    "max_custom_urls",
 )
 
 
-class Database(DomainMixin, JobMixin, CrawlSnapshotMixin, LeadMixin, OutreachMixin, AuthMixin,
-               AppSettingsMixin):
+class Database(DomainMixin, JobMixin, CrawlSnapshotMixin, LeadMixin, OutreachMixin, AuthMixin, AppSettingsMixin):
     def __init__(self, config: dict, config_path: Path = LIVE_CONFIG_PATH):
         """`config_path` is where a missing `credential_enc_key` gets persisted
         (ensure_credential_enc_key) — defaults to the real live config for every
@@ -149,20 +156,23 @@ class Database(DomainMixin, JobMixin, CrawlSnapshotMixin, LeadMixin, OutreachMix
         expressible in SQL without duplicating — and risking drift from —
         the one scoring implementation.
         """
-        rows = conn.execute(text(
-            "SELECT id, email, phone, person_name, designation, "
-            "confidence_band, channel_tag FROM leads"
-        )).fetchall()
+        rows = conn.execute(
+            text("SELECT id, email, phone, person_name, designation, confidence_band, channel_tag FROM leads")
+        ).fetchall()
         for row in rows:
             m = row._mapping
             score = compute_lead_score(
-                {"email": m["email"], "phone": m["phone"],
-                 "person_name": m["person_name"], "designation": m["designation"]},
-                confidence_band=m["confidence_band"], channel_tag=m["channel_tag"],
+                {
+                    "email": m["email"],
+                    "phone": m["phone"],
+                    "person_name": m["person_name"],
+                    "designation": m["designation"],
+                },
+                confidence_band=m["confidence_band"],
+                channel_tag=m["channel_tag"],
                 weights=self._lead_score_weights,
             )
-            conn.execute(text("UPDATE leads SET lead_score = :score WHERE id = :id"),
-                         {"score": score, "id": m["id"]})
+            conn.execute(text("UPDATE leads SET lead_score = :score WHERE id = :id"), {"score": score, "id": m["id"]})
         log.info(f"Schema: recomputed lead_score for {len(rows)} leads")
 
     def _backfill_snapshots(self, conn):
@@ -177,23 +187,27 @@ class Database(DomainMixin, JobMixin, CrawlSnapshotMixin, LeadMixin, OutreachMix
         here — see 0011_add_crawl_snapshots.py). Leads with no domain_id
         (manual/custom-URL) are left with snapshot_id = NULL, same as before.
         """
-        conn.execute(text(
-            "INSERT INTO crawl_snapshots "
-            "(job_id, source_domain_id, external_id, category_code, category_title, "
-            " state, org_type, org_type_title, title, main_url, contact_url, created_at) "
-            "SELECT DISTINCT l.job_id, l.domain_id, d.external_id, d.category_code, d.category_title, "
-            " d.state, d.org_type, d.org_type_title, d.title, d.main_url, d.contact_url, CURRENT_TIMESTAMP "
-            "FROM leads l JOIN domains d ON l.domain_id = d.id "
-            "WHERE l.snapshot_id IS NULL AND l.domain_id IS NOT NULL "
-            "AND NOT EXISTS (SELECT 1 FROM crawl_snapshots s "
-            "                WHERE s.job_id = l.job_id AND s.source_domain_id = l.domain_id)"
-        ))
-        result = conn.execute(text(
-            "UPDATE leads SET snapshot_id = ("
-            " SELECT s.id FROM crawl_snapshots s "
-            " WHERE s.job_id = leads.job_id AND s.source_domain_id = leads.domain_id) "
-            "WHERE snapshot_id IS NULL AND domain_id IS NOT NULL"
-        ))
+        conn.execute(
+            text(
+                "INSERT INTO crawl_snapshots "
+                "(job_id, source_domain_id, external_id, category_code, category_title, "
+                " state, org_type, org_type_title, title, main_url, contact_url, created_at) "
+                "SELECT DISTINCT l.job_id, l.domain_id, d.external_id, d.category_code, d.category_title, "
+                " d.state, d.org_type, d.org_type_title, d.title, d.main_url, d.contact_url, CURRENT_TIMESTAMP "
+                "FROM leads l JOIN domains d ON l.domain_id = d.id "
+                "WHERE l.snapshot_id IS NULL AND l.domain_id IS NOT NULL "
+                "AND NOT EXISTS (SELECT 1 FROM crawl_snapshots s "
+                "                WHERE s.job_id = l.job_id AND s.source_domain_id = l.domain_id)"
+            )
+        )
+        result = conn.execute(
+            text(
+                "UPDATE leads SET snapshot_id = ("
+                " SELECT s.id FROM crawl_snapshots s "
+                " WHERE s.job_id = leads.job_id AND s.source_domain_id = leads.domain_id) "
+                "WHERE snapshot_id IS NULL AND domain_id IS NOT NULL"
+            )
+        )
         if result.rowcount:
             log.info(f"Schema: backfilled snapshot_id for {result.rowcount} leads")
 

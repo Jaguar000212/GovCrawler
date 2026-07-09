@@ -13,6 +13,7 @@ router = APIRouter(tags=["credentials"])
 
 # ── Pydantic schemas ──────────────────────────────────────────────────────────
 
+
 class CredentialCreate(BaseModel):
     host: str
     port: int
@@ -32,6 +33,7 @@ class CredentialUpdate(BaseModel):
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+
 @router.get("/api/credentials")
 async def list_credentials(db: Database = Depends(get_db)):
     creds = db.list_credentials()
@@ -42,8 +44,12 @@ async def list_credentials(db: Database = Depends(get_db)):
 
 
 @router.post("/api/credentials", status_code=201)
-async def create_credential(req: CredentialCreate, request: Request, db: Database = Depends(get_db),
-                            user: CurrentUser = Depends(require("credentials.manage"))):
+async def create_credential(
+    req: CredentialCreate,
+    request: Request,
+    db: Database = Depends(get_db),
+    user: CurrentUser = Depends(require("credentials.manage")),
+):
     cid = db.create_credential(
         host=req.host,
         port=req.port,
@@ -51,15 +57,25 @@ async def create_credential(req: CredentialCreate, request: Request, db: Databas
         password=req.password,
         daily_send_limit=req.daily_send_limit,
     )
-    db.write_audit(user.id, "credential.create", "credential", cid,
-                   detail={"host": req.host, "username": req.username}, ip=client_ip(request))
+    db.write_audit(
+        user.id,
+        "credential.create",
+        "credential",
+        cid,
+        detail={"host": req.host, "username": req.username},
+        ip=client_ip(request),
+    )
     return {"id": cid, "message": "Credential created"}
 
 
 @router.put("/api/credentials/{credential_id}")
-async def update_credential(credential_id: int, req: CredentialUpdate, request: Request,
-                            db: Database = Depends(get_db),
-                            user: CurrentUser = Depends(require("credentials.manage"))):
+async def update_credential(
+    credential_id: int,
+    req: CredentialUpdate,
+    request: Request,
+    db: Database = Depends(get_db),
+    user: CurrentUser = Depends(require("credentials.manage")),
+):
     updates = req.model_dump(exclude_none=True)
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -67,14 +83,24 @@ async def update_credential(credential_id: int, req: CredentialUpdate, request: 
     if not db.update_credential(credential_id, **updates):
         raise HTTPException(status_code=404, detail="Credential not found")
     # Never record the password value itself — only which fields changed.
-    db.write_audit(user.id, "credential.update", "credential", credential_id,
-                   detail={"fields": list(updates.keys())}, ip=client_ip(request))
+    db.write_audit(
+        user.id,
+        "credential.update",
+        "credential",
+        credential_id,
+        detail={"fields": list(updates.keys())},
+        ip=client_ip(request),
+    )
     return {"message": "Credential updated"}
 
 
 @router.delete("/api/credentials/{credential_id}")
-async def delete_credential(credential_id: int, request: Request, db: Database = Depends(get_db),
-                            user: CurrentUser = Depends(require("credentials.manage"))):
+async def delete_credential(
+    credential_id: int,
+    request: Request,
+    db: Database = Depends(get_db),
+    user: CurrentUser = Depends(require("credentials.manage")),
+):
     if not db.delete_credential(credential_id):
         raise HTTPException(status_code=404, detail="Credential not found")
     db.write_audit(user.id, "credential.delete", "credential", credential_id, ip=client_ip(request))
@@ -82,8 +108,12 @@ async def delete_credential(credential_id: int, request: Request, db: Database =
 
 
 @router.post("/api/credentials/{credential_id}/test")
-async def test_credential(credential_id: int, request: Request, db: Database = Depends(get_db),
-                          user: CurrentUser = Depends(require("credentials.manage"))):
+async def test_credential(
+    credential_id: int,
+    request: Request,
+    db: Database = Depends(get_db),
+    user: CurrentUser = Depends(require("credentials.manage")),
+):
     """Test SMTP connection and login."""
     cred = db.get_credential(credential_id)
     if not cred:
@@ -108,17 +138,30 @@ async def test_credential(credential_id: int, request: Request, db: Database = D
         if not cred["is_active"]:
             db.update_credential(credential_id, is_active=True)
 
-        db.write_audit(user.id, "credential.test", "credential", credential_id,
-                       detail={"success": True}, ip=client_ip(request))
+        db.write_audit(
+            user.id, "credential.test", "credential", credential_id, detail={"success": True}, ip=client_ip(request)
+        )
         return {"success": True, "message": "Connection successful"}
 
     except aiosmtplib.SMTPAuthenticationError as e:
         db.update_credential(credential_id, is_active=False)
-        db.write_audit(user.id, "credential.test", "credential", credential_id,
-                       detail={"success": False, "error": "authentication_failed"}, ip=client_ip(request))
+        db.write_audit(
+            user.id,
+            "credential.test",
+            "credential",
+            credential_id,
+            detail={"success": False, "error": "authentication_failed"},
+            ip=client_ip(request),
+        )
         return {"success": False, "error": f"Authentication failed: {e.message}"}
     except Exception as e:
         db.update_credential(credential_id, is_active=False)
-        db.write_audit(user.id, "credential.test", "credential", credential_id,
-                       detail={"success": False, "error": "connection_failed"}, ip=client_ip(request))
+        db.write_audit(
+            user.id,
+            "credential.test",
+            "credential",
+            credential_id,
+            detail={"success": False, "error": "connection_failed"},
+            ip=client_ip(request),
+        )
         return {"success": False, "error": f"Connection failed: {str(e)}"}

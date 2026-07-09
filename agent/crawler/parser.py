@@ -14,9 +14,10 @@ Fully config-driven — no regexes or keyword lists hardcoded here.
 import json
 import logging
 import re
-from bs4 import BeautifulSoup, Tag
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from urllib.parse import unquote, urljoin, urlparse
+
+from bs4 import BeautifulSoup
 
 log = logging.getLogger(__name__)
 
@@ -81,9 +82,11 @@ def extract_leads(soup: BeautifulSoup, source_url: str, config: dict) -> list[Le
         ecfg = config.get("email", {})
         pcfg = config.get("person", {})
         conf_cfg = config.get("confidence", {})
-        role_local_parts = set(config.get("role_local_parts", [
-            "webmaster", "info", "admin", "contact", "support", "helpdesk", "grievance"
-        ]))
+        role_local_parts = set(
+            config.get(
+                "role_local_parts", ["webmaster", "info", "admin", "contact", "support", "helpdesk", "grievance"]
+            )
+        )
         max_input_chars = config.get("max_input_chars", 0)  # 0 = no cap
         high_rungs = set(conf_cfg.get("high_rungs", ["mailto_tel", "microdata"]))
         mid_rungs = set(conf_cfg.get("mid_rungs", ["table_block", "proximity_text"]))
@@ -174,6 +177,7 @@ def parse_for_engine(html: str, url: str, excfg: dict) -> tuple[list[Lead], list
 
 # ── Stage 1: extract_candidates ──────────────────────────────────────────────
 
+
 def _extract_candidates(soup: BeautifulSoup, ecfg: dict, max_input_chars: int) -> list[dict]:
     """
     Returns a list of candidate dicts:
@@ -197,24 +201,28 @@ def _extract_candidates(soup: BeautifulSoup, ecfg: dict, max_input_chars: int) -
         if href.startswith("mailto:"):
             raw_addr = href[7:].split("?")[0]
             for addr in _clean_email_candidates(raw_addr, email_re):
-                candidates.append({
-                    "address": addr,
-                    "rung": "mailto_tel",
-                    "context_node": a,
-                    "raw_span": addr,
-                    "phone": None,
-                })
+                candidates.append(
+                    {
+                        "address": addr,
+                        "rung": "mailto_tel",
+                        "context_node": a,
+                        "raw_span": addr,
+                        "phone": None,
+                    }
+                )
         elif href.startswith("tel:"):
             m = tel_re.match(href)
             if m:
                 phone_num = m.group(1).strip()
-                candidates.append({
-                    "address": None,
-                    "rung": "mailto_tel",
-                    "context_node": a,
-                    "raw_span": phone_num,
-                    "phone": phone_num,
-                })
+                candidates.append(
+                    {
+                        "address": None,
+                        "rung": "mailto_tel",
+                        "context_node": a,
+                        "raw_span": phone_num,
+                        "phone": phone_num,
+                    }
+                )
 
     # 1b. Microdata itemprop email/telephone
     for el in soup.find_all(itemprop=True):
@@ -222,23 +230,27 @@ def _extract_candidates(soup: BeautifulSoup, ecfg: dict, max_input_chars: int) -
         if prop == "email":
             content = el.get("content") or el.get_text(strip=True)
             for addr in _clean_email_candidates(content, email_re):
-                candidates.append({
-                    "address": addr,
-                    "rung": "microdata",
-                    "context_node": el,
-                    "raw_span": addr,
-                    "phone": None,
-                })
+                candidates.append(
+                    {
+                        "address": addr,
+                        "rung": "microdata",
+                        "context_node": el,
+                        "raw_span": addr,
+                        "phone": None,
+                    }
+                )
         elif prop in ("telephone", "phone"):
             content = el.get("content") or el.get_text(strip=True)
             if content:
-                candidates.append({
-                    "address": None,
-                    "rung": "microdata",
-                    "context_node": el,
-                    "raw_span": content.strip(),
-                    "phone": content.strip(),
-                })
+                candidates.append(
+                    {
+                        "address": None,
+                        "rung": "microdata",
+                        "context_node": el,
+                        "raw_span": content.strip(),
+                        "phone": content.strip(),
+                    }
+                )
 
     # 1c. Table/card block scan
     candidates.extend(_extract_table_candidates(soup, email_re, valid_suffixes))
@@ -320,20 +332,21 @@ def _truncate_at_known_suffix(address: str, valid_suffixes: tuple) -> str:
     return f"{local}@{domain[:earliest_end]}"
 
 
-def _extract_table_candidates(soup: BeautifulSoup, email_re: re.Pattern,
-                              valid_suffixes: tuple) -> list[dict]:
+def _extract_table_candidates(soup: BeautifulSoup, email_re: re.Pattern, valid_suffixes: tuple) -> list[dict]:
     results = []
     for table in soup.find_all("table"):
         rows = table.find_all("tr")
         if len(rows) < 2:
             continue
         headers = [c.get_text(strip=True).lower() for c in rows[0].find_all(["th", "td"])]
-        col = _dedupe_col_map({
-            "name": _find_col(headers, ["name", "officer", "official", "contact person"]),
-            "designation": _find_col(headers, ["designation", "post", "rank", "position"]),
-            "department": _find_col(headers, ["department", "division", "ministry", "section"]),
-            "email": _find_col(headers, ["email", "e-mail", "mail"]),
-        })
+        col = _dedupe_col_map(
+            {
+                "name": _find_col(headers, ["name", "officer", "official", "contact person"]),
+                "designation": _find_col(headers, ["designation", "post", "rank", "position"]),
+                "department": _find_col(headers, ["department", "division", "ministry", "section"]),
+                "email": _find_col(headers, ["email", "e-mail", "mail"]),
+            }
+        )
         for row in rows[1:]:
             cells = row.find_all(["td", "th"])
             if not cells:
@@ -348,16 +361,18 @@ def _extract_table_candidates(soup: BeautifulSoup, email_re: re.Pattern,
                 continue
             for m in email_re.finditer(row_text):
                 addr = _truncate_at_known_suffix(m.group(0).lower().strip("."), valid_suffixes)
-                results.append({
-                    "address": addr,
-                    "rung": "table_block",
-                    "context_node": row,
-                    "raw_span": addr,
-                    "phone": None,
-                    "_col": col,
-                    "_cell_texts": cell_texts,
-                    "_row_text": row_text,
-                })
+                results.append(
+                    {
+                        "address": addr,
+                        "rung": "table_block",
+                        "context_node": row,
+                        "raw_span": addr,
+                        "phone": None,
+                        "_col": col,
+                        "_cell_texts": cell_texts,
+                        "_row_text": row_text,
+                    }
+                )
     return results
 
 
@@ -368,8 +383,7 @@ _BRACKETED_EMAIL_RE = re.compile(
 )
 
 
-def _extract_proximity_candidates(text: str, email_re: re.Pattern,
-                                  ecfg: dict) -> list[dict]:
+def _extract_proximity_candidates(text: str, email_re: re.Pattern, ecfg: dict) -> list[dict]:
     results = []
     seen: set[str] = set()
     valid_suffixes = tuple(ecfg.get("valid_suffixes", [".gov.in", ".nic.in"]))
@@ -379,16 +393,18 @@ def _extract_proximity_candidates(text: str, email_re: re.Pattern,
         if addr in seen:
             continue
         seen.add(addr)
-        results.append({
-            "address": addr,
-            "rung": "proximity_text",
-            "context_node": None,
-            "raw_span": addr,
-            "phone": None,
-            "_text_start": m.start(),
-            "_text_end": m.end(),
-            "_full_text": text,
-        })
+        results.append(
+            {
+                "address": addr,
+                "rung": "proximity_text",
+                "context_node": None,
+                "raw_span": addr,
+                "phone": None,
+                "_text_start": m.start(),
+                "_text_end": m.end(),
+                "_full_text": text,
+            }
+        )
 
     # Also capture bracketed obfuscated forms (resolved in stage 4)
     for m in _BRACKETED_EMAIL_RE.finditer(text):
@@ -398,25 +414,27 @@ def _extract_proximity_candidates(text: str, email_re: re.Pattern,
         if placeholder in seen:
             continue
         seen.add(placeholder)
-        results.append({
-            "address": None,  # resolved in stage 4
-            "rung": "proximity_text",
-            "context_node": None,
-            "raw_span": raw,
-            "phone": None,
-            "_text_start": m.start(),
-            "_text_end": m.end(),
-            "_full_text": text,
-            "_bracketed": True,
-        })
+        results.append(
+            {
+                "address": None,  # resolved in stage 4
+                "rung": "proximity_text",
+                "context_node": None,
+                "raw_span": raw,
+                "phone": None,
+                "_text_start": m.start(),
+                "_text_end": m.end(),
+                "_full_text": text,
+                "_bracketed": True,
+            }
+        )
 
     return results
 
 
 # ── Stage 2: bind_channels ──────────────────────────────────────────────────
 
-def _bind_channels(candidates: list[dict], role_local_parts: set[str],
-                   ecfg: dict) -> list[dict]:
+
+def _bind_channels(candidates: list[dict], role_local_parts: set[str], ecfg: dict) -> list[dict]:
     """
     Groups candidates into entity dicts. For each unique email address, keeps
     only the highest-rung candidate. Assigns channel_tag and entity_kind.
@@ -465,8 +483,7 @@ def _bind_channels(candidates: list[dict], role_local_parts: set[str],
             channel_tag = "office"
             entity_kind = "person"
 
-        entities.append(dict(c, email=addr, channel_tag=channel_tag,
-                             entity_kind=entity_kind))
+        entities.append(dict(c, email=addr, channel_tag=channel_tag, entity_kind=entity_kind))
 
     # Attach phone-only candidates to entities without a phone.
     # Best-effort: match by DOM proximity (same parent container); fallback to first phone.
@@ -511,8 +528,10 @@ def _nodes_share_container(node_a, node_b) -> bool:
 
 # ── Stage 3: enrich_fields ──────────────────────────────────────────────────
 
-def _enrich_fields(entities: list[dict], soup: BeautifulSoup, raw_text: str,
-                   source_url: str, pcfg: dict, ecfg: dict) -> list[dict]:
+
+def _enrich_fields(
+    entities: list[dict], soup: BeautifulSoup, raw_text: str, source_url: str, pcfg: dict, ecfg: dict
+) -> list[dict]:
     """
     Adds person_name, designation, department to each entity.
     Name/designation gated by person.enabled.
@@ -556,8 +575,8 @@ def _enrich_fields(entities: list[dict], soup: BeautifulSoup, raw_text: str,
             end = entity.get("_text_end", 0)
             full_text = entity.get("_full_text", raw_text)
             ctx_chars = ecfg.get("context_chars", 200)
-            window = full_text[max(0, start - prox_chars): end + prox_chars]
-            context = " ".join(full_text[max(0, start - ctx_chars): end + ctx_chars].split())
+            window = full_text[max(0, start - prox_chars) : end + prox_chars]
+            context = " ".join(full_text[max(0, start - ctx_chars) : end + ctx_chars].split())
             entity["context_snippet"] = context
             if person_enabled:
                 entity["person_name"] = _match_name(window, pcfg)
@@ -597,8 +616,7 @@ def _match_name(text: str, pcfg: dict) -> str | None:
     # must never continue across a line break. Without this, a following
     # line's leading word (e.g. a role like "Scientist" on its own line)
     # gets swallowed into the captured name.
-    pat = (r"\b(" + "|".join(re.escape(p) for p in prefixes) +
-           r")\b\.?[ \t]+([A-Z][a-z]+(?:[ \t]+[A-Z][a-z]+){0,3})")
+    pat = r"\b(" + "|".join(re.escape(p) for p in prefixes) + r")\b\.?[ \t]+([A-Z][a-z]+(?:[ \t]+[A-Z][a-z]+){0,3})"
     m = re.search(pat, text)
     if m:
         return " ".join(f"{m.group(1)} {m.group(2)}".split())
@@ -627,13 +645,13 @@ def _match_designation(text: str, pcfg: dict) -> str | None:
     m = re.search(pat, text, re.IGNORECASE)
     if not m:
         return None
-    return _clip_designation(text[m.start():])
+    return _clip_designation(text[m.start() :])
 
 
 # ── Stage 4: normalise_spans ────────────────────────────────────────────────
 
-def _normalise_spans(entities: list[dict], ecfg: dict,
-                     role_local_parts: set[str] = None) -> list[dict]:
+
+def _normalise_spans(entities: list[dict], ecfg: dict, role_local_parts: set[str] = None) -> list[dict]:
     """
     Guarded de-obfuscation: only on email-shaped candidate spans with bracketed forms.
     Resolves bracketed pending candidates to real emails, then classifies them.
@@ -681,13 +699,13 @@ def _normalise_spans(entities: list[dict], ecfg: dict,
         else:
             channel_tag, entity_kind = "office", "person"
 
-        new_entities.append(dict(entity, address=addr, email=addr,
-                                 channel_tag=channel_tag, entity_kind=entity_kind))
+        new_entities.append(dict(entity, address=addr, email=addr, channel_tag=channel_tag, entity_kind=entity_kind))
 
     return new_entities
 
 
 # ── Stage 5: score ──────────────────────────────────────────────────────────
+
 
 def _score(entities: list[dict], high_rungs: set[str], mid_rungs: set[str]) -> list[dict]:
     """Assigns confidence_band and builds field_provenance JSON."""
@@ -705,8 +723,10 @@ def _score(entities: list[dict], high_rungs: set[str], mid_rungs: set[str]) -> l
 
         name_rung = rung if entity.get("person_name") else None
         desig_rung = rung if entity.get("designation") else None
-        dept_rung = rung if entity.get("_col", {}).get("department") is not None and entity.get("department") else (
-            "url_default" if entity.get("department") else None
+        dept_rung = (
+            rung
+            if entity.get("_col", {}).get("department") is not None and entity.get("department")
+            else ("url_default" if entity.get("department") else None)
         )
         phone_rung = entity.get("_phone_rung") if entity.get("phone") else None
         provenance = {
@@ -716,14 +736,13 @@ def _score(entities: list[dict], high_rungs: set[str], mid_rungs: set[str]) -> l
             "department": dept_rung,
             "phone": phone_rung,
         }
-        entity["field_provenance"] = json.dumps(
-            {k: v for k, v in provenance.items() if v is not None}
-        )
+        entity["field_provenance"] = json.dumps({k: v for k, v in provenance.items() if v is not None})
 
     return entities
 
 
 # ── Stage 6: flatten_emit ───────────────────────────────────────────────────
+
 
 def _flatten_emit(entities: list[dict], source_url: str, page_title: str) -> list[Lead]:
     """One flat Lead per email; only email-less entities are skipped.
@@ -737,24 +756,27 @@ def _flatten_emit(entities: list[dict], source_url: str, page_title: str) -> lis
         if not email or email in seen_emails:
             continue
         seen_emails.add(email)
-        leads.append(Lead(
-            email=email,
-            person_name=entity.get("person_name"),
-            designation=entity.get("designation"),
-            department=entity.get("department"),
-            source_url=source_url,
-            source_title=page_title,
-            context_snippet=entity.get("context_snippet", ""),
-            entity_kind=entity.get("entity_kind"),
-            phone=entity.get("phone"),
-            channel_tag=entity.get("channel_tag"),
-            confidence_band=entity.get("confidence_band"),
-            field_provenance=entity.get("field_provenance"),
-        ))
+        leads.append(
+            Lead(
+                email=email,
+                person_name=entity.get("person_name"),
+                designation=entity.get("designation"),
+                department=entity.get("department"),
+                source_url=source_url,
+                source_title=page_title,
+                context_snippet=entity.get("context_snippet", ""),
+                entity_kind=entity.get("entity_kind"),
+                phone=entity.get("phone"),
+                channel_tag=entity.get("channel_tag"),
+                confidence_band=entity.get("confidence_band"),
+                field_provenance=entity.get("field_provenance"),
+            )
+        )
     return leads
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
+
 
 def _apply_obfuscation(text: str, ecfg: dict) -> str:
     for pattern, replacement in ecfg.get("obfuscation", []):

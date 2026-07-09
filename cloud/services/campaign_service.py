@@ -22,11 +22,11 @@ def render_template_string(template_str: str, **kwargs) -> str:
 
 
 def render_draft_emails(
-        leads: list[dict],
-        template: dict,
-        blacklisted: set[str],
-        lead_id_by_email: dict[str, int],
-        exclude_emails: set[str] = frozenset(),
+    leads: list[dict],
+    template: dict,
+    blacklisted: set[str],
+    lead_id_by_email: dict[str, int],
+    exclude_emails: set[str] = frozenset(),
 ) -> tuple[list[dict], int, int]:
     """
     Filters leads against the blacklist and an optional exclude set (e.g.
@@ -67,13 +67,15 @@ def render_draft_emails(
         if lead_id is None:
             continue  # Safety: skip if we can't resolve the FK
 
-        email_dicts.append({
-            "lead_id": lead_id,
-            "recipient_email": lead["email"],
-            "subject": render_template_string(template["subject"], **subject_vars),
-            "body": render_template_string(template["raw_body"], **body_vars),
-            "is_selected": len(missing) == 0,  # deselect emails with missing data
-            "missing_fields": ",".join(missing) if missing else None,
-        })
+        email_dicts.append(
+            {
+                "lead_id": lead_id,
+                "recipient_email": lead["email"],
+                "subject": render_template_string(template["subject"], **subject_vars),
+                "body": render_template_string(template["raw_body"], **body_vars),
+                "is_selected": len(missing) == 0,  # deselect emails with missing data
+                "missing_fields": ",".join(missing) if missing else None,
+            }
+        )
 
     return email_dicts, blacklisted_count, excluded_count

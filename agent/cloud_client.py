@@ -25,20 +25,23 @@ _FLUSH_BUSY_SLEEP = 0.5
 _BACKPRESSURE_THRESHOLD = 5000
 
 
-async def request_with_retry(method: str, http: httpx.AsyncClient, url: str, token_provider, refresh,
-                             **kwargs) -> httpx.Response:
+async def request_with_retry(
+    method: str, http: httpx.AsyncClient, url: str, token_provider, refresh, **kwargs
+) -> httpx.Response:
     """Method-agnostic retry-on-401-then-refresh — the shared shape every
     authenticated call to the cloud needs, since `token_provider` alone only
     ever returns the last-cached token. Used both by this module's direct
     coordination calls and by agent/bff/proxy.py's generic reverse proxy
     (plan.md §19.1 Phase 9 Part 2, 2.4) — one retry implementation, not two."""
     headers = kwargs.pop("headers", {})
-    r = await http.request(method, url, headers={**headers, "Authorization": f"Bearer {await token_provider()}"},
-                           **kwargs)
+    r = await http.request(
+        method, url, headers={**headers, "Authorization": f"Bearer {await token_provider()}"}, **kwargs
+    )
     if r.status_code == 401:
         await refresh()
-        r = await http.request(method, url, headers={**headers, "Authorization": f"Bearer {await token_provider()}"},
-                               **kwargs)
+        r = await http.request(
+            method, url, headers={**headers, "Authorization": f"Bearer {await token_provider()}"}, **kwargs
+        )
     return r
 
 
@@ -58,11 +61,13 @@ async def create_remote_job(base_url: str, token_provider, refresh, transport=No
         return r.json()
 
 
-async def resume_remote_job(base_url: str, token_provider, refresh, job_id: int, agent_id: str | None = None,
-                            transport=None) -> dict:
+async def resume_remote_job(
+    base_url: str, token_provider, refresh, job_id: int, agent_id: str | None = None, transport=None
+) -> dict:
     async with httpx.AsyncClient(base_url=base_url.rstrip("/"), timeout=15, transport=transport) as http:
-        r = await _post_with_retry(http, f"/api/coordination/jobs/{job_id}/resume", token_provider, refresh,
-                                   json={"agent_id": agent_id})
+        r = await _post_with_retry(
+            http, f"/api/coordination/jobs/{job_id}/resume", token_provider, refresh, json={"agent_id": agent_id}
+        )
         r.raise_for_status()
         return r.json()
 
@@ -83,8 +88,13 @@ class CloudApiClient:
     # ── Direct calls (not outboxed) ──────────────────────────────────────────
 
     async def send_heartbeat(self, metrics: dict) -> bool:
-        r = await _post_with_retry(self._http, f"/api/coordination/jobs/{self._job_id}/heartbeat",
-                                   self._token_provider, self._refresh, json=metrics)
+        r = await _post_with_retry(
+            self._http,
+            f"/api/coordination/jobs/{self._job_id}/heartbeat",
+            self._token_provider,
+            self._refresh,
+            json=metrics,
+        )
         r.raise_for_status()
         return bool(r.json().get("cancel_requested"))
 
@@ -95,10 +105,17 @@ class CloudApiClient:
             if not self._outbox.is_drained(self._job_id):
                 await asyncio.sleep(_FLUSH_BUSY_SLEEP)
         if not self._outbox.is_drained(self._job_id):
-            log.warning(f"job {self._job_id}: outbox did not fully drain before finish "
-                        f"(dead-lettered rows may exist) — finishing anyway")
-        r = await _post_with_retry(self._http, f"/api/coordination/jobs/{self._job_id}/finish",
-                                   self._token_provider, self._refresh, json={"status": status, "error": error})
+            log.warning(
+                f"job {self._job_id}: outbox did not fully drain before finish "
+                f"(dead-lettered rows may exist) — finishing anyway"
+            )
+        r = await _post_with_retry(
+            self._http,
+            f"/api/coordination/jobs/{self._job_id}/finish",
+            self._token_provider,
+            self._refresh,
+            json={"status": status, "error": error},
+        )
         r.raise_for_status()
 
     # ── Outboxed writes (fire-and-forget, matches the old sync call shape) ──
@@ -150,8 +167,13 @@ class CloudApiClient:
             return False
         body = {"items": [b["payload"] for b in batch]}
         try:
-            r = await _post_with_retry(self._http, f"/api/coordination/jobs/{self._job_id}/leads",
-                                       self._token_provider, self._refresh, json=body)
+            r = await _post_with_retry(
+                self._http,
+                f"/api/coordination/jobs/{self._job_id}/leads",
+                self._token_provider,
+                self._refresh,
+                json=body,
+            )
             r.raise_for_status()
             self._outbox.ack([b["id"] for b in batch])
             return True

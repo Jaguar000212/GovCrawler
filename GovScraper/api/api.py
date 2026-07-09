@@ -21,13 +21,7 @@ def get_categories(client: httpx.Client) -> list[dict]:
         timeout=15,
     )
     r.raise_for_status()
-    results = (
-        r.json()
-        .get("resultdata", {})
-        .get("data", {})
-        .get("getIgodCategoryWithCount", {})
-        .get("results", [])
-    )
+    results = r.json().get("resultdata", {}).get("data", {}).get("getIgodCategoryWithCount", {}).get("results", [])
     return results
 
 
@@ -38,28 +32,24 @@ def get_organization_types(client: httpx.Client, category_code: str) -> list[dic
     """
     r = client.post(
         WEB_DIR_API,
-        json={"dataval": {
-            "clientvalue": "client",
-            "mustvalue": category_code,
-            "querytype": "organizationtypewithCategory"
-        }},
+        json={
+            "dataval": {
+                "clientvalue": "client",
+                "mustvalue": category_code,
+                "querytype": "organizationtypewithCategory",
+            }
+        },
         timeout=15,
     )
     r.raise_for_status()
-    results = (
-        r.json()
-        .get("resultdata", {})
-        .get("data", {})
-        .get("getIgodOrganizationByCategory", {})
-        .get("results", [])
-    )
+    results = r.json().get("resultdata", {}).get("data", {}).get("getIgodOrganizationByCategory", {}).get("results", [])
     return results
 
 
 def get_entries_for_category(
-        client: httpx.Client,
-        category_code: str,
-        org_type_code: str = None,
+    client: httpx.Client,
+    category_code: str,
+    org_type_code: str = None,
 ) -> list[dict]:
     """
     Paginate through all entries for a given category code (e.g. 'ug', 'sg').
@@ -76,33 +66,28 @@ def get_entries_for_category(
     while True:
         r = client.post(
             WEB_DIR_API,
-            json={"dataval": {
-                "clientvalue": "client",
-                "mustvalue": mustvalue,
-                "shouldvalue": [],
-                "pageno": page,
-                "pageSize": PAGE_SIZE,
-                "querytype": "WebdirectoryCategorydetalsList",
-            }},
+            json={
+                "dataval": {
+                    "clientvalue": "client",
+                    "mustvalue": mustvalue,
+                    "shouldvalue": [],
+                    "pageno": page,
+                    "pageSize": PAGE_SIZE,
+                    "querytype": "WebdirectoryCategorydetalsList",
+                }
+            },
             timeout=20,
         )
         r.raise_for_status()
 
-        payload = (
-            r.json()
-            .get("resultdata", {})
-            .get("data", {})
-            .get("getIgodWebDirectoryByFilters", {})
-        )
+        payload = r.json().get("resultdata", {}).get("data", {}).get("getIgodWebDirectoryByFilters", {})
         results = payload.get("results") or []
         total = payload.get("total", 0)
 
         all_entries.extend(results)
         fetched = len(all_entries)
 
-        log.debug(
-            f"[{category_code}] page {page} -> {len(results)} entries ({fetched}/{total})"
-        )
+        log.debug(f"[{category_code}] page {page} -> {len(results)} entries ({fetched}/{total})")
 
         if not results or fetched >= total:
             break

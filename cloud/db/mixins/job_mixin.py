@@ -10,13 +10,13 @@ _TERMINAL_STATUSES = {JobStatus.DONE.value, JobStatus.FAILED.value, JobStatus.CA
 
 class JobMixin:
     def create_job(
-            self,
-            domain_ids: list[int] = None,
-            custom_urls: list[str] = None,
-            category_filter: str = None,
-            title_filter: str = None,
-            owner_id: int | None = None,
-            agent_id: str | None = None,
+        self,
+        domain_ids: list[int] = None,
+        custom_urls: list[str] = None,
+        category_filter: str = None,
+        title_filter: str = None,
+        owner_id: int | None = None,
+        agent_id: str | None = None,
     ) -> int:
         source_type = "custom_urls" if custom_urls else "domains"
         seed_count = len(custom_urls) if custom_urls else len(domain_ids or [])

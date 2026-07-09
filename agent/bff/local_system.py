@@ -30,11 +30,7 @@ router = APIRouter(
 
 def _get_activity() -> dict:
     active_tasks = state.get_active_tasks()
-    crawl_jobs = [
-        {"id": job_id, "label": f"Job #{job_id}"}
-        for job_id, task in active_tasks.items()
-        if not task.done()
-    ]
+    crawl_jobs = [{"id": job_id, "label": f"Job #{job_id}"} for job_id, task in active_tasks.items() if not task.done()]
     return {"crawl_jobs": crawl_jobs, "total_active": len(crawl_jobs)}
 
 
@@ -70,8 +66,11 @@ async def cancel_all():
         for job_id in job_ids:
             try:
                 await request_with_retry(
-                    "POST", http, f"/api/coordination/jobs/{job_id}/cancel",
-                    identity.get_valid_token, identity.refresh,
+                    "POST",
+                    http,
+                    f"/api/coordination/jobs/{job_id}/cancel",
+                    identity.get_valid_token,
+                    identity.refresh,
                 )
             except Exception as e:
                 log.warning(f"cancel-all: coordination cancel signal failed for job {job_id}: {e}")

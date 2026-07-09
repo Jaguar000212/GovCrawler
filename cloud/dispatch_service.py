@@ -15,6 +15,7 @@ Polls for campaigns the API has flipped to RUNNING and have no locally
 tracked task, spawns `run_campaign_dispatch` for each. Recovers any email
 left stuck SENDING from a previous crash once at startup.
 """
+
 import asyncio
 import logging
 import signal
@@ -55,14 +56,12 @@ async def _poll_loop(db: Database, stopping: asyncio.Event) -> None:
             pass
 
     if active:
-        log.info(f"Shutting down — waiting for {len(active)} in-flight dispatch task(s) to finish "
-                 f"their current send…")
+        log.info(f"Shutting down — waiting for {len(active)} in-flight dispatch task(s) to finish their current send…")
         await asyncio.gather(*active.values(), return_exceptions=True)
 
 
 async def main() -> None:
-    logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s [%(levelname)s] %(name)s — %(message)s")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s — %(message)s")
     config = load_config()
     db = Database(config)
 

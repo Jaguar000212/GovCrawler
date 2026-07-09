@@ -23,10 +23,18 @@ class DomainMixin:
                 s.add(OrgType(code=code, title=title))
             s.commit()
 
-    def upsert_domain(self, category_code: str, category_title: str,
-                      state: str, org_type: str, org_type_title: str,
-                      title: str, main_url: str | None, contact_url: str | None,
-                      external_id: str | None = None) -> int:
+    def upsert_domain(
+        self,
+        category_code: str,
+        category_title: str,
+        state: str,
+        org_type: str,
+        org_type_title: str,
+        title: str,
+        main_url: str | None,
+        contact_url: str | None,
+        external_id: str | None = None,
+    ) -> int:
         """Dedupe by external_id when available (the only stable key for
         entries without a main_url); otherwise fall back to main_url. Entries
         with neither (main_url is None and no external_id) are always
@@ -52,17 +60,21 @@ class DomainMixin:
                 s.commit()
                 return existing.id
             d = Domain(
-                category_code=category_code, category_title=category_title,
-                state=state, org_type=org_type, org_type_title=org_type_title,
-                title=title, main_url=main_url, contact_url=contact_url,
+                category_code=category_code,
+                category_title=category_title,
+                state=state,
+                org_type=org_type,
+                org_type_title=org_type_title,
+                title=title,
+                main_url=main_url,
+                contact_url=contact_url,
                 external_id=external_id,
             )
             s.add(d)
             s.commit()
             return d.id
 
-    def update_domain_url(self, domain_id: int, main_url: str,
-                          contact_url: str | None = None) -> dict | None:
+    def update_domain_url(self, domain_id: int, main_url: str, contact_url: str | None = None) -> dict | None:
         """Manually set a crawlable URL on a domain that was imported without one."""
         with self._Session() as s:
             d = s.query(Domain).filter_by(id=domain_id).first()
@@ -72,9 +84,15 @@ class DomainMixin:
             if contact_url is not None:
                 d.contact_url = contact_url
             s.commit()
-            return {"id": d.id, "title": d.title, "main_url": d.main_url,
-                    "contact_url": d.contact_url, "category_code": d.category_code,
-                    "state": d.state, "org_type": d.org_type}
+            return {
+                "id": d.id,
+                "title": d.title,
+                "main_url": d.main_url,
+                "contact_url": d.contact_url,
+                "category_code": d.category_code,
+                "state": d.state,
+                "org_type": d.org_type,
+            }
 
     def clear_domains(self):
         with self._Session() as s:
@@ -85,8 +103,9 @@ class DomainMixin:
         with self._Session() as s:
             return s.query(Domain).count()
 
-    def get_domain_stats(self, category: str = None, state: str = None,
-                         org_type: str = None, search: str = None) -> dict:
+    def get_domain_stats(
+        self, category: str = None, state: str = None, org_type: str = None, search: str = None
+    ) -> dict:
         """Total / crawlable / duplicate counts for domains matching the given
         filters (same filters as get_domains — pass none for the whole table).
         `duplicate` counts rows sharing a main_url with another row *within
@@ -102,10 +121,7 @@ class DomainMixin:
             if org_type:
                 q = q.filter(Domain.org_type == org_type)
             if search:
-                q = q.filter(
-                    or_(Domain.title.ilike(f"%{search}%"),
-                        Domain.main_url.ilike(f"%{search}%"))
-                )
+                q = q.filter(or_(Domain.title.ilike(f"%{search}%"), Domain.main_url.ilike(f"%{search}%")))
             return q
 
         with self._Session() as s:
@@ -113,8 +129,9 @@ class DomainMixin:
             crawlable = _filtered(s.query(Domain).filter(Domain.main_url.isnot(None))).count()
 
             dup_groups = (
-                _filtered(s.query(Domain.main_url, func.count(Domain.id).label("cnt"))
-                          .filter(Domain.main_url.isnot(None)))
+                _filtered(
+                    s.query(Domain.main_url, func.count(Domain.id).label("cnt")).filter(Domain.main_url.isnot(None))
+                )
                 .group_by(Domain.main_url)
                 .having(func.count(Domain.id) > 1)
                 .subquery()
@@ -131,17 +148,13 @@ class DomainMixin:
     def get_categories(self) -> list[dict]:
         with self._Session() as s:
             rows = (
-                s.query(Domain.category_code, Domain.category_title,
-                        func.count(Domain.id).label("count"))
+                s.query(Domain.category_code, Domain.category_title, func.count(Domain.id).label("count"))
                 .group_by(Domain.category_code, Domain.category_title)
                 .order_by(func.count(Domain.id).desc())
                 .all()
             )
             return [
-                {"code": r.category_code,
-                 "title": r.category_title or r.category_code,
-                 "count": r.count}
-                for r in rows
+                {"code": r.category_code, "title": r.category_title or r.category_code, "count": r.count} for r in rows
             ]
 
     def get_states(self, category: str = None) -> list[str]:
@@ -154,31 +167,27 @@ class DomainMixin:
 
     def get_org_types(self, category: str = None, state: str = None) -> list[dict]:
         with self._Session() as s:
-            q = (
-                s.query(Domain.org_type, Domain.org_type_title,
-                        func.count(Domain.id).label("count"))
-                .filter(Domain.org_type.isnot(None))
+            q = s.query(Domain.org_type, Domain.org_type_title, func.count(Domain.id).label("count")).filter(
+                Domain.org_type.isnot(None)
             )
             if category:
                 q = q.filter(Domain.category_code == category)
             if state:
                 q = q.filter(Domain.state == state)
-            rows = (
-                q.group_by(Domain.org_type, Domain.org_type_title)
-                .order_by(func.count(Domain.id).desc())
-                .all()
-            )
-            return [
-                {"code": r.org_type,
-                 "title": r.org_type_title or r.org_type,
-                 "count": r.count}
-                for r in rows
-            ]
+            rows = q.group_by(Domain.org_type, Domain.org_type_title).order_by(func.count(Domain.id).desc()).all()
+            return [{"code": r.org_type, "title": r.org_type_title or r.org_type, "count": r.count} for r in rows]
 
-    def get_domains(self, category: str = None, state: str = None,
-                    org_type: str = None, search: str = None,
-                    page: int = 1, limit: int = 50,
-                    sort_by: str = None, sort_dir: str = "desc") -> tuple[list[dict], int]:
+    def get_domains(
+        self,
+        category: str = None,
+        state: str = None,
+        org_type: str = None,
+        search: str = None,
+        page: int = 1,
+        limit: int = 50,
+        sort_by: str = None,
+        sort_dir: str = "desc",
+    ) -> tuple[list[dict], int]:
         with self._Session() as s:
             q = s.query(Domain)
             if category:
@@ -189,10 +198,7 @@ class DomainMixin:
                 q = q.filter(Domain.org_type == org_type)
             if search:
                 # Search title OR the domain URL so it works even when title is empty
-                q = q.filter(
-                    or_(Domain.title.ilike(f"%{search}%"),
-                        Domain.main_url.ilike(f"%{search}%"))
-                )
+                q = q.filter(or_(Domain.title.ilike(f"%{search}%"), Domain.main_url.ilike(f"%{search}%")))
             total = q.count()
             offset = (page - 1) * limit
             if sort_by == "crawlable":
@@ -203,17 +209,26 @@ class DomainMixin:
                 q = q.order_by(Domain.state, Domain.main_url)
             rows = q.offset(offset).limit(limit).all()
             return (
-                [{"id": d.id, "category_code": d.category_code,
-                  "category_title": d.category_title, "state": d.state,
-                  "org_type": d.org_type, "org_type_title": d.org_type_title,
-                  "title": d.title, "main_url": d.main_url,
-                  "contact_url": d.contact_url}
-                 for d in rows],
+                [
+                    {
+                        "id": d.id,
+                        "category_code": d.category_code,
+                        "category_title": d.category_title,
+                        "state": d.state,
+                        "org_type": d.org_type,
+                        "org_type_title": d.org_type_title,
+                        "title": d.title,
+                        "main_url": d.main_url,
+                        "contact_url": d.contact_url,
+                    }
+                    for d in rows
+                ],
                 total,
             )
 
-    def get_domain_ids(self, category: str = None, state: str = None,
-                       org_type: str = None, search: str = None) -> list[int]:
+    def get_domain_ids(
+        self, category: str = None, state: str = None, org_type: str = None, search: str = None
+    ) -> list[int]:
         """Return matching, crawlable (main_url is set) domain IDs — used by
         select-all in the UI. Domains with no URL are excluded since they
         can't be used as crawl seeds.
@@ -227,20 +242,24 @@ class DomainMixin:
             if org_type:
                 q = q.filter(Domain.org_type == org_type)
             if search:
-                q = q.filter(
-                    or_(Domain.title.ilike(f"%{search}%"),
-                        Domain.main_url.ilike(f"%{search}%"))
-                )
+                q = q.filter(or_(Domain.title.ilike(f"%{search}%"), Domain.main_url.ilike(f"%{search}%")))
             return [r[0] for r in q.all()]
 
     def get_domains_by_ids(self, ids: list[int]) -> list[dict]:
         with self._Session() as s:
             rows = s.query(Domain).filter(Domain.id.in_(ids)).all()
             return [
-                {"id": d.id, "title": d.title, "main_url": d.main_url,
-                 "contact_url": d.contact_url, "category_code": d.category_code,
-                 "category_title": d.category_title, "state": d.state,
-                 "org_type": d.org_type, "org_type_title": d.org_type_title,
-                 "external_id": d.external_id}
+                {
+                    "id": d.id,
+                    "title": d.title,
+                    "main_url": d.main_url,
+                    "contact_url": d.contact_url,
+                    "category_code": d.category_code,
+                    "category_title": d.category_title,
+                    "state": d.state,
+                    "org_type": d.org_type,
+                    "org_type_title": d.org_type_title,
+                    "external_id": d.external_id,
+                }
                 for d in rows
             ]

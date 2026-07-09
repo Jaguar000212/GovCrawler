@@ -10,9 +10,9 @@ class AppSetting(Base):
     lead-score, and crawl-filter values that must be identical across every
     crawler. Machine-local runtime knobs (workers, timeouts, bind) stay in
     config.yaml, never here."""
+
     __tablename__ = "app_settings"
     key = Column(String, primary_key=True)
     value = Column(JSON, nullable=False)
     updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-    updated_at = Column(DateTime, nullable=False,
-                        default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)

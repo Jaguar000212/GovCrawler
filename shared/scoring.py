@@ -14,9 +14,9 @@ DEFAULT_WEIGHTS = {
 }
 
 
-def compute_lead_score(fields: dict, confidence_band: str | None = None,
-                       channel_tag: str | None = None,
-                       weights: dict = DEFAULT_WEIGHTS) -> int:
+def compute_lead_score(
+    fields: dict, confidence_band: str | None = None, channel_tag: str | None = None, weights: dict = DEFAULT_WEIGHTS
+) -> int:
     if channel_tag == "manual":
         return 0
 

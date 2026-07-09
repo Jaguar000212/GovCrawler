@@ -45,8 +45,9 @@ async def login(body: dict, response: Response):
     user = data["user"]
 
     keyring.set_password(_KEYRING_SERVICE, user["email"], data["refresh_token"])
-    identity.set_session(user["email"], data["access_token"], cloud_url,
-                         permissions=user["permissions"], is_admin=user["is_admin"])
+    identity.set_session(
+        user["email"], data["access_token"], cloud_url, permissions=user["permissions"], is_admin=user["is_admin"]
+    )
     security.set_local_session_cookies(response)
     return data
 

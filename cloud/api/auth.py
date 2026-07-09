@@ -1,4 +1,5 @@
 """Authentication endpoints (login/refresh/logout/me). See .docs/authentication.md."""
+
 import datetime
 import logging
 import secrets
@@ -22,27 +23,51 @@ def _client_ip(request: Request) -> str | None:
 def _set_auth_cookies(response: Response, access_token: str, refresh_token: str, config: dict):
     auth_cfg = config["auth"]
     secure = auth_cfg.get("cookie_secure", False)
-    response.set_cookie("access", access_token, httponly=True, secure=secure, samesite="strict",
-                        max_age=auth_cfg["access_ttl_minutes"] * 60)
-    response.set_cookie("refresh", refresh_token, httponly=True, secure=secure, samesite="strict",
-                        max_age=auth_cfg["refresh_ttl_days"] * 86400)
+    response.set_cookie(
+        "access",
+        access_token,
+        httponly=True,
+        secure=secure,
+        samesite="strict",
+        max_age=auth_cfg["access_ttl_minutes"] * 60,
+    )
+    response.set_cookie(
+        "refresh",
+        refresh_token,
+        httponly=True,
+        secure=secure,
+        samesite="strict",
+        max_age=auth_cfg["refresh_ttl_days"] * 86400,
+    )
     # Double-submit CSRF token — deliberately NOT httponly, base.js's apiFetch
     # reads it and echoes it back as X-CSRF-Token on mutating requests (see
     # deps.verify_csrf). Same TTL as the access cookie it accompanies.
-    response.set_cookie("csrf", secrets.token_urlsafe(32), httponly=False, secure=secure, samesite="strict",
-                        max_age=auth_cfg["access_ttl_minutes"] * 60)
+    response.set_cookie(
+        "csrf",
+        secrets.token_urlsafe(32),
+        httponly=False,
+        secure=secure,
+        samesite="strict",
+        max_age=auth_cfg["access_ttl_minutes"] * 60,
+    )
 
 
 def _issue_tokens(db: Database, user: dict, config: dict, request: Request) -> tuple[str, str]:
     auth_cfg = config["auth"]
     access_token = create_access_token(
-        user["id"], user["token_version"], auth_cfg["jwt_secret"], auth_cfg["access_ttl_minutes"],
+        user["id"],
+        user["token_version"],
+        auth_cfg["jwt_secret"],
+        auth_cfg["access_ttl_minutes"],
     )
     refresh_token = generate_refresh_token()
     expires_at = datetime.datetime.utcnow() + datetime.timedelta(days=auth_cfg["refresh_ttl_days"])
     db.create_session(
-        user_id=user["id"], refresh_token_hash=hash_refresh_token(refresh_token),
-        expires_at=expires_at, user_agent=request.headers.get("User-Agent"), ip=_client_ip(request),
+        user_id=user["id"],
+        refresh_token_hash=hash_refresh_token(refresh_token),
+        expires_at=expires_at,
+        user_agent=request.headers.get("User-Agent"),
+        ip=_client_ip(request),
     )
     return access_token, refresh_token
 
@@ -51,14 +76,23 @@ def _user_out(db: Database, user: dict) -> UserOut:
     role_name = db.get_role_name(user["role_id"])
     permissions = db.resolve_effective_permissions(user["id"])
     return UserOut(
-        id=user["id"], email=user["email"], full_name=user.get("full_name"),
-        is_admin=user["is_admin"], role=role_name, permissions=sorted(permissions),
+        id=user["id"],
+        email=user["email"],
+        full_name=user.get("full_name"),
+        is_admin=user["is_admin"],
+        role=role_name,
+        permissions=sorted(permissions),
     )
 
 
 @router.post("/auth/login", response_model=TokenResponse)
-async def login(req: LoginRequest, response: Response, request: Request,
-                db: Database = Depends(get_db), config: dict = Depends(get_config)):
+async def login(
+    req: LoginRequest,
+    response: Response,
+    request: Request,
+    db: Database = Depends(get_db),
+    config: dict = Depends(get_config),
+):
     user = db.get_user_by_email(req.email)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid email or password")
@@ -86,8 +120,13 @@ async def login(req: LoginRequest, response: Response, request: Request,
 
 
 @router.post("/auth/refresh", response_model=TokenResponse)
-async def refresh(req: RefreshRequest, request: Request, response: Response,
-                  db: Database = Depends(get_db), config: dict = Depends(get_config)):
+async def refresh(
+    req: RefreshRequest,
+    request: Request,
+    response: Response,
+    db: Database = Depends(get_db),
+    config: dict = Depends(get_config),
+):
     presented = req.refresh_token or request.cookies.get("refresh")
     if not presented:
         raise HTTPException(status_code=401, detail="No refresh token provided")
@@ -112,7 +151,10 @@ async def refresh(req: RefreshRequest, request: Request, response: Response,
     db.rotate_session(session["id"], hash_refresh_token(new_refresh_token), new_expires_at)
 
     access_token = create_access_token(
-        user["id"], user["token_version"], auth_cfg["jwt_secret"], auth_cfg["access_ttl_minutes"],
+        user["id"],
+        user["token_version"],
+        auth_cfg["jwt_secret"],
+        auth_cfg["access_ttl_minutes"],
     )
     _set_auth_cookies(response, access_token, new_refresh_token, config)
 
@@ -120,8 +162,9 @@ async def refresh(req: RefreshRequest, request: Request, response: Response,
 
 
 @router.post("/auth/logout")
-async def logout(request: Request, response: Response, req: RefreshRequest | None = None,
-                 db: Database = Depends(get_db)):
+async def logout(
+    request: Request, response: Response, req: RefreshRequest | None = None, db: Database = Depends(get_db)
+):
     """Accepts the refresh token explicitly (agent/identity.py's logout —
     it's a Bearer client, not a cookie jar, same as /auth/refresh's existing
     dual-mode) or falls back to the `refresh` cookie (browser)."""

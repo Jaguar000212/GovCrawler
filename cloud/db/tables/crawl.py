@@ -26,6 +26,7 @@ class CrawlSnapshot(Base):
     catalog, so refreshing/rebuilding `domains` never alters lead-visible data —
     the metadata is frozen exactly as it was when the crawl ran.
     """
+
     __tablename__ = "crawl_snapshots"
     id = Column(Integer, primary_key=True, autoincrement=True)
     job_id = Column(Integer, ForeignKey("crawl_jobs.id"), nullable=False, index=True)
@@ -40,9 +41,7 @@ class CrawlSnapshot(Base):
     main_url = Column(String)
     contact_url = Column(String)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    __table_args__ = (
-        UniqueConstraint("job_id", "source_domain_id", name="uq_snapshot_job_domain"),
-    )
+    __table_args__ = (UniqueConstraint("job_id", "source_domain_id", name="uq_snapshot_job_domain"),)
 
 
 class CrawlJob(Base):
@@ -75,6 +74,7 @@ class CrawlJob(Base):
 class CrawlJobDomain(Base):
     """Junction replacing the JSON crawl_jobs.domain_ids array as the read path
     going forward (domain_ids itself stays for one more phase — see plan.md)."""
+
     __tablename__ = "crawl_job_domains"
     job_id = Column(Integer, ForeignKey("crawl_jobs.id", ondelete="CASCADE"), primary_key=True)
     domain_id = Column(Integer, ForeignKey("domains.id"), primary_key=True)
@@ -86,6 +86,4 @@ class JobCustomUrl(Base):
     job_id = Column(Integer, ForeignKey("crawl_jobs.id"), nullable=False, index=True)
     url = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    __table_args__ = (
-        UniqueConstraint("job_id", "url", name="uq_job_custom_url"),
-    )
+    __table_args__ = (UniqueConstraint("job_id", "url", name="uq_job_custom_url"),)

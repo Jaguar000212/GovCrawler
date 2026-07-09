@@ -23,6 +23,7 @@ _active_campaign_tasks: dict[int, asyncio.Task] = {}
 
 # ── Pydantic schemas ──────────────────────────────────────────────────────────
 
+
 class DummyDetails(BaseModel):
     name: str | None = None
     designation: str | None = None
@@ -77,6 +78,7 @@ class AddEmailsRequest(BaseModel):
 
 # ── Ownership helpers ─────────────────────────────────────────────────────────
 
+
 def _get_visible_campaign(db: Database, campaign_id: int, user: CurrentUser) -> dict:
     campaign = db.get_campaign(campaign_id, owner_id=user.id, view_all=user.can("campaigns.view_all"))
     if not campaign:
@@ -96,6 +98,7 @@ def _get_owned_campaign(db: Database, campaign_id: int, user: CurrentUser) -> di
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+
 @router.post("/api/campaigns/parse-csv")
 async def parse_campaign_csv(file: UploadFile = File(...)):
     """Parse an uploaded CSV into dummy_details for a test campaign. No DB writes."""
@@ -114,8 +117,12 @@ async def parse_campaign_csv(file: UploadFile = File(...)):
 
 
 @router.post("/api/campaigns", status_code=201)
-async def create_campaign(req: CampaignCreate, request: Request, db: Database = Depends(get_db),
-                          user: CurrentUser = Depends(require("campaigns.manage"))):
+async def create_campaign(
+    req: CampaignCreate,
+    request: Request,
+    db: Database = Depends(get_db),
+    user: CurrentUser = Depends(require("campaigns.manage")),
+):
     """The core draft generation endpoint — production campaigns render from
     leads, test campaigns render from ad-hoc dummy recipient details."""
 
@@ -125,8 +132,11 @@ async def create_campaign(req: CampaignCreate, request: Request, db: Database = 
 
     if req.kind == CampaignKind.TEST.value:
         campaign_id = db.create_campaign(
-            name=req.name, template_id=req.template_id, kind=CampaignKind.TEST.value,
-            test_credential_id=req.test_credential_id, status=CampaignStatus.PAUSED,
+            name=req.name,
+            template_id=req.template_id,
+            kind=CampaignKind.TEST.value,
+            test_credential_id=req.test_credential_id,
+            status=CampaignStatus.PAUSED,
             owner_id=user.id,
         )
         for details in req.dummy_details:
@@ -141,8 +151,9 @@ async def create_campaign(req: CampaignCreate, request: Request, db: Database = 
                 subject=render_template_string(template["subject"], **render_vars),
                 body=render_template_string(template["raw_body"], **render_vars),
             )
-        db.write_audit(user.id, "campaign.create", "campaign", campaign_id,
-                       detail={"kind": "test"}, ip=client_ip(request))
+        db.write_audit(
+            user.id, "campaign.create", "campaign", campaign_id, detail={"kind": "test"}, ip=client_ip(request)
+        )
         return {
             "campaign_id": campaign_id,
             "message": f"Test campaign '{req.name}' created",
@@ -161,29 +172,33 @@ async def create_campaign(req: CampaignCreate, request: Request, db: Database = 
         )
 
     campaign_id = db.create_campaign(
-        name=req.name, template_id=req.template_id, kind=CampaignKind.PRODUCTION.value,
-        status=CampaignStatus.PAUSED, owner_id=user.id,
+        name=req.name,
+        template_id=req.template_id,
+        kind=CampaignKind.PRODUCTION.value,
+        status=CampaignStatus.PAUSED,
+        owner_id=user.id,
     )
 
     with db._Session() as s:
         rows = s.query(Lead.id, Lead.email).filter(Lead.id.in_(req.lead_ids)).all()
         lead_id_by_email = {r.email: r.id for r in rows}
 
-    email_dicts, blacklisted_count, _ = render_draft_emails(
-        leads, template, blacklisted, lead_id_by_email
-    )
+    email_dicts, blacklisted_count, _ = render_draft_emails(leads, template, blacklisted, lead_id_by_email)
 
     staged_count = db.bulk_create_campaign_emails(campaign_id, email_dicts)
 
     if req.credential_ids:
         db.set_campaign_credentials(campaign_id, req.credential_ids)
 
-    log.info(
-        f"Campaign {campaign_id} created: {staged_count} drafts staged, "
-        f"{blacklisted_count} blacklisted"
+    log.info(f"Campaign {campaign_id} created: {staged_count} drafts staged, {blacklisted_count} blacklisted")
+    db.write_audit(
+        user.id,
+        "campaign.create",
+        "campaign",
+        campaign_id,
+        detail={"kind": "production", "staged_count": staged_count},
+        ip=client_ip(request),
     )
-    db.write_audit(user.id, "campaign.create", "campaign", campaign_id,
-                   detail={"kind": "production", "staged_count": staged_count}, ip=client_ip(request))
 
     return {
         "campaign_id": campaign_id,
@@ -194,8 +209,12 @@ async def create_campaign(req: CampaignCreate, request: Request, db: Database = 
 
 
 @router.post("/api/campaigns/{campaign_id}/dispatch")
-async def dispatch_campaign(campaign_id: int, request: Request, db: Database = Depends(get_db),
-                            user: CurrentUser = Depends(require("campaigns.dispatch"))):
+async def dispatch_campaign(
+    campaign_id: int,
+    request: Request,
+    db: Database = Depends(get_db),
+    user: CurrentUser = Depends(require("campaigns.dispatch")),
+):
     """Start dispatch for a campaign (production or test). In `dispatch.mode:
     embedded` (default — desktop/dev, one process) this spawns the dispatch
     task directly; in `external` (VPS docker-compose) it only flips the
@@ -206,8 +225,9 @@ async def dispatch_campaign(campaign_id: int, request: Request, db: Database = D
     stats = db.get_campaign_stats(campaign_id)
     # draft count is only selected drafts; queued covers leftovers from a paused run
     if stats.get("draft", 0) == 0 and stats.get("queued", 0) == 0:
-        raise HTTPException(status_code=400,
-                            detail="No selected draft or queued emails to dispatch. Select at least one email first.")
+        raise HTTPException(
+            status_code=400, detail="No selected draft or queued emails to dispatch. Select at least one email first."
+        )
 
     if campaign["status"] == CampaignStatus.RUNNING.value:
         raise HTTPException(status_code=409, detail="Campaign is already running")
@@ -219,8 +239,10 @@ async def dispatch_campaign(campaign_id: int, request: Request, db: Database = D
         if not raw_creds:
             detail = "No active SMTP credentials available for this campaign. Add or activate one in Settings."
         else:
-            detail = ("All SMTP credentials assigned to this campaign have hit their daily send limit, "
-                      "are cooling down, or are disabled. Try again later, or adjust the limit in Settings.")
+            detail = (
+                "All SMTP credentials assigned to this campaign have hit their daily send limit, "
+                "are cooling down, or are disabled. Try again later, or adjust the limit in Settings."
+            )
         raise HTTPException(status_code=400, detail=detail)
 
     db.update_campaign_status(campaign_id, CampaignStatus.RUNNING)
@@ -244,16 +266,19 @@ async def dispatch_campaign(campaign_id: int, request: Request, db: Database = D
 
 @router.get("/api/campaigns")
 async def list_campaigns(
-        page: int = Query(1, ge=1),
-        limit: int = Query(20, ge=1, le=100),
-        include_test: bool = Query(False),
-        db: Database = Depends(get_db),
-        user: CurrentUser = Depends(get_current_user),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    include_test: bool = Query(False),
+    db: Database = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
 ):
     kind_filter = None if include_test else CampaignKind.PRODUCTION.value
     campaigns, total = db.list_campaigns(
-        page=page, limit=limit, kind=kind_filter,
-        owner_id=user.id, view_all=user.can("campaigns.view_all"),
+        page=page,
+        limit=limit,
+        kind=kind_filter,
+        owner_id=user.id,
+        view_all=user.can("campaigns.view_all"),
     )
 
     for c in campaigns:
@@ -268,8 +293,7 @@ async def list_campaigns(
 
 
 @router.get("/api/campaigns/{campaign_id}")
-async def get_campaign(campaign_id: int, db: Database = Depends(get_db),
-                       user: CurrentUser = Depends(get_current_user)):
+async def get_campaign(campaign_id: int, db: Database = Depends(get_db), user: CurrentUser = Depends(get_current_user)):
     campaign = _get_visible_campaign(db, campaign_id, user)
     campaign["stats"] = db.get_campaign_stats(campaign_id)
     campaign["credential_ids"] = db.get_campaign_credential_ids(campaign_id)
@@ -277,28 +301,43 @@ async def get_campaign(campaign_id: int, db: Database = Depends(get_db),
 
 
 @router.put("/api/campaigns/{campaign_id}/credentials")
-async def update_campaign_credentials(campaign_id: int, req: CampaignCredentialsUpdate, request: Request,
-                                      db: Database = Depends(get_db),
-                                      user: CurrentUser = Depends(require("campaigns.manage"))):
+async def update_campaign_credentials(
+    campaign_id: int,
+    req: CampaignCredentialsUpdate,
+    request: Request,
+    db: Database = Depends(get_db),
+    user: CurrentUser = Depends(require("campaigns.manage")),
+):
     """Change which SMTP credentials a campaign may dispatch through, any time after
     drafting (PAUSED or RUNNING). The dispatcher re-reads this assignment on every
     send, so a change to a RUNNING campaign takes effect on its next send without
     needing to pause first. Blocked only once the campaign is CANCELLED/COMPLETED."""
     campaign = _get_owned_campaign(db, campaign_id, user)
     if campaign["status"] in (CampaignStatus.CANCELLED.value, CampaignStatus.COMPLETED.value):
-        raise HTTPException(status_code=400,
-                            detail="Cannot change SMTP credentials on a cancelled or completed campaign")
+        raise HTTPException(
+            status_code=400, detail="Cannot change SMTP credentials on a cancelled or completed campaign"
+        )
 
     db.set_campaign_credentials(campaign_id, req.credential_ids)
-    db.write_audit(user.id, "campaign.set_credentials", "campaign", campaign_id,
-                   detail={"credential_ids": req.credential_ids}, ip=client_ip(request))
+    db.write_audit(
+        user.id,
+        "campaign.set_credentials",
+        "campaign",
+        campaign_id,
+        detail={"credential_ids": req.credential_ids},
+        ip=client_ip(request),
+    )
     return {"message": "Campaign credentials updated"}
 
 
 @router.patch("/api/campaigns/{campaign_id}")
-async def update_campaign_status(campaign_id: int, req: CampaignStatusUpdate, request: Request,
-                                 db: Database = Depends(get_db),
-                                 user: CurrentUser = Depends(require("campaigns.dispatch"))):
+async def update_campaign_status(
+    campaign_id: int,
+    req: CampaignStatusUpdate,
+    request: Request,
+    db: Database = Depends(get_db),
+    user: CurrentUser = Depends(require("campaigns.dispatch")),
+):
     """Update campaign status. Used by the kill switch (PAUSED/CANCELLED)."""
     _get_owned_campaign(db, campaign_id, user)
 
@@ -312,14 +351,21 @@ async def update_campaign_status(campaign_id: int, req: CampaignStatusUpdate, re
         )
 
     db.update_campaign_status(campaign_id, new_status)
-    db.write_audit(user.id, "campaign.set_status", "campaign", campaign_id,
-                   detail={"status": new_status.value}, ip=client_ip(request))
+    db.write_audit(
+        user.id,
+        "campaign.set_status",
+        "campaign",
+        campaign_id,
+        detail={"status": new_status.value},
+        ip=client_ip(request),
+    )
     return {"message": f"Campaign status updated to {new_status.value}"}
 
 
 @router.get("/api/campaigns/{campaign_id}/stats")
-async def get_campaign_stats(campaign_id: int, db: Database = Depends(get_db),
-                             user: CurrentUser = Depends(get_current_user)):
+async def get_campaign_stats(
+    campaign_id: int, db: Database = Depends(get_db), user: CurrentUser = Depends(get_current_user)
+):
     """Lightweight stats endpoint for 3-second polling from the dashboard."""
     campaign = _get_visible_campaign(db, campaign_id, user)
     stats = db.get_campaign_stats(campaign_id)
@@ -330,18 +376,16 @@ async def get_campaign_stats(campaign_id: int, db: Database = Depends(get_db),
 
 @router.get("/api/campaigns/{campaign_id}/emails")
 async def get_campaign_emails(
-        campaign_id: int,
-        status: str = Query(None),
-        page: int = Query(1, ge=1),
-        limit: int = Query(50, ge=1, le=200),
-        db: Database = Depends(get_db),
-        user: CurrentUser = Depends(get_current_user),
+    campaign_id: int,
+    status: str = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    db: Database = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
 ):
     _get_visible_campaign(db, campaign_id, user)
 
-    emails, total = db.get_campaign_emails(
-        campaign_id=campaign_id, status=status, page=page, limit=limit
-    )
+    emails, total = db.get_campaign_emails(campaign_id=campaign_id, status=status, page=page, limit=limit)
     return {
         "emails": emails,
         "total": total,
@@ -351,9 +395,14 @@ async def get_campaign_emails(
 
 
 @router.put("/api/campaigns/{campaign_id}/emails/{email_id}")
-async def update_campaign_email(campaign_id: int, email_id: int,
-                                req: CampaignEmailUpdate, request: Request, db: Database = Depends(get_db),
-                                user: CurrentUser = Depends(require("campaigns.manage"))):
+async def update_campaign_email(
+    campaign_id: int,
+    email_id: int,
+    req: CampaignEmailUpdate,
+    request: Request,
+    db: Database = Depends(get_db),
+    user: CurrentUser = Depends(require("campaigns.manage")),
+):
     """Manual body override for a specific staged email."""
     campaign = _get_owned_campaign(db, campaign_id, user)
 
@@ -365,15 +414,25 @@ async def update_campaign_email(campaign_id: int, email_id: int,
 
     if not db.update_email(email_id, req.subject, req.body):
         raise HTTPException(status_code=404, detail="Email not found or not in DRAFT status")
-    db.write_audit(user.id, "campaign.email_update", "campaign_email", email_id,
-                   detail={"campaign_id": campaign_id}, ip=client_ip(request))
+    db.write_audit(
+        user.id,
+        "campaign.email_update",
+        "campaign_email",
+        email_id,
+        detail={"campaign_id": campaign_id},
+        ip=client_ip(request),
+    )
     return {"message": "Email body updated"}
 
 
 @router.patch("/api/campaigns/{campaign_id}/emails/{email_id}/selection")
-async def toggle_email_selection(campaign_id: int, email_id: int,
-                                 req: EmailSelectionUpdate, db: Database = Depends(get_db),
-                                 user: CurrentUser = Depends(require("campaigns.manage"))):
+async def toggle_email_selection(
+    campaign_id: int,
+    email_id: int,
+    req: EmailSelectionUpdate,
+    db: Database = Depends(get_db),
+    user: CurrentUser = Depends(require("campaigns.manage")),
+):
     """Select or deselect a DRAFT or QUEUED email. Deselecting a QUEUED email pulls
     it back to DRAFT so it's excluded from the next dispatch."""
     campaign = _get_owned_campaign(db, campaign_id, user)
@@ -385,9 +444,12 @@ async def toggle_email_selection(campaign_id: int, email_id: int,
 
 
 @router.patch("/api/campaigns/{campaign_id}/emails/selection-all")
-async def bulk_toggle_email_selection(campaign_id: int, req: BulkEmailSelectionUpdate,
-                                      db: Database = Depends(get_db),
-                                      user: CurrentUser = Depends(require("campaigns.manage"))):
+async def bulk_toggle_email_selection(
+    campaign_id: int,
+    req: BulkEmailSelectionUpdate,
+    db: Database = Depends(get_db),
+    user: CurrentUser = Depends(require("campaigns.manage")),
+):
     """Select or deselect every DRAFT email in the campaign, regardless of pagination."""
     campaign = _get_owned_campaign(db, campaign_id, user)
     if campaign["status"] == CampaignStatus.CANCELLED.value:
@@ -397,23 +459,38 @@ async def bulk_toggle_email_selection(campaign_id: int, req: BulkEmailSelectionU
 
 
 @router.delete("/api/campaigns/{campaign_id}/emails/{email_id}", status_code=200)
-async def delete_campaign_email(campaign_id: int, email_id: int, request: Request, db: Database = Depends(get_db),
-                                user: CurrentUser = Depends(require("campaigns.manage"))):
+async def delete_campaign_email(
+    campaign_id: int,
+    email_id: int,
+    request: Request,
+    db: Database = Depends(get_db),
+    user: CurrentUser = Depends(require("campaigns.manage")),
+):
     """Permanently remove a DRAFT email from a campaign."""
     campaign = _get_owned_campaign(db, campaign_id, user)
     if campaign["status"] == CampaignStatus.CANCELLED.value:
         raise HTTPException(status_code=400, detail="Cannot modify emails in a cancelled campaign")
     if not db.delete_campaign_email(email_id):
         raise HTTPException(status_code=404, detail="Email not found or not in DRAFT status")
-    db.write_audit(user.id, "campaign.email_delete", "campaign_email", email_id,
-                   detail={"campaign_id": campaign_id}, ip=client_ip(request))
+    db.write_audit(
+        user.id,
+        "campaign.email_delete",
+        "campaign_email",
+        email_id,
+        detail={"campaign_id": campaign_id},
+        ip=client_ip(request),
+    )
     return {"message": "Email removed from campaign"}
 
 
 @router.post("/api/campaigns/{campaign_id}/emails", status_code=201)
-async def add_emails_to_campaign(campaign_id: int, req: AddEmailsRequest, request: Request,
-                                 db: Database = Depends(get_db),
-                                 user: CurrentUser = Depends(require("campaigns.manage"))):
+async def add_emails_to_campaign(
+    campaign_id: int,
+    req: AddEmailsRequest,
+    request: Request,
+    db: Database = Depends(get_db),
+    user: CurrentUser = Depends(require("campaigns.manage")),
+):
     """Add new leads to an existing (production) campaign by re-rendering the campaign template."""
     campaign = _get_owned_campaign(db, campaign_id, user)
     if campaign["kind"] == CampaignKind.TEST.value:
@@ -439,13 +516,17 @@ async def add_emails_to_campaign(campaign_id: int, req: AddEmailsRequest, reques
         lead_id_by_email = {r.email: r.id for r in rows}
 
     email_dicts, blacklisted_count, already_count = render_draft_emails(
-        leads, template, blacklisted, lead_id_by_email,
+        leads,
+        template,
+        blacklisted,
+        lead_id_by_email,
         exclude_emails=existing_in_campaign,
     )
 
     staged_count = db.bulk_create_campaign_emails(campaign_id, email_dicts)
-    db.write_audit(user.id, "campaign.add_emails", "campaign", campaign_id,
-                   detail={"added": staged_count}, ip=client_ip(request))
+    db.write_audit(
+        user.id, "campaign.add_emails", "campaign", campaign_id, detail={"added": staged_count}, ip=client_ip(request)
+    )
     return {
         "added": staged_count,
         "blacklisted_count": blacklisted_count,

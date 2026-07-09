@@ -18,7 +18,11 @@ _HEADER_ALIASES = {
 
 TEMPLATE_HEADERS = ["name", "email", "designation", "department", "phone"]
 TEMPLATE_SAMPLE_ROW = [
-    "Jane Doe", "jane.doe@example.gov.in", "Under Secretary", "Ministry of Example", "9876543210",
+    "Jane Doe",
+    "jane.doe@example.gov.in",
+    "Under Secretary",
+    "Ministry of Example",
+    "9876543210",
 ]
 
 
@@ -40,11 +44,7 @@ def parse_contacts_csv(content: bytes) -> tuple[list[dict], list[dict]]:
     text = content.decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(io.StringIO(text))
 
-    field_map = {
-        header: canonical
-        for header in (reader.fieldnames or [])
-        if (canonical := _canonical_field(header))
-    }
+    field_map = {header: canonical for header in (reader.fieldnames or []) if (canonical := _canonical_field(header))}
 
     rows: list[dict] = []
     skipped: list[dict] = []
@@ -52,10 +52,13 @@ def parse_contacts_csv(content: bytes) -> tuple[list[dict], list[dict]]:
 
     for line_no, raw_row in enumerate(reader, start=2):
         if len(rows) >= MAX_ROWS:
-            skipped.append({
-                "row": line_no, "email": raw_row.get("email"),
-                "reason": f"row limit exceeded (max {MAX_ROWS} rows)",
-            })
+            skipped.append(
+                {
+                    "row": line_no,
+                    "email": raw_row.get("email"),
+                    "reason": f"row limit exceeded (max {MAX_ROWS} rows)",
+                }
+            )
             continue
 
         normalized = {
@@ -76,14 +79,16 @@ def parse_contacts_csv(content: bytes) -> tuple[list[dict], list[dict]]:
             continue
         seen_emails.add(email)
 
-        rows.append({
-            "row": line_no,
-            "email": email,
-            "name": normalized.get("name"),
-            "designation": normalized.get("designation"),
-            "department": normalized.get("department"),
-            "phone": normalized.get("phone"),
-        })
+        rows.append(
+            {
+                "row": line_no,
+                "email": email,
+                "name": normalized.get("name"),
+                "designation": normalized.get("designation"),
+                "department": normalized.get("department"),
+                "phone": normalized.get("phone"),
+            }
+        )
 
     return rows, skipped
 

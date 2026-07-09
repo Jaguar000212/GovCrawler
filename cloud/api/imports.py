@@ -47,11 +47,11 @@ async def _run_import(db: Database, config: dict):
 
 @router.post("/api/import/json")
 async def trigger_json_import(
-        request: Request,
-        file: UploadFile = File(...),
-        db: Database = Depends(get_db),
-        config: dict = Depends(get_app_config),
-        user: CurrentUser = Depends(require("domains.import")),
+    request: Request,
+    file: UploadFile = File(...),
+    db: Database = Depends(get_db),
+    config: dict = Depends(get_app_config),
+    user: CurrentUser = Depends(require("domains.import")),
 ):
     """Import domains from an uploaded JSON file — zero API calls."""
     if _import_lock.locked():
@@ -67,9 +67,12 @@ async def trigger_json_import(
 
 
 @router.post("/api/import")
-async def trigger_import(request: Request, db: Database = Depends(get_db),
-                         config: dict = Depends(get_app_config),
-                         user: CurrentUser = Depends(require("domains.import"))):
+async def trigger_import(
+    request: Request,
+    db: Database = Depends(get_db),
+    config: dict = Depends(get_app_config),
+    user: CurrentUser = Depends(require("domains.import")),
+):
     """Import from live india.gov.in API — use only to refresh data."""
     if _import_lock.locked():
         return {"message": "Import already running", "status": import_status}

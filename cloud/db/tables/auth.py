@@ -1,6 +1,13 @@
 import datetime
 from sqlalchemy import (
-    Boolean, Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint,
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
 )
 
 from ..base import Base
@@ -35,8 +42,7 @@ class User(Base):
     last_login_at = Column(DateTime, nullable=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow,
-                        onupdate=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
 
 class RolePermission(Base):
@@ -44,25 +50,23 @@ class RolePermission(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     role_id = Column(Integer, ForeignKey("roles.id"), nullable=False, index=True)
     permission_key = Column(String, ForeignKey("permissions.key"), nullable=False)
-    __table_args__ = (
-        UniqueConstraint("role_id", "permission_key", name="uq_role_permission"),
-    )
+    __table_args__ = (UniqueConstraint("role_id", "permission_key", name="uq_role_permission"),)
 
 
 class UserPermission(Base):
     """Per-user grant/deny override on top of the role bundle."""
+
     __tablename__ = "user_permissions"
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     permission_key = Column(String, ForeignKey("permissions.key"), nullable=False)
     effect = Column(String, nullable=False)  # "grant" | "deny"
-    __table_args__ = (
-        UniqueConstraint("user_id", "permission_key", name="uq_user_permission"),
-    )
+    __table_args__ = (UniqueConstraint("user_id", "permission_key", name="uq_user_permission"),)
 
 
 class UserSession(Base):
     """Refresh-token sessions — enables real logout + revocation."""
+
     __tablename__ = "user_sessions"
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
@@ -77,6 +81,7 @@ class UserSession(Base):
 
 class AuditLog(Base):
     """Append-only audit trail."""
+
     __tablename__ = "audit_log"
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # null = system

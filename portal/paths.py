@@ -4,6 +4,7 @@ Application path resolution and first-run bootstrap.
 Handles both dev mode (running from source) and PyInstaller frozen mode
 (running as GovCrawler.exe).
 """
+
 import os
 import shutil
 import sys
@@ -12,7 +13,7 @@ from pathlib import Path
 
 def get_app_dir() -> Path:
     """The root directory (Writeable)."""
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         # Compiled: Returns the folder where the .exe physically lives
         return Path(sys.executable).parent
     # Native: Steps up from /project_root/portal/paths.py -> /project_root
@@ -21,7 +22,7 @@ def get_app_dir() -> Path:
 
 def get_bundle_dir() -> Path:
     """The temporary PyInstaller extraction folder (Read-Only)."""
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         return Path(sys._MEIPASS)
     # Native: Steps up to project root
     return Path(__file__).resolve().parent.parent
@@ -60,7 +61,7 @@ def bootstrap(live_config_path: Path = LIVE_CONFIG_PATH, default_config_path: Pa
     directory. Idempotent — safe to call from both `portal.config.load_config`
     and `load_agent_config`, in addition to whatever the entrypoint itself
     calls, regardless of call order."""
-    if getattr(sys, 'frozen', False) and not live_config_path.exists():
+    if getattr(sys, "frozen", False) and not live_config_path.exists():
         PORTAL_LIVE_DIR.mkdir(parents=True, exist_ok=True)
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         if default_config_path.exists():

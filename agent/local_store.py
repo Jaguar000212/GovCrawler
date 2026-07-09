@@ -116,8 +116,7 @@ class LocalOutbox:
     def enqueue(self, job_id: int, kind: str, payload: dict) -> None:
         with self._lock:
             self._conn.execute(
-                "INSERT INTO outbox (job_id, kind, payload_json, created_at, attempts) "
-                "VALUES (?, ?, ?, ?, 0)",
+                "INSERT INTO outbox (job_id, kind, payload_json, created_at, attempts) VALUES (?, ?, ?, ?, 0)",
                 (job_id, kind, json.dumps(payload), time.time()),
             )
             self._conn.commit()
@@ -125,14 +124,10 @@ class LocalOutbox:
     def pending_batch(self, kind: str, limit: int = 100) -> list[dict]:
         with self._lock:
             rows = self._conn.execute(
-                "SELECT id, job_id, payload_json, attempts FROM outbox "
-                "WHERE kind = ? ORDER BY id ASC LIMIT ?",
+                "SELECT id, job_id, payload_json, attempts FROM outbox WHERE kind = ? ORDER BY id ASC LIMIT ?",
                 (kind, limit),
             ).fetchall()
-            return [
-                {"id": r[0], "job_id": r[1], "payload": json.loads(r[2]), "attempts": r[3]}
-                for r in rows
-            ]
+            return [{"id": r[0], "job_id": r[1], "payload": json.loads(r[2]), "attempts": r[3]} for r in rows]
 
     def ack(self, ids: list[int]) -> None:
         if not ids:
@@ -143,14 +138,11 @@ class LocalOutbox:
 
     def fail(self, row_id: int, job_id: int, kind: str, payload: dict, error: str) -> None:
         with self._lock:
-            attempts = self._conn.execute(
-                "SELECT attempts FROM outbox WHERE id = ?", (row_id,)
-            ).fetchone()
+            attempts = self._conn.execute("SELECT attempts FROM outbox WHERE id = ?", (row_id,)).fetchone()
             attempts = (attempts[0] if attempts else 0) + 1
             if attempts >= MAX_ATTEMPTS:
                 self._conn.execute(
-                    "INSERT INTO outbox_dead (job_id, kind, payload_json, last_error, died_at) "
-                    "VALUES (?, ?, ?, ?, ?)",
+                    "INSERT INTO outbox_dead (job_id, kind, payload_json, last_error, died_at) VALUES (?, ?, ?, ?, ?)",
                     (job_id, kind, json.dumps(payload), error, time.time()),
                 )
                 self._conn.execute("DELETE FROM outbox WHERE id = ?", (row_id,))
@@ -164,9 +156,7 @@ class LocalOutbox:
 
     def is_drained(self, job_id: int) -> bool:
         with self._lock:
-            row = self._conn.execute(
-                "SELECT COUNT(*) FROM outbox WHERE job_id = ?", (job_id,)
-            ).fetchone()
+            row = self._conn.execute("SELECT COUNT(*) FROM outbox WHERE job_id = ?", (job_id,)).fetchone()
             return row[0] == 0
 
     def pending_count(self) -> int:
@@ -187,9 +177,7 @@ class LocalOutbox:
 
     def load_frontier(self, job_id: int) -> dict | None:
         with self._lock:
-            row = self._conn.execute(
-                "SELECT snapshot_json FROM frontier WHERE job_id = ?", (job_id,)
-            ).fetchone()
+            row = self._conn.execute("SELECT snapshot_json FROM frontier WHERE job_id = ?", (job_id,)).fetchone()
             return json.loads(row[0]) if row else None
 
     def clear_frontier(self, job_id: int) -> None:

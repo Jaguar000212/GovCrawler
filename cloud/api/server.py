@@ -81,7 +81,7 @@ async def _reap_loop():
             reaped = deps._db.reap_stale_jobs(_REAP_THRESHOLD_SECONDS)
             if reaped:
                 log.warning(
-                    f"Reaped {len(reaped)} stale job(s) (no heartbeat for " f"{_REAP_THRESHOLD_SECONDS}s+): {reaped}"
+                    f"Reaped {len(reaped)} stale job(s) (no heartbeat for {_REAP_THRESHOLD_SECONDS}s+): {reaped}"
                 )
         except Exception:
             log.error("Stale-job reaper sweep failed", exc_info=True)

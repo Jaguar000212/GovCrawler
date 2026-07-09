@@ -65,6 +65,5 @@ def extract_from_entries(entries: list[dict]) -> dict[str, dict[str, list[dict]]
         }
 
     return {
-        state: {org: list(records.values()) for org, records in by_org.items()}
-        for state, by_org in grouped.items()
+        state: {org: list(records.values()) for org, records in by_org.items()} for state, by_org in grouped.items()
     }

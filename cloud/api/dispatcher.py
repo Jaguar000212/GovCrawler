@@ -40,7 +40,8 @@ def resolve_credential_pool(db: Database, assigned_ids: list[int] | None) -> lis
     credential that has already hit its daily_send_limit today."""
     creds = db.get_credentials_by_ids(assigned_ids) if assigned_ids else db.get_active_credentials()
     return [
-        c for c in creds
+        c
+        for c in creds
         if not (c.get("daily_send_limit") and db.get_credential_sent_count_today(c["id"]) >= c["daily_send_limit"])
     ]
 
@@ -199,7 +200,8 @@ async def run_campaign_dispatch(campaign_id: int, db: Database) -> None:
                 db.add_to_blacklist(recipient, domain, reason=f"{err_code}: {err_msg}")
                 db.mark_email_failed(email_id, f"{err_code}: {err_msg}", cred["id"])
                 log.warning(
-                    f"Hard bounce (RecipientsRefused) {err_code} for {recipient}. Blacklisted and marked FAILED.")
+                    f"Hard bounce (RecipientsRefused) {err_code} for {recipient}. Blacklisted and marked FAILED."
+                )
             else:
                 db.mark_email_failed(email_id, f"{err_code}: {err_msg}", cred["id"])
                 log.error(f"SMTPRecipientsRefused {err_code}: {err_msg} for {recipient}")

@@ -12,6 +12,7 @@ in the chain via MultiFernet, so credentials written under an old primary
 stay readable until scripts/rotate_credential_encryption_key.py re-encrypts
 them and the old key is dropped. See deploy/SECURITY.md.
 """
+
 import logging
 import os
 

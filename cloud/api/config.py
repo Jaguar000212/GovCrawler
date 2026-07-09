@@ -33,7 +33,6 @@ async def get_config(c: dict = Depends(get_app_config), db: Database = Depends(g
         "playwright_fallback": c["crawler"].get("playwright_fallback", True),
         "playwright_timeout": c["crawler"]["playwright_timeout"],
         "js_settle_time": c["crawler"]["js_settle_time"],
-
         # Policy (app_settings)
         "max_depth": crawler.get("max_depth", 4),
         "recrawl_days": crawler.get("recrawl_days", 30),
@@ -42,14 +41,12 @@ async def get_config(c: dict = Depends(get_app_config), db: Database = Depends(g
         "email_context_chars": extraction.get("email", {}).get("context_chars", 200),
         "person_enabled": extraction.get("person", {}).get("enabled", True),
         "person_proximity_chars": extraction.get("person", {}).get("proximity_chars", 300),
-
         # Lead-score weights (policy) — API-only for now, no Settings UI yet
         "weight_email_high": weights.get("email_high", 20),
         "weight_email_low": weights.get("email_low", 10),
         "weight_person_name": weights.get("person_name", 40),
         "weight_designation": weights.get("designation", 30),
         "weight_phone": weights.get("phone", 10),
-
         # Arrays (policy)
         "target_suffixes": "\n".join(crawler.get("target_suffixes", [])),
         "priority_keywords": "\n".join(crawler.get("priority_keywords", [])),
@@ -57,19 +54,16 @@ async def get_config(c: dict = Depends(get_app_config), db: Database = Depends(g
         "valid_suffixes": "\n".join(extraction.get("email", {}).get("valid_suffixes", [])),
         "title_prefixes": "\n".join(extraction.get("person", {}).get("title_prefixes", [])),
         "designation_keywords": "\n".join(extraction.get("person", {}).get("designation_keywords", [])),
-
         # Dictionary (policy)
         "max_links_per_page_0": crawler.get("max_links_per_page", {}).get(0, 30),
         "max_links_per_page_1": crawler.get("max_links_per_page", {}).get(1, 15),
         "max_links_per_page_2": crawler.get("max_links_per_page", {}).get(2, 8),
         "max_links_per_page_default": crawler.get("max_links_per_page", {}).get("default", 5),
-
         # Read-only (policy)
         "user_agent": crawler.get("user_agent", ""),
         "js_indicators": "\n".join(crawler.get("js_indicators", [])),
         "email_regex": extraction.get("email", {}).get("regex", ""),
         "email_obfuscation": yaml.dump(extraction.get("email", {}).get("obfuscation", []), default_flow_style=False),
-
         # Pagination (Story #9, policy) — enabled + the two numeric caps are
         # editable via POST /api/config below. text_signals/param_signals stay
         # display-only here; edit via a direct app_settings write to change those lists.
@@ -82,10 +76,15 @@ async def get_config(c: dict = Depends(get_app_config), db: Database = Depends(g
 
 
 @router.post("/api/config")
-async def save_config(body: dict, background_tasks: BackgroundTasks, request: Request,
-                      c: dict = Depends(get_app_config), config_path=Depends(get_config_path),
-                      db: Database = Depends(get_db),
-                      user: CurrentUser = Depends(require("settings.manage"))):
+async def save_config(
+    body: dict,
+    background_tasks: BackgroundTasks,
+    request: Request,
+    c: dict = Depends(get_app_config),
+    config_path=Depends(get_config_path),
+    db: Database = Depends(get_db),
+    user: CurrentUser = Depends(require("settings.manage")),
+):
     # ── Machine-local (config.yaml) ─────────────────────────────────────────
     cfg = copy.deepcopy(c)
 
@@ -133,8 +132,10 @@ async def save_config(body: dict, background_tasks: BackgroundTasks, request: Re
         extraction.setdefault("person", {})["proximity_chars"] = int(body["person_proximity_chars"])
 
     weight_fields = {
-        "weight_email_high": "email_high", "weight_email_low": "email_low",
-        "weight_person_name": "person_name", "weight_designation": "designation",
+        "weight_email_high": "email_high",
+        "weight_email_low": "email_low",
+        "weight_person_name": "person_name",
+        "weight_designation": "designation",
         "weight_phone": "phone",
     }
     for body_key, weight_key in weight_fields.items():

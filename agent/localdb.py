@@ -97,9 +97,7 @@ def _require_conn() -> sqlite3.Connection:
 
 def get_setting(key: str, default: str | None = None) -> str | None:
     with _lock:
-        row = _require_conn().execute(
-            "SELECT value FROM local_settings WHERE key = ?", (key,)
-        ).fetchone()
+        row = _require_conn().execute("SELECT value FROM local_settings WHERE key = ?", (key,)).fetchone()
         return row[0] if row else default
 
 
@@ -148,9 +146,7 @@ def mark_visited(url: str) -> None:
 
 def get_recently_visited(since_ts: float) -> set[str]:
     with _lock:
-        rows = _require_conn().execute(
-            "SELECT url FROM visited_history WHERE visited_at >= ?", (since_ts,)
-        ).fetchall()
+        rows = _require_conn().execute("SELECT url FROM visited_history WHERE visited_at >= ?", (since_ts,)).fetchall()
         return {r[0] for r in rows}
 
 

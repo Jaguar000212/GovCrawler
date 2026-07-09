@@ -10,6 +10,7 @@ class Category(Base):
     own title columns (see plan.md Phase 1 §2 for why: the frontend dict-shape
     contract and crawl_snapshots' intentional freeze semantics make joining at
     read time a bigger change than this phase scopes)."""
+
     __tablename__ = "categories"
     code = Column(String, primary_key=True)
     title = Column(String, nullable=False)
@@ -17,6 +18,7 @@ class Category(Base):
 
 class OrgType(Base):
     """Code->title lookup for domains.org_type / crawl_snapshots.org_type."""
+
     __tablename__ = "org_types"
     code = Column(String, primary_key=True)
     title = Column(String, nullable=False)

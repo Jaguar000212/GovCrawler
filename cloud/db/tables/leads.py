@@ -25,15 +25,14 @@ class Lead(Base):
     lead_score = Column(Integer, nullable=False, default=0)
     depth = Column(Integer, nullable=False, default=0)
     captured_at = Column(DateTime, default=datetime.datetime.utcnow)
-    __table_args__ = (
-        UniqueConstraint("job_id", "email", name="uq_lead_job_email"),
-    )
+    __table_args__ = (UniqueConstraint("job_id", "email", name="uq_lead_job_email"),)
 
 
 class LeadOccurrence(Base):
     """Every capture of a shared lead (many-to-many lead<->job), so per-job
     attribution + a truthful per-job leads_found survive the global-email
     dedup in save_lead()/bulk_upsert_manual_leads()."""
+
     __tablename__ = "lead_occurrences"
     id = Column(Integer, primary_key=True, autoincrement=True)
     lead_id = Column(Integer, ForeignKey("leads.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -41,6 +40,4 @@ class LeadOccurrence(Base):
     captured_by = Column(Integer, ForeignKey("users.id"))
     source_url = Column(String)
     captured_at = Column(DateTime, default=datetime.datetime.utcnow)
-    __table_args__ = (
-        UniqueConstraint("lead_id", "job_id", name="uq_lead_occurrence_lead_job"),
-    )
+    __table_args__ = (UniqueConstraint("lead_id", "job_id", name="uq_lead_occurrence_lead_job"),)

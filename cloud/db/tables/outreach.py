@@ -44,13 +44,12 @@ class CampaignCredential(Base):
     to send through. Test campaigns use Campaign.test_credential_id instead —
     a single-credential assignment, not a pool — since dummy-recipient test
     runs don't need round-robin."""
+
     __tablename__ = "campaign_credentials"
     id = Column(Integer, primary_key=True, autoincrement=True)
     campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=False, index=True)
     credential_id = Column(Integer, ForeignKey("smtp_credentials.id"), nullable=False)
-    __table_args__ = (
-        UniqueConstraint("campaign_id", "credential_id", name="uq_campaign_credential"),
-    )
+    __table_args__ = (UniqueConstraint("campaign_id", "credential_id", name="uq_campaign_credential"),)
 
 
 class CampaignEmail(Base):

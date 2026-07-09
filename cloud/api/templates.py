@@ -13,6 +13,7 @@ router = APIRouter(tags=["templates"])
 
 # ── Jinja2 validation ─────────────────────────────────────────────────────────
 
+
 def validate_jinja2(raw_body: str) -> str | None:
     """Returns None if valid, error message string if invalid."""
     try:
@@ -23,6 +24,7 @@ def validate_jinja2(raw_body: str) -> str | None:
 
 
 # ── Pydantic schemas ──────────────────────────────────────────────────────────
+
 
 class TemplateCreate(BaseModel):
     name: str
@@ -38,6 +40,7 @@ class TemplateUpdate(BaseModel):
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+
 @router.get("/api/templates")
 async def list_templates(db: Database = Depends(get_db)):
     return db.list_templates()
@@ -52,8 +55,12 @@ async def get_template(template_id: int, db: Database = Depends(get_db)):
 
 
 @router.post("/api/templates", status_code=201)
-async def create_template(req: TemplateCreate, request: Request, db: Database = Depends(get_db),
-                          user: CurrentUser = Depends(require("templates.manage"))):
+async def create_template(
+    req: TemplateCreate,
+    request: Request,
+    db: Database = Depends(get_db),
+    user: CurrentUser = Depends(require("templates.manage")),
+):
     # Validate Jinja2 syntax for both subject and body
     for field_name, field_val in [("subject", req.subject), ("raw_body", req.raw_body)]:
         err = validate_jinja2(field_val)
@@ -63,15 +70,19 @@ async def create_template(req: TemplateCreate, request: Request, db: Database = 
                 detail=f"Jinja2 syntax error in {field_name}: {err}",
             )
 
-    tid = db.create_template(name=req.name, subject=req.subject,
-                             raw_body=req.raw_body)
+    tid = db.create_template(name=req.name, subject=req.subject, raw_body=req.raw_body)
     db.write_audit(user.id, "template.create", "template", tid, ip=client_ip(request))
     return {"id": tid, "message": "Template created"}
 
 
 @router.put("/api/templates/{template_id}")
-async def update_template(template_id: int, req: TemplateUpdate, request: Request, db: Database = Depends(get_db),
-                          user: CurrentUser = Depends(require("templates.manage"))):
+async def update_template(
+    template_id: int,
+    req: TemplateUpdate,
+    request: Request,
+    db: Database = Depends(get_db),
+    user: CurrentUser = Depends(require("templates.manage")),
+):
     existing = db.get_template(template_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Template not found")
@@ -97,14 +108,24 @@ async def update_template(template_id: int, req: TemplateUpdate, request: Reques
         raise HTTPException(status_code=400, detail="No fields to update")
 
     db.update_template(template_id, **updates)
-    db.write_audit(user.id, "template.update", "template", template_id,
-                   detail={"fields": list(updates.keys())}, ip=client_ip(request))
+    db.write_audit(
+        user.id,
+        "template.update",
+        "template",
+        template_id,
+        detail={"fields": list(updates.keys())},
+        ip=client_ip(request),
+    )
     return {"message": "Template updated"}
 
 
 @router.delete("/api/templates/{template_id}")
-async def delete_template(template_id: int, request: Request, db: Database = Depends(get_db),
-                          user: CurrentUser = Depends(require("templates.manage"))):
+async def delete_template(
+    template_id: int,
+    request: Request,
+    db: Database = Depends(get_db),
+    user: CurrentUser = Depends(require("templates.manage")),
+):
     if not db.delete_template(template_id):
         raise HTTPException(status_code=404, detail="Template not found")
     db.write_audit(user.id, "template.delete", "template", template_id, ip=client_ip(request))

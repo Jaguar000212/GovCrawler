@@ -1,6 +1,7 @@
 """User administration endpoints (create/list users, set active/role, reset
 password, permission overrides, list roles) plus the audit log reader. See
 .docs/authentication.md and .docs/api-reference.md."""
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
@@ -59,37 +60,55 @@ async def get_user_detail(user_id: int, db: Database = Depends(get_db)):
 
 
 @router.post("/api/admin/users", status_code=201)
-async def create_user(req: UserCreate, request: Request, db: Database = Depends(get_db),
-                      user: CurrentUser = Depends(require("users.manage"))):
+async def create_user(
+    req: UserCreate,
+    request: Request,
+    db: Database = Depends(get_db),
+    user: CurrentUser = Depends(require("users.manage")),
+):
     if db.get_user_by_email(req.email):
         raise HTTPException(status_code=409, detail="A user with this email already exists")
     user_id = db.create_user(
-        email=req.email, password=req.password, full_name=req.full_name,
-        is_admin=req.is_admin, role_name=req.role, created_by=user.id,
+        email=req.email,
+        password=req.password,
+        full_name=req.full_name,
+        is_admin=req.is_admin,
+        role_name=req.role,
+        created_by=user.id,
     )
     db.write_audit(user.id, "user.create", "user", user_id, ip=_client_ip(request))
     return {"id": user_id, "message": "User created"}
 
 
 @router.patch("/api/admin/users/{user_id}")
-async def patch_user(user_id: int, req: UserPatch, request: Request, db: Database = Depends(get_db),
-                     user: CurrentUser = Depends(require("users.manage"))):
+async def patch_user(
+    user_id: int,
+    req: UserPatch,
+    request: Request,
+    db: Database = Depends(get_db),
+    user: CurrentUser = Depends(require("users.manage")),
+):
     if req.is_active is not None:
         if not db.set_user_active(user_id, req.is_active):
             raise HTTPException(status_code=404, detail="User not found")
-        db.write_audit(user.id, "user.set_active", "user", user_id,
-                       detail={"is_active": req.is_active}, ip=_client_ip(request))
+        db.write_audit(
+            user.id, "user.set_active", "user", user_id, detail={"is_active": req.is_active}, ip=_client_ip(request)
+        )
     if req.role is not None:
         if not db.set_user_role(user_id, req.role):
             raise HTTPException(status_code=404, detail="User or role not found")
-        db.write_audit(user.id, "user.set_role", "user", user_id,
-                       detail={"role": req.role}, ip=_client_ip(request))
+        db.write_audit(user.id, "user.set_role", "user", user_id, detail={"role": req.role}, ip=_client_ip(request))
     return {"message": "User updated"}
 
 
 @router.post("/api/admin/users/{user_id}/reset-password")
-async def reset_password(user_id: int, req: PasswordReset, request: Request, db: Database = Depends(get_db),
-                         user: CurrentUser = Depends(require("users.manage"))):
+async def reset_password(
+    user_id: int,
+    req: PasswordReset,
+    request: Request,
+    db: Database = Depends(get_db),
+    user: CurrentUser = Depends(require("users.manage")),
+):
     if not db.set_password(user_id, req.password):
         raise HTTPException(status_code=404, detail="User not found")
     db.write_audit(user.id, "user.reset_password", "user", user_id, ip=_client_ip(request))
@@ -97,9 +116,14 @@ async def reset_password(user_id: int, req: PasswordReset, request: Request, db:
 
 
 @router.put("/api/admin/users/{user_id}/permissions/{permission_key}")
-async def set_user_permission(user_id: int, permission_key: str, req: PermissionOverrideSet,
-                              request: Request, db: Database = Depends(get_db),
-                              user: CurrentUser = Depends(require("users.manage"))):
+async def set_user_permission(
+    user_id: int,
+    permission_key: str,
+    req: PermissionOverrideSet,
+    request: Request,
+    db: Database = Depends(get_db),
+    user: CurrentUser = Depends(require("users.manage")),
+):
     """Grant/deny/clear a single permission override on top of the target
     user's role bundle (`shared.permissions.PERMISSIONS` is the whole
     catalog — role edits aren't supported, only per-user overrides, per
@@ -110,9 +134,14 @@ async def set_user_permission(user_id: int, permission_key: str, req: Permission
         raise HTTPException(status_code=400, detail="effect must be 'grant', 'deny', or null")
     if not db.set_user_permission_override(user_id, permission_key, req.effect):
         raise HTTPException(status_code=404, detail="User not found")
-    db.write_audit(user.id, "user.permission_override_set", "user", user_id,
-                   detail={"permission_key": permission_key, "effect": req.effect},
-                   ip=_client_ip(request))
+    db.write_audit(
+        user.id,
+        "user.permission_override_set",
+        "user",
+        user_id,
+        detail={"permission_key": permission_key, "effect": req.effect},
+        ip=_client_ip(request),
+    )
     return {"message": "Permission override updated"}
 
 

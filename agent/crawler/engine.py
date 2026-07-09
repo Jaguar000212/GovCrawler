@@ -100,9 +100,15 @@ class CrawlerEngine:
         except Exception:
             return url
 
-    async def _enqueue(self, url: str, depth: int, domain_id: int | None,
-                       is_seed: bool = False, page_hops: int = 0,
-                       chain_budget: list[int] | None = None):
+    async def _enqueue(
+        self,
+        url: str,
+        depth: int,
+        domain_id: int | None,
+        is_seed: bool = False,
+        page_hops: int = 0,
+        chain_budget: list[int] | None = None,
+    ):
         if self._is_skippable(url) or not self._is_gov_domain(url):
             self._skipped += 1
             return
@@ -167,8 +173,9 @@ class CrawlerEngine:
 
     # ── Run ───────────────────────────────────────────────────────────────────
 
-    async def run(self, seeds: list[tuple[str, int | None]], visited_bootstrap: list[str] = None,
-                  frontier: dict | None = None):
+    async def run(
+        self, seeds: list[tuple[str, int | None]], visited_bootstrap: list[str] = None, frontier: dict | None = None
+    ):
         """seeds: list of (url, domain_id) tuples. visited_bootstrap: URLs
         agent/api.py already computed as pre-visited for this job (this
         machine's own recent crawl history, minus this job's own seed
@@ -192,7 +199,7 @@ class CrawlerEngine:
                 self._netloc_to_domain[netloc] = did
                 self._netloc_to_domain[root] = did
 
-        for v in (visited_bootstrap or []):
+        for v in visited_bootstrap or []:
             self._visited.add(self._url_key(v))
 
         if frontier:
@@ -206,7 +213,8 @@ class CrawlerEngine:
         timeout = httpx.Timeout(
             connect=hcfg.get("connect", 10),
             read=hcfg.get("read", 30),
-            write=5, pool=5,
+            write=5,
+            pool=5,
         )
         limits = httpx.Limits(
             max_connections=max(workers * 2, 10),
@@ -222,8 +230,7 @@ class CrawlerEngine:
         # Off-loop executors: DB writes serialized on a single thread; parsing
         # spread across cores (GIL-bound, but never blocks the event loop).
         self._db_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="db")
-        self._parse_pool = ThreadPoolExecutor(max_workers=parse_workers,
-                                              thread_name_prefix="parse")
+        self._parse_pool = ThreadPoolExecutor(max_workers=parse_workers, thread_name_prefix="parse")
 
         if not frontier:
             for url, did in seeds:
@@ -231,23 +238,18 @@ class CrawlerEngine:
 
         # One Playwright context per worker (None if disabled / no browser).
         if self._cfg.get("playwright_fallback") and self._browser:
+
             async def _new_ctx():
                 try:
-                    return await self._browser.new_context(
-                        user_agent=self._cfg.get("user_agent", "")
-                    )
+                    return await self._browser.new_context(user_agent=self._cfg.get("user_agent", ""))
                 except Exception:
                     return None
 
-            contexts = list(await asyncio.gather(
-                *[_new_ctx() for _ in range(workers)]))
+            contexts = list(await asyncio.gather(*[_new_ctx() for _ in range(workers)]))
         else:
             contexts = [None] * workers
 
-        tasks = [
-            asyncio.create_task(self._worker(i, contexts[i]))
-            for i in range(workers)
-        ]
+        tasks = [asyncio.create_task(self._worker(i, contexts[i])) for i in range(workers)]
         reporter_task = asyncio.create_task(self._reporter())
         checkpoint_task = asyncio.create_task(self._checkpoint_loop())
 
@@ -301,7 +303,8 @@ class CrawlerEngine:
             while True:
                 await asyncio.sleep(2)
                 cancel_requested = await self._cloud.send_heartbeat(
-                    self._metrics_snapshot(active_workers=self._active_workers))
+                    self._metrics_snapshot(active_workers=self._active_workers)
+                )
                 if cancel_requested and self._run_task:
                     log.info(f"Job {self._job_id}: cancel_requested seen on heartbeat, stopping.")
                     self._run_task.cancel()
@@ -333,20 +336,29 @@ class CrawlerEngine:
                     chain_keys[obj_id] = str(len(chain_keys))
                     chains[chain_keys[obj_id]] = item.chain_budget[0]
                 chain_key = chain_keys[obj_id]
-            items.append({
-                "priority": item.priority, "counter": item.counter, "url": item.url,
-                "depth": item.depth, "domain_id": item.domain_id, "is_seed": item.is_seed,
-                "page_hops": item.page_hops, "chain_key": chain_key,
-            })
-        self._cloud.save_frontier({
-            "visited": list(self._visited),
-            "counter": self._counter,
-            "skipped": self._skipped,
-            "max_depth_seen": self._max_depth_seen,
-            "session_visited_count": self._session_visited_count,
-            "chains": chains,
-            "items": items,
-        })
+            items.append(
+                {
+                    "priority": item.priority,
+                    "counter": item.counter,
+                    "url": item.url,
+                    "depth": item.depth,
+                    "domain_id": item.domain_id,
+                    "is_seed": item.is_seed,
+                    "page_hops": item.page_hops,
+                    "chain_key": chain_key,
+                }
+            )
+        self._cloud.save_frontier(
+            {
+                "visited": list(self._visited),
+                "counter": self._counter,
+                "skipped": self._skipped,
+                "max_depth_seen": self._max_depth_seen,
+                "session_visited_count": self._session_visited_count,
+                "chains": chains,
+                "items": items,
+            }
+        )
 
     async def _rehydrate_frontier(self, frontier: dict):
         """Inverse of `_save_checkpoint` — rebuilds one shared chain_budget
@@ -361,20 +373,25 @@ class CrawlerEngine:
         self._max_depth_seen = frontier.get("max_depth_seen", 0)
         self._session_visited_count = frontier.get("session_visited_count", 0)
 
-        chain_objs: dict[str, list[int]] = {
-            key: [budget] for key, budget in frontier.get("chains", {}).items()
-        }
+        chain_objs: dict[str, list[int]] = {key: [budget] for key, budget in frontier.get("chains", {}).items()}
         for it in frontier.get("items", []):
             chain_budget = chain_objs.get(it["chain_key"]) if it.get("chain_key") is not None else None
             item = _QueueItem(
-                priority=it["priority"], counter=it["counter"], url=it["url"], depth=it["depth"],
-                domain_id=it.get("domain_id"), is_seed=it.get("is_seed", False),
-                page_hops=it.get("page_hops", 0), chain_budget=chain_budget,
+                priority=it["priority"],
+                counter=it["counter"],
+                url=it["url"],
+                depth=it["depth"],
+                domain_id=it.get("domain_id"),
+                is_seed=it.get("is_seed", False),
+                page_hops=it.get("page_hops", 0),
+                chain_budget=chain_budget,
             )
             self._pending[item.counter] = item
             await self._queue.put(item)
-        log.info(f"Job {self._job_id}: rehydrated {len(frontier.get('items', []))} frontier item(s) "
-                 f"across {len(chain_objs)} pagination chain(s)")
+        log.info(
+            f"Job {self._job_id}: rehydrated {len(frontier.get('items', []))} frontier item(s) "
+            f"across {len(chain_objs)} pagination chain(s)"
+        )
 
     # ── Worker loop ───────────────────────────────────────────────────────────
 
@@ -433,29 +450,32 @@ class CrawlerEngine:
         # re-crawlable entry points; marking them would pollute the recrawl set
         # (see .docs/crawler.md, .docs/resilience.md).
         if not item.is_seed:
-            await self._loop.run_in_executor(
-                self._db_pool, self._cloud.mark_visited, url)
+            await self._loop.run_in_executor(self._db_pool, self._cloud.mark_visited, url)
 
-        leads, raw_links = await self._loop.run_in_executor(
-            self._parse_pool, parse_for_engine, html, url, self._excfg)
+        leads, raw_links = await self._loop.run_in_executor(self._parse_pool, parse_for_engine, html, url, self._excfg)
 
         if domain_id is None:
             netloc = urlparse(url).netloc
-            domain_id = (self._netloc_to_domain.get(netloc) or
-                         self._netloc_to_domain.get(strip_www(netloc)))
+            domain_id = self._netloc_to_domain.get(netloc) or self._netloc_to_domain.get(strip_www(netloc))
 
         new_leads = await self._loop.run_in_executor(
-            self._db_pool, self._save_leads, leads, domain_id, item.is_seed, depth)
+            self._db_pool, self._save_leads, leads, domain_id, item.is_seed, depth
+        )
 
         if new_leads:
             log.info(f"  +{new_leads} leads at {url}")
 
         max_depth = self._cfg.get("max_depth", 3)
         if max_depth == 0 or depth < max_depth:
-            await self._enqueue_links(raw_links, url, depth, domain_id,
-                                      is_seed_page=item.is_seed,
-                                      page_hops=item.page_hops,
-                                      chain_budget=item.chain_budget)
+            await self._enqueue_links(
+                raw_links,
+                url,
+                depth,
+                domain_id,
+                is_seed_page=item.is_seed,
+                page_hops=item.page_hops,
+                chain_budget=item.chain_budget,
+            )
 
     # ── Outbox-writer-pool callable (run on the single DB thread) ────────────────
 
@@ -545,14 +565,12 @@ class CrawlerEngine:
         try:
             page = await ctx.new_page()
             try:
-                await page.goto(url, timeout=timeout_ms,
-                                wait_until="domcontentloaded")
+                await page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
             except Exception as nav_err:
                 if "Timeout" in type(nav_err).__name__:
                     log.debug(f"Playwright timeout (1st try), retrying: {url}")
                     await asyncio.sleep(3)
-                    await page.goto(url, timeout=timeout_ms,
-                                    wait_until="domcontentloaded")
+                    await page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
                 else:
                     raise
             await page.wait_for_timeout(settle_ms)
@@ -575,10 +593,16 @@ class CrawlerEngine:
 
     # ── Link discovery ────────────────────────────────────────────────────────
 
-    async def _enqueue_links(self, raw_links: list[tuple[str, str, list[str]]],
-                             base_url: str, depth: int, domain_id: int | None,
-                             is_seed_page: bool = False, page_hops: int = 0,
-                             chain_budget: list[int] | None = None):
+    async def _enqueue_links(
+        self,
+        raw_links: list[tuple[str, str, list[str]]],
+        base_url: str,
+        depth: int,
+        domain_id: int | None,
+        is_seed_page: bool = False,
+        page_hops: int = 0,
+        chain_budget: list[int] | None = None,
+    ):
         if self._cloud.is_backpressured:
             # The local outbox is backed up past its threshold (a long cloud
             # outage) — pause NEW discovery from this page entirely.
@@ -589,9 +613,7 @@ class CrawlerEngine:
             return
 
         depth_limits = self._cfg.get("max_links_per_page", {})
-        max_links = depth_limits.get(str(depth),
-                                     depth_limits.get(depth,
-                                                      depth_limits.get("default", 5)))
+        max_links = depth_limits.get(str(depth), depth_limits.get(depth, depth_limits.get("default", 5)))
 
         # Seed pages are always treated as priority — the user explicitly chose
         # them, so all their links (up to max_links) should be followed regardless
@@ -635,9 +657,9 @@ class CrawlerEngine:
                 # Reuse the chain's shared budget cell once mid-chain;
                 # this is the first hop into a chain otherwise, so mint one.
                 child_budget = chain_budget if chain_budget is not None else [0]
-                await self._enqueue(absolute, depth=depth, domain_id=domain_id,
-                                    page_hops=page_hops + 1,
-                                    chain_budget=child_budget)
+                await self._enqueue(
+                    absolute, depth=depth, domain_id=domain_id, page_hops=page_hops + 1, chain_budget=child_budget
+                )
                 continue
 
             # On a non-priority page, only follow links that look priority. With
@@ -656,10 +678,8 @@ class CrawlerEngine:
                     self._skipped += 1
                     continue
                 chain_budget[0] += 1
-                await self._enqueue(absolute, depth=depth + 1, domain_id=domain_id,
-                                    page_hops=page_hops)
+                await self._enqueue(absolute, depth=depth + 1, domain_id=domain_id, page_hops=page_hops)
                 continue
 
-            await self._enqueue(absolute, depth=depth + 1, domain_id=domain_id,
-                                page_hops=page_hops)
+            await self._enqueue(absolute, depth=depth + 1, domain_id=domain_id, page_hops=page_hops)
             links_added += 1

@@ -272,7 +272,7 @@ class CrawlerLauncher:
         self.btn_download.config(state=tk.NORMAL if self.state == AppState.IDLE else tk.DISABLED)
 
         can_toggle = self.state in (AppState.IDLE, AppState.RUNNING) and (
-                self.state != AppState.IDLE or self._browsers_ok
+            self.state != AppState.IDLE or self._browsers_ok
         )
         self.btn_toggle.config(
             text="Start Server" if self.state == AppState.IDLE else "Stop Server",
@@ -601,8 +601,7 @@ class CrawlerLauncher:
 
         proceed = messagebox.askyesno(
             "Active work in progress",
-            f"{data['total_active']} job(s) are currently running:\n\n{preview}\n\n"
-            "Stop them and shut down the server?",
+            f"{data['total_active']} job(s) are currently running:\n\n{preview}\n\nStop them and shut down the server?",
         )
         if proceed:
             self._begin_cancel_and_drain()

@@ -3,6 +3,7 @@
 Secret and TTLs are read from config.auth (see portal/api/server.py, which
 generates+persists a random jwt_secret on first run if empty).
 """
+
 import hashlib
 import secrets
 import time

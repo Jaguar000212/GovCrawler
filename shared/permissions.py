@@ -30,11 +30,18 @@ PERMISSIONS: dict[str, str] = {
 ROLE_DEFAULTS: dict[str, set[str]] = {
     "Admin": set(PERMISSIONS.keys()),
     "Operator": {
-        "domains.view", "domains.import",
+        "domains.view",
+        "domains.import",
         "crawl.run",
-        "leads.view", "leads.edit", "leads.export", "leads.import",
-        "campaigns.manage", "campaigns.dispatch",
-        "templates.manage", "credentials.manage", "blacklist.manage",
+        "leads.view",
+        "leads.edit",
+        "leads.export",
+        "leads.import",
+        "campaigns.manage",
+        "campaigns.dispatch",
+        "templates.manage",
+        "credentials.manage",
+        "blacklist.manage",
     },
     "Viewer": {
         "domains.view",

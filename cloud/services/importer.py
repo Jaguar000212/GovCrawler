@@ -42,8 +42,7 @@ PAGE_SIZE = 100
 
 HEADERS = {
     "User-Agent": (
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     ),
     "Accept": "application/json, text/plain, */*",
     "Content-Type": "application/json",
@@ -61,13 +60,7 @@ def get_categories(client: httpx.Client) -> list[dict]:
         timeout=15,
     )
     r.raise_for_status()
-    return (
-        r.json()
-        .get("resultdata", {})
-        .get("data", {})
-        .get("getIgodCategoryWithCount", {})
-        .get("results", [])
-    )
+    return r.json().get("resultdata", {}).get("data", {}).get("getIgodCategoryWithCount", {}).get("results", [])
 
 
 def get_organization_types(client: httpx.Client, category_code: str) -> list[dict]:
@@ -75,27 +68,23 @@ def get_organization_types(client: httpx.Client, category_code: str) -> list[dic
     Returns list of dicts with title, count, and organization_type codes."""
     r = client.post(
         WEB_DIR_API,
-        json={"dataval": {
-            "clientvalue": "client",
-            "mustvalue": category_code,
-            "querytype": "organizationtypewithCategory"
-        }},
+        json={
+            "dataval": {
+                "clientvalue": "client",
+                "mustvalue": category_code,
+                "querytype": "organizationtypewithCategory",
+            }
+        },
         timeout=15,
     )
     r.raise_for_status()
-    return (
-        r.json()
-        .get("resultdata", {})
-        .get("data", {})
-        .get("getIgodOrganizationByCategory", {})
-        .get("results", [])
-    )
+    return r.json().get("resultdata", {}).get("data", {}).get("getIgodOrganizationByCategory", {}).get("results", [])
 
 
 def get_entries_for_category(
-        client: httpx.Client,
-        category_code: str,
-        org_type_code: str = None,
+    client: httpx.Client,
+    category_code: str,
+    org_type_code: str = None,
 ) -> list[dict]:
     """Paginate through all entries for a given category code (e.g. 'ug', 'sg').
     Optionally filter by organization type. Returns list of raw entry dicts."""
@@ -109,33 +98,28 @@ def get_entries_for_category(
     while True:
         r = client.post(
             WEB_DIR_API,
-            json={"dataval": {
-                "clientvalue": "client",
-                "mustvalue": mustvalue,
-                "shouldvalue": [],
-                "pageno": page,
-                "pageSize": PAGE_SIZE,
-                "querytype": "WebdirectoryCategorydetalsList",
-            }},
+            json={
+                "dataval": {
+                    "clientvalue": "client",
+                    "mustvalue": mustvalue,
+                    "shouldvalue": [],
+                    "pageno": page,
+                    "pageSize": PAGE_SIZE,
+                    "querytype": "WebdirectoryCategorydetalsList",
+                }
+            },
             timeout=20,
         )
         r.raise_for_status()
 
-        payload = (
-            r.json()
-            .get("resultdata", {})
-            .get("data", {})
-            .get("getIgodWebDirectoryByFilters", {})
-        )
+        payload = r.json().get("resultdata", {}).get("data", {}).get("getIgodWebDirectoryByFilters", {})
         results = payload.get("results") or []
         total = payload.get("total", 0)
 
         all_entries.extend(results)
         fetched = len(all_entries)
 
-        log.debug(
-            f"[{category_code}] page {page} -> {len(results)} entries ({fetched}/{total})"
-        )
+        log.debug(f"[{category_code}] page {page} -> {len(results)} entries ({fetched}/{total})")
 
         if not results or fetched >= total:
             break
@@ -182,17 +166,18 @@ def _title_from_url(url: str) -> str:
     """Derive a readable organization name from a .gov.in URL hostname."""
     try:
         host = urlparse(url).netloc.lower()
-        for suffix in ('.gov.in', '.nic.in', '.res.in', '.ac.in', '.edu.in'):
+        for suffix in (".gov.in", ".nic.in", ".res.in", ".ac.in", ".edu.in"):
             if host.endswith(suffix):
-                host = host[:-len(suffix)]
+                host = host[: -len(suffix)]
                 break
-        name = host.replace('.', ' ').replace('-', ' ').strip()
-        return ' '.join(w.capitalize() for w in name.split()) if name else ''
+        name = host.replace(".", " ").replace("-", " ").strip()
+        return " ".join(w.capitalize() for w in name.split()) if name else ""
     except Exception:
-        return ''
+        return ""
 
 
 # ── JSON import (zero API calls) ──────────────────────────────────────────────
+
 
 def _resolve_json_entry(entry) -> dict:
     """Normalize one gov_domains.json list entry to
@@ -263,15 +248,17 @@ def import_from_json(db: Database, json_path: str | Path, config: dict):
         import_status["error"] = msg
         return
 
-    import_status.update({
-        "running": True,
-        "source": "json",
-        "total_categories": 0,
-        "done_categories": 0,
-        "total_entries": 0,
-        "inserted": 0,
-        "error": None,
-    })
+    import_status.update(
+        {
+            "running": True,
+            "source": "json",
+            "total_categories": 0,
+            "done_categories": 0,
+            "total_entries": 0,
+            "inserted": 0,
+            "error": None,
+        }
+    )
 
     try:
         with open(json_path, encoding="utf-8") as f:
@@ -340,6 +327,7 @@ def import_from_json(db: Database, json_path: str | Path, config: dict):
 
 # ── Live API import (for refreshing data) ─────────────────────────────────────
 
+
 def import_all(db: Database, config: dict):
     """
     Live import from india.gov.in API. Makes many API calls — use only
@@ -351,20 +339,20 @@ def import_all(db: Database, config: dict):
     cat_filter = scraper_cfg.get("category_filter", "") or ""
     org_filter = scraper_cfg.get("org_type_filter", "") or ""
 
-    import_status.update({
-        "running": True,
-        "source": "api",
-        "total_categories": 0,
-        "done_categories": 0,
-        "total_entries": 0,
-        "inserted": 0,
-        "error": None,
-    })
+    import_status.update(
+        {
+            "running": True,
+            "source": "api",
+            "total_categories": 0,
+            "done_categories": 0,
+            "total_entries": 0,
+            "inserted": 0,
+            "error": None,
+        }
+    )
 
     try:
-        with httpx.Client(headers=HEADERS, follow_redirects=True,
-                          timeout=httpx.Timeout(20.0)) as client:
-
+        with httpx.Client(headers=HEADERS, follow_redirects=True, timeout=httpx.Timeout(20.0)) as client:
             log.info("Fetching categories from india.gov.in API…")
             categories = get_categories(client)
             import_status["total_categories"] = len(categories)
@@ -389,8 +377,7 @@ def import_all(db: Database, config: dict):
                 # Build org_type code → title mapping for this category
                 try:
                     org_types = get_organization_types(client, code)
-                    org_map = {ot["organization_type"]: ot["title"]
-                               for ot in org_types if ot.get("organization_type")}
+                    org_map = {ot["organization_type"]: ot["title"] for ot in org_types if ot.get("organization_type")}
                 except Exception as e:
                     log.warning(f"[{code}] Could not fetch org types: {e}")
                     org_map = {}
@@ -399,7 +386,8 @@ def import_all(db: Database, config: dict):
 
                 try:
                     entries = get_entries_for_category(
-                        client, code,
+                        client,
+                        code,
                         org_filter if org_filter else None,
                     )
                 except Exception as e:

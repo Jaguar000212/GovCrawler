@@ -16,8 +16,11 @@ log = logging.getLogger(__name__)
 _KEYRING_SERVICE = "govcrawler"
 
 _state = {
-    "email": None, "access_token": None, "base_url": None,
-    "permissions": frozenset(), "is_admin": False,
+    "email": None,
+    "access_token": None,
+    "base_url": None,
+    "permissions": frozenset(),
+    "is_admin": False,
 }
 _lock = asyncio.Lock()
 
@@ -37,15 +40,16 @@ class OperatorContext:
         return self.is_admin or perm in self.permissions
 
 
-def set_session(email: str, access_token: str, base_url: str,
-                permissions: list[str] = (), is_admin: bool = False) -> None:
-    _state.update(email=email, access_token=access_token, base_url=base_url,
-                  permissions=frozenset(permissions), is_admin=is_admin)
+def set_session(
+    email: str, access_token: str, base_url: str, permissions: list[str] = (), is_admin: bool = False
+) -> None:
+    _state.update(
+        email=email, access_token=access_token, base_url=base_url, permissions=frozenset(permissions), is_admin=is_admin
+    )
 
 
 def clear_session() -> None:
-    _state.update(email=None, access_token=None, base_url=None,
-                  permissions=frozenset(), is_admin=False)
+    _state.update(email=None, access_token=None, base_url=None, permissions=frozenset(), is_admin=False)
 
 
 async def logout() -> None:
@@ -80,8 +84,7 @@ def get_operator_context() -> OperatorContext:
     return OperatorContext(_state["email"], _state["is_admin"], _state["permissions"])
 
 
-def update_access_token(access_token: str, permissions: list[str] | None = None,
-                        is_admin: bool | None = None) -> None:
+def update_access_token(access_token: str, permissions: list[str] | None = None, is_admin: bool | None = None) -> None:
     """Called by the launcher after its OWN (sync, Tk-thread) refresh cycle
     succeeds, so this module's cache doesn't go stale and trigger a second,
     avoidable refresh moments later. Doesn't fully eliminate the (rare, low-

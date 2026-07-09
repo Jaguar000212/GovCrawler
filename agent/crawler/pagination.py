@@ -28,11 +28,7 @@ def is_pagination_link(pag_cfg: dict, url: str, anchor_text: str, rel: list[str]
     if param_signals:
         query = parse_qs(urlparse(url).query, keep_blank_values=True)
         query_lower = {k.lower(): v for k, v in query.items()}
-        matched_values = [
-            query_lower[p.lower()][0]
-            for p in param_signals
-            if p.lower() in query_lower
-        ]
+        matched_values = [query_lower[p.lower()][0] for p in param_signals if p.lower() in query_lower]
         if matched_values:
             return all(is_plain_int(v) for v in matched_values)
 

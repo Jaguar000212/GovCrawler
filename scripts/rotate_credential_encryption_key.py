@@ -13,6 +13,7 @@ RUNBOOK (see deploy/SECURITY.md for the full checklist):
 Usage:
     python scripts/rotate_credential_encryption_key.py <postgres-or-sqlite-url>
 """
+
 import logging
 import os
 import sys
@@ -35,7 +36,8 @@ def main():
 
     if not os.environ.get("CREDENTIAL_ENC_KEY_PREV"):
         log.error(
-            "CREDENTIAL_ENC_KEY_PREV is not set — nothing to rotate FROM. See the runbook in this file's docstring.")
+            "CREDENTIAL_ENC_KEY_PREV is not set — nothing to rotate FROM. See the runbook in this file's docstring."
+        )
         sys.exit(1)
 
     db = Database({"database": {"uri": sys.argv[1]}, "auth": {}})

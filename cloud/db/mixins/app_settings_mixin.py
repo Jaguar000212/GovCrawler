@@ -14,8 +14,9 @@ class AppSettingsMixin:
                 return None
             return {"value": row.value, "updated_at": row.updated_at, "updated_by": row.updated_by}
 
-    def set_app_setting(self, key: str, value: dict, updated_by: int | None,
-                        expected_updated_at: datetime.datetime | None = None) -> bool:
+    def set_app_setting(
+        self, key: str, value: dict, updated_by: int | None, expected_updated_at: datetime.datetime | None = None
+    ) -> bool:
         """Upsert. If the row already exists and `expected_updated_at` is given but
         doesn't match the current row's updated_at, the write is rejected (a
         concurrent-edit conflict — plan.md §17) and returns False without writing.

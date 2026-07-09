@@ -86,11 +86,19 @@ def _local_visited_bootstrap(seeds: list[tuple[str, int | None]], recrawl_days: 
     return bootstrap
 
 
-async def _run_crawl(job_id: int, seeds: list[tuple[str, int | None]], visited_bootstrap: list[str],
-                     cloud: CloudApiClient, config: dict, browser,
-                     active_tasks: dict[int, asyncio.Task], frontier: dict | None = None):
-    log.info(f"Crawl job {job_id} starting with {len(seeds)} seeds"
-             + (" (resumed from checkpoint)" if frontier else ""))
+async def _run_crawl(
+    job_id: int,
+    seeds: list[tuple[str, int | None]],
+    visited_bootstrap: list[str],
+    cloud: CloudApiClient,
+    config: dict,
+    browser,
+    active_tasks: dict[int, asyncio.Task],
+    frontier: dict | None = None,
+):
+    log.info(
+        f"Crawl job {job_id} starting with {len(seeds)} seeds" + (" (resumed from checkpoint)" if frontier else "")
+    )
     cloud.start()
     try:
         engine = CrawlerEngine(config=config, cloud=cloud, job_id=job_id, browser=browser)
@@ -119,9 +127,13 @@ async def create_job(req: StartJobRequest, request: Request):
     active_tasks = state.get_active_tasks()
     base_url = _cloud_base_url(config)
 
-    body = {"domain_ids": req.domain_ids, "custom_urls": req.custom_urls,
-            "category_filter": req.category_filter, "title_filter": req.title_filter,
-            "agent_id": localdb.get_agent_id()}
+    body = {
+        "domain_ids": req.domain_ids,
+        "custom_urls": req.custom_urls,
+        "category_filter": req.category_filter,
+        "title_filter": req.title_filter,
+        "agent_id": localdb.get_agent_id(),
+    }
     try:
         created = await create_remote_job(base_url, identity.get_valid_token, identity.refresh, **body)
     except httpx.HTTPStatusError as e:
@@ -135,12 +147,12 @@ async def create_job(req: StartJobRequest, request: Request):
 
     outbox_path = DATA_DIR / f"outbox_job_{job_id}.db"
     cloud = CloudApiClient(base_url, identity.get_valid_token, job_id, outbox_path, refresh=identity.refresh)
-    task = asyncio.create_task(_run_crawl(job_id, seeds, visited_bootstrap,
-                                          cloud, engine_config, browser, active_tasks))
+    task = asyncio.create_task(
+        _run_crawl(job_id, seeds, visited_bootstrap, cloud, engine_config, browser, active_tasks)
+    )
     active_tasks[job_id] = task
 
-    return {"id": job_id,
-            "message": f"Crawl started for {len(seeds)} seed URL(s)"}
+    return {"id": job_id, "message": f"Crawl started for {len(seeds)} seed URL(s)"}
 
 
 @router.post("/api/jobs/{job_id}/resume")
@@ -160,8 +172,9 @@ async def resume_job(job_id: int, request: Request):
     base_url = _cloud_base_url(config)
 
     try:
-        resumed = await resume_remote_job(base_url, identity.get_valid_token, identity.refresh, job_id,
-                                          agent_id=localdb.get_agent_id())
+        resumed = await resume_remote_job(
+            base_url, identity.get_valid_token, identity.refresh, job_id, agent_id=localdb.get_agent_id()
+        )
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
@@ -174,13 +187,15 @@ async def resume_job(job_id: int, request: Request):
     seeds = [(s[0], s[1]) for s in resumed["seeds"]]
     recrawl_days = resumed["policy"].get("crawler", {}).get("recrawl_days", 30)
     visited_bootstrap = _local_visited_bootstrap(seeds, recrawl_days)
-    task = asyncio.create_task(_run_crawl(job_id, seeds, visited_bootstrap,
-                                          cloud, resumed["policy"], browser, active_tasks,
-                                          frontier=frontier))
+    task = asyncio.create_task(
+        _run_crawl(job_id, seeds, visited_bootstrap, cloud, resumed["policy"], browser, active_tasks, frontier=frontier)
+    )
     active_tasks[job_id] = task
 
-    return {"id": job_id,
-            "message": "Crawl resumed" + (" from checkpoint" if frontier else " from seeds (no checkpoint found)")}
+    return {
+        "id": job_id,
+        "message": "Crawl resumed" + (" from checkpoint" if frontier else " from seeds (no checkpoint found)"),
+    }
 
 
 def cancel_job_if_running(job_id: int, active_tasks: dict[int, asyncio.Task]) -> bool:
@@ -202,12 +217,16 @@ async def cancel_job(job_id: int, request: Request):
     active_tasks = state.get_active_tasks()
     base_url = _cloud_base_url(config)
     async with httpx.AsyncClient(base_url=base_url, timeout=10) as http:
-        r = await http.post(f"/api/coordination/jobs/{job_id}/cancel",
-                            headers={"Authorization": f"Bearer {await identity.get_valid_token()}"})
+        r = await http.post(
+            f"/api/coordination/jobs/{job_id}/cancel",
+            headers={"Authorization": f"Bearer {await identity.get_valid_token()}"},
+        )
         if r.status_code == 401:
             await identity.refresh()
-            r = await http.post(f"/api/coordination/jobs/{job_id}/cancel",
-                                headers={"Authorization": f"Bearer {await identity.get_valid_token()}"})
+            r = await http.post(
+                f"/api/coordination/jobs/{job_id}/cancel",
+                headers={"Authorization": f"Bearer {await identity.get_valid_token()}"},
+            )
     if r.status_code == 404:
         raise HTTPException(status_code=404, detail="Job not found")
     if r.status_code == 403:

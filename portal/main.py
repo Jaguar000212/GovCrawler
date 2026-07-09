@@ -10,6 +10,7 @@ Usage:
     python -m portal crawl <job_id>           # manually run a specific job (debug)
     python -m portal create-admin <email> [password]  # provision the first admin user
 """
+
 import asyncio
 import logging
 import sys
@@ -49,7 +50,7 @@ def cmd_serve(config: dict):
     app = create_app(config, db)
     host = config["api"]["host"]
     port = config["api"]["port"]
-    # Windows browsers cannot route to 0.0.0.0. If your config uses 0.0.0.0 
+    # Windows browsers cannot route to 0.0.0.0. If your config uses 0.0.0.0
     # to allow local network traffic, we must open the browser at 127.0.0.1.
     display_host = "127.0.0.1" if host == "0.0.0.0" else host
     url = f"http://{display_host}:{port}"
@@ -60,6 +61,7 @@ def cmd_serve(config: dict):
 
 def cmd_import_json(config: dict, json_path: str = "gov_domains.json"):
     from cloud.services.importer import import_from_json
+
     db = Database(config)
     log.info(f"Importing from {json_path} — zero API calls…")
     import_from_json(db, json_path, config)
@@ -70,6 +72,7 @@ def cmd_import_json(config: dict, json_path: str = "gov_domains.json"):
 
 def cmd_create_admin(config: dict, email: str, password: str | None = None):
     import getpass
+
     db = Database(config)
     if db.get_user_by_email(email):
         log.error(f"A user with email {email} already exists.")
@@ -89,6 +92,7 @@ def cmd_create_admin(config: dict, email: str, password: str | None = None):
 
 def cmd_import(config: dict):
     from cloud.services.importer import import_all
+
     db = Database(config)
     log.info("Starting live API import…")
     import_all(db, config)
@@ -150,8 +154,9 @@ async def cmd_crawl(config: dict, job_id: int):
     log.info(f"Running job {job_id} with {len(seeds)} seeds…")
 
     outbox_path = DATA_DIR / f"outbox_job_{job_id}.db"
-    cloud = CloudApiClient("http://local", token_provider, job_id, outbox_path, transport=transport,
-                           refresh=token_provider)
+    cloud = CloudApiClient(
+        "http://local", token_provider, job_id, outbox_path, transport=transport, refresh=token_provider
+    )
     cloud.start()
 
     async with async_playwright() as p:

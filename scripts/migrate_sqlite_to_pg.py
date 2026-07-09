@@ -25,6 +25,7 @@ RUNBOOK ORDERING (do not skip):
 Usage:
     python scripts/migrate_sqlite_to_pg.py <path/to/govcrawler.db> <postgres-url>
 """
+
 import json
 import logging
 import sqlalchemy as sa
@@ -48,9 +49,15 @@ def _load_source(sqlite_path: str) -> Database:
     return Database(config)
 
 
-def copy_table(src_conn, dst_conn, table_name: str, id_maps: dict[str, dict[int, int]],
-               fk_map: dict[str, str] | None = None, soft_fk: set[str] | None = None,
-               has_own_id: bool = True) -> dict[int, int]:
+def copy_table(
+    src_conn,
+    dst_conn,
+    table_name: str,
+    id_maps: dict[str, dict[int, int]],
+    fk_map: dict[str, str] | None = None,
+    soft_fk: set[str] | None = None,
+    has_own_id: bool = True,
+) -> dict[int, int]:
     """Copy every row of `table_name` from src to dst, remapping FK columns
     named in `fk_map` (column -> table whose id_map to use) through
     `id_maps`. `soft_fk` columns are set to NULL (not skipped) if the
@@ -125,9 +132,7 @@ def copy_users(src_conn, dst_conn) -> dict[int, int]:
     for new_id, old_created_by in pending_created_by:
         new_created_by = id_map.get(old_created_by)
         if new_created_by is not None:
-            dst_conn.execute(
-                table.update().where(table.c.id == new_id).values(created_by=new_created_by)
-            )
+            dst_conn.execute(table.update().where(table.c.id == new_id).values(created_by=new_created_by))
 
     log.info(f"users: copied {len(rows)} row(s)")
     return id_map
@@ -139,9 +144,7 @@ def copy_natural_key_table(src_conn, dst_conn, table_name: str, key_col: str) ->
     (see the runbook-ordering warning in this file's docstring)."""
     table = Base.metadata.tables[table_name]
     rows = src_conn.execute(sa.text(f"SELECT * FROM {table_name}")).mappings().all()
-    existing_keys = {
-        r[0] for r in dst_conn.execute(sa.text(f"SELECT {key_col} FROM {table_name}")).fetchall()
-    }
+    existing_keys = {r[0] for r in dst_conn.execute(sa.text(f"SELECT {key_col} FROM {table_name}")).fetchall()}
     inserted = 0
     for row in rows:
         values = dict(row)
@@ -158,9 +161,7 @@ def copy_roles(src_conn, dst_conn) -> dict[int, int]:
     old_id->new_id map either way."""
     table = Base.metadata.tables["roles"]
     rows = src_conn.execute(sa.text("SELECT * FROM roles")).mappings().all()
-    existing = {
-        r.name: r.id for r in dst_conn.execute(sa.text("SELECT id, name FROM roles")).fetchall()
-    }
+    existing = {r.name: r.id for r in dst_conn.execute(sa.text("SELECT id, name FROM roles")).fetchall()}
     id_map: dict[int, int] = {}
     for row in rows:
         values = dict(row)
@@ -204,13 +205,17 @@ def seed_lookups_from_domains(src_conn, dst_conn) -> None:
         ("org_types", "crawl_snapshots", "org_type", "org_type_title"),
     ]:
         table = Base.metadata.tables[lookup_table]
-        rows = src_conn.execute(sa.text(
-            f"SELECT DISTINCT {code_col} AS code, {title_col} AS title FROM {source_table} "
-            f"WHERE {code_col} IS NOT NULL"
-        )).mappings().all()
-        existing = {
-            r[0] for r in dst_conn.execute(sa.text(f"SELECT code FROM {lookup_table}")).fetchall()
-        }
+        rows = (
+            src_conn.execute(
+                sa.text(
+                    f"SELECT DISTINCT {code_col} AS code, {title_col} AS title FROM {source_table} "
+                    f"WHERE {code_col} IS NOT NULL"
+                )
+            )
+            .mappings()
+            .all()
+        )
+        existing = {r[0] for r in dst_conn.execute(sa.text(f"SELECT code FROM {lookup_table}")).fetchall()}
         for row in rows:
             if row["code"] in existing or row["title"] is None:
                 continue
@@ -219,17 +224,18 @@ def seed_lookups_from_domains(src_conn, dst_conn) -> None:
     log.info("categories/org_types: seeded from source domains + crawl_snapshots")
 
 
-def backfill_job_domains(src_conn, dst_conn, domain_id_map: dict[int, int],
-                         job_id_map: dict[int, int]) -> None:
+def backfill_job_domains(src_conn, dst_conn, domain_id_map: dict[int, int], job_id_map: dict[int, int]) -> None:
     """Copy crawl_job_domains rows (already populated in the source by
     Alembic revision 0013), remapping both FKs. Falls back to parsing
     crawl_jobs.domain_ids JSON if the source predates 0013 for some reason."""
     table = Base.metadata.tables["crawl_job_domains"]
     rows = src_conn.execute(sa.text("SELECT job_id, domain_id FROM crawl_job_domains")).mappings().all()
     if not rows:
-        job_rows = src_conn.execute(
-            sa.text("SELECT id, domain_ids FROM crawl_jobs WHERE domain_ids IS NOT NULL")
-        ).mappings().all()
+        job_rows = (
+            src_conn.execute(sa.text("SELECT id, domain_ids FROM crawl_jobs WHERE domain_ids IS NOT NULL"))
+            .mappings()
+            .all()
+        )
         rows = []
         for jr in job_rows:
             try:
@@ -265,10 +271,12 @@ def verify(dst_conn, expected_counts: dict[str, int]) -> None:
         ("users", "role_id", "roles", "id"),
     ]
     for child, fk_col, parent, parent_col in checks:
-        dangling = dst_conn.execute(sa.text(
-            f"SELECT COUNT(*) FROM {child} c LEFT JOIN {parent} p "
-            f"ON c.{fk_col} = p.{parent_col} WHERE c.{fk_col} IS NOT NULL AND p.{parent_col} IS NULL"
-        )).scalar_one()
+        dangling = dst_conn.execute(
+            sa.text(
+                f"SELECT COUNT(*) FROM {child} c LEFT JOIN {parent} p "
+                f"ON c.{fk_col} = p.{parent_col} WHERE c.{fk_col} IS NOT NULL AND p.{parent_col} IS NULL"
+            )
+        ).scalar_one()
         log.info(f"verify {child}.{fk_col} -> {parent}.{parent_col}: {dangling} dangling row(s)")
 
 
@@ -305,19 +313,16 @@ def migrate(sqlite_path: str, pg_url: str) -> None:
             if old_role_id is not None:
                 new_role_id = role_id_map.get(old_role_id)
                 if new_role_id is not None:
-                    dst_conn.execute(
-                        users_table.update().where(users_table.c.id == new_id).values(role_id=new_role_id)
-                    )
+                    dst_conn.execute(users_table.update().where(users_table.c.id == new_id).values(role_id=new_role_id))
 
         count("user_permissions")
-        copy_table(src_conn, dst_conn, "user_permissions", {"users": user_id_map},
-                   fk_map={"user_id": "users"})
+        copy_table(src_conn, dst_conn, "user_permissions", {"users": user_id_map}, fk_map={"user_id": "users"})
         count("user_sessions")
-        copy_table(src_conn, dst_conn, "user_sessions", {"users": user_id_map},
-                   fk_map={"user_id": "users"})
+        copy_table(src_conn, dst_conn, "user_sessions", {"users": user_id_map}, fk_map={"user_id": "users"})
         count("audit_log")
-        copy_table(src_conn, dst_conn, "audit_log", {"users": user_id_map},
-                   fk_map={"user_id": "users"}, soft_fk={"user_id"})
+        copy_table(
+            src_conn, dst_conn, "audit_log", {"users": user_id_map}, fk_map={"user_id": "users"}, soft_fk={"user_id"}
+        )
 
         count("domains")
         domain_id_map = copy_table(src_conn, dst_conn, "domains", {})
@@ -329,22 +334,26 @@ def migrate(sqlite_path: str, pg_url: str) -> None:
         backfill_job_domains(src_conn, dst_conn, domain_id_map, job_id_map)
 
         count("job_custom_urls")
-        copy_table(src_conn, dst_conn, "job_custom_urls", {"crawl_jobs": job_id_map},
-                   fk_map={"job_id": "crawl_jobs"})
+        copy_table(src_conn, dst_conn, "job_custom_urls", {"crawl_jobs": job_id_map}, fk_map={"job_id": "crawl_jobs"})
 
         count("crawl_snapshots")
         snapshot_id_map = copy_table(
-            src_conn, dst_conn, "crawl_snapshots", {"crawl_jobs": job_id_map, "domains": domain_id_map},
-            fk_map={"job_id": "crawl_jobs", "source_domain_id": "domains"}, soft_fk={"source_domain_id"},
+            src_conn,
+            dst_conn,
+            "crawl_snapshots",
+            {"crawl_jobs": job_id_map, "domains": domain_id_map},
+            fk_map={"job_id": "crawl_jobs", "source_domain_id": "domains"},
+            soft_fk={"source_domain_id"},
         )
 
         count("visited_urls")
-        copy_table(src_conn, dst_conn, "visited_urls", {"crawl_jobs": job_id_map},
-                   fk_map={"job_id": "crawl_jobs"})
+        copy_table(src_conn, dst_conn, "visited_urls", {"crawl_jobs": job_id_map}, fk_map={"job_id": "crawl_jobs"})
 
         count("leads")
         lead_id_map = copy_table(
-            src_conn, dst_conn, "leads",
+            src_conn,
+            dst_conn,
+            "leads",
             {"crawl_jobs": job_id_map, "domains": domain_id_map, "crawl_snapshots": snapshot_id_map},
             fk_map={"job_id": "crawl_jobs", "domain_id": "domains", "snapshot_id": "crawl_snapshots"},
             soft_fk={"domain_id", "snapshot_id"},
@@ -358,19 +367,27 @@ def migrate(sqlite_path: str, pg_url: str) -> None:
 
         count("campaigns")
         campaign_id_map = copy_table(
-            src_conn, dst_conn, "campaigns", {"email_templates": template_id_map},
-            fk_map={"template_id": "email_templates"}, soft_fk={"template_id"},
+            src_conn,
+            dst_conn,
+            "campaigns",
+            {"email_templates": template_id_map},
+            fk_map={"template_id": "email_templates"},
+            soft_fk={"template_id"},
         )
         count("campaign_credentials")
         copy_table(
-            src_conn, dst_conn, "campaign_credentials",
+            src_conn,
+            dst_conn,
+            "campaign_credentials",
             {"campaigns": campaign_id_map, "smtp_credentials": credential_id_map},
             fk_map={"campaign_id": "campaigns", "credential_id": "smtp_credentials"},
         )
 
         count("campaign_emails")
         copy_table(
-            src_conn, dst_conn, "campaign_emails",
+            src_conn,
+            dst_conn,
+            "campaign_emails",
             {"campaigns": campaign_id_map, "leads": lead_id_map, "smtp_credentials": credential_id_map},
             fk_map={"campaign_id": "campaigns", "lead_id": "leads", "credential_id": "smtp_credentials"},
             soft_fk={"credential_id"},

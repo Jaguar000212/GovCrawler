@@ -14,10 +14,21 @@ from ..services.csv_import import build_template_csv, parse_contacts_csv
 router = APIRouter(tags=["leads"])
 
 _ALL_EXPORT_FIELDS = [
-    "email", "person_name", "designation", "department", "phone",
-    "domain_title", "domain_state", "domain_org_type",
-    "category_title", "source_url", "source_title", "context_snippet",
-    "lead_score", "depth", "captured_at",
+    "email",
+    "person_name",
+    "designation",
+    "department",
+    "phone",
+    "domain_title",
+    "domain_state",
+    "domain_org_type",
+    "category_title",
+    "source_url",
+    "source_title",
+    "context_snippet",
+    "lead_score",
+    "depth",
+    "captured_at",
 ]
 
 
@@ -46,29 +57,40 @@ class LeadUpdate(BaseModel):
 
 @router.get("/api/leads")
 async def get_leads(
-        job_id: list[int] = Query(None),
-        category: list[str] = Query(None),
-        state: list[str] = Query(None),
-        search: str = Query(None),
-        complete_only: bool = Query(False),
-        min_score: int = Query(None, ge=0, le=100),
-        org_type: list[str] = Query(None),
-        entry_type: str = Query("both"),
-        require_name: bool = Query(False),
-        require_designation: bool = Query(False),
-        require_phone: bool = Query(False),
-        sort_by: str = Query(None),
-        sort_dir: str = Query("desc"),
-        page: int = Query(1, ge=1),
-        limit: int = Query(100, ge=1, le=500),
-        db: Database = Depends(get_db),
+    job_id: list[int] = Query(None),
+    category: list[str] = Query(None),
+    state: list[str] = Query(None),
+    search: str = Query(None),
+    complete_only: bool = Query(False),
+    min_score: int = Query(None, ge=0, le=100),
+    org_type: list[str] = Query(None),
+    entry_type: str = Query("both"),
+    require_name: bool = Query(False),
+    require_designation: bool = Query(False),
+    require_phone: bool = Query(False),
+    sort_by: str = Query(None),
+    sort_dir: str = Query("desc"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(100, ge=1, le=500),
+    db: Database = Depends(get_db),
 ):
-    leads, total = db.get_leads(job_ids=job_id, categories=category, states=state, search=search,
-                                complete_only=complete_only, min_score=min_score,
-                                org_types=org_type, entry_type=entry_type,
-                                require_name=require_name, require_designation=require_designation,
-                                require_phone=require_phone, sort_by=sort_by, sort_dir=sort_dir,
-                                page=page, limit=limit)
+    leads, total = db.get_leads(
+        job_ids=job_id,
+        categories=category,
+        states=state,
+        search=search,
+        complete_only=complete_only,
+        min_score=min_score,
+        org_types=org_type,
+        entry_type=entry_type,
+        require_name=require_name,
+        require_designation=require_designation,
+        require_phone=require_phone,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        page=page,
+        limit=limit,
+    )
     return {
         "leads": leads,
         "total": total,
@@ -79,24 +101,32 @@ async def get_leads(
 
 @router.get("/api/leads/ids")
 async def get_lead_ids(
-        job_id: list[int] = Query(None),
-        category: list[str] = Query(None),
-        state: list[str] = Query(None),
-        search: str = Query(None),
-        complete_only: bool = Query(False),
-        min_score: int = Query(None, ge=0, le=100),
-        org_type: list[str] = Query(None),
-        entry_type: str = Query("both"),
-        require_name: bool = Query(False),
-        require_designation: bool = Query(False),
-        require_phone: bool = Query(False),
-        db: Database = Depends(get_db),
+    job_id: list[int] = Query(None),
+    category: list[str] = Query(None),
+    state: list[str] = Query(None),
+    search: str = Query(None),
+    complete_only: bool = Query(False),
+    min_score: int = Query(None, ge=0, le=100),
+    org_type: list[str] = Query(None),
+    entry_type: str = Query("both"),
+    require_name: bool = Query(False),
+    require_designation: bool = Query(False),
+    require_phone: bool = Query(False),
+    db: Database = Depends(get_db),
 ):
-    ids = db.get_lead_ids(job_ids=job_id, categories=category, states=state, search=search,
-                          complete_only=complete_only, min_score=min_score,
-                          org_types=org_type, entry_type=entry_type,
-                          require_name=require_name, require_designation=require_designation,
-                          require_phone=require_phone)
+    ids = db.get_lead_ids(
+        job_ids=job_id,
+        categories=category,
+        states=state,
+        search=search,
+        complete_only=complete_only,
+        min_score=min_score,
+        org_types=org_type,
+        entry_type=entry_type,
+        require_name=require_name,
+        require_designation=require_designation,
+        require_phone=require_phone,
+    )
     return {"ids": ids, "total": len(ids)}
 
 
@@ -111,8 +141,9 @@ async def get_lead_categories(job_id: list[int] = Query(None), db: Database = De
 
 
 @router.get("/api/leads/states")
-async def get_lead_states(job_id: list[int] = Query(None), category: list[str] = Query(None),
-                          db: Database = Depends(get_db)):
+async def get_lead_states(
+    job_id: list[int] = Query(None), category: list[str] = Query(None), db: Database = Depends(get_db)
+):
     return db.get_lead_states(job_ids=job_id, categories=category)
 
 
@@ -122,8 +153,12 @@ async def get_lead_org_types(job_id: list[int] = Query(None), db: Database = Dep
 
 
 @router.post("/api/leads/export")
-async def export_leads(req: ExportLeadsRequest, request: Request, db: Database = Depends(get_db),
-                       user: CurrentUser = Depends(require("leads.export"))):
+async def export_leads(
+    req: ExportLeadsRequest,
+    request: Request,
+    db: Database = Depends(get_db),
+    user: CurrentUser = Depends(require("leads.export")),
+):
     rows = db.get_all_leads_for_export(
         job_ids=req.job_ids,
         categories=req.categories,
@@ -159,14 +194,17 @@ async def export_leads(req: ExportLeadsRequest, request: Request, db: Database =
     return StreamingResponse(
         iter([output.getvalue()]),
         media_type="text/csv",
-        headers={"Content-Disposition":
-                     f'attachment; filename="leads_export.csv"'},
+        headers={"Content-Disposition": f'attachment; filename="leads_export.csv"'},
     )
 
 
 @router.post("/api/leads/import-csv")
-async def import_leads_csv(request: Request, file: UploadFile = File(...), db: Database = Depends(get_db),
-                           user: CurrentUser = Depends(require("leads.import"))):
+async def import_leads_csv(
+    request: Request,
+    file: UploadFile = File(...),
+    db: Database = Depends(get_db),
+    user: CurrentUser = Depends(require("leads.import")),
+):
     """Bulk-create or update manual leads from an uploaded CSV file."""
     content = await file.read()
     rows, skipped = parse_contacts_csv(content)
@@ -177,8 +215,7 @@ async def import_leads_csv(request: Request, file: UploadFile = File(...), db: D
     imported, updated, db_skipped = db.bulk_upsert_manual_leads(job_id, rows, captured_by=user.id)
     skipped.extend(db_skipped)
 
-    db.write_audit(user.id, "lead.import_csv", detail={"imported": imported, "updated": updated},
-                   ip=client_ip(request))
+    db.write_audit(user.id, "lead.import_csv", detail={"imported": imported, "updated": updated}, ip=client_ip(request))
     return {"imported": imported, "updated": updated, "skipped": skipped}
 
 
@@ -192,15 +229,19 @@ async def download_leads_csv_template():
 
 
 @router.put("/api/leads/{lead_id}")
-async def update_lead(lead_id: int, req: LeadUpdate, request: Request, db: Database = Depends(get_db),
-                      user: CurrentUser = Depends(require("leads.edit"))):
+async def update_lead(
+    lead_id: int,
+    req: LeadUpdate,
+    request: Request,
+    db: Database = Depends(get_db),
+    user: CurrentUser = Depends(require("leads.edit")),
+):
     updates = req.model_dump(exclude_none=True)
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
     result = db.update_lead(lead_id, updates)
     if result == "not_manual":
-        raise HTTPException(status_code=400,
-                            detail="State is derived from the crawl for this lead and can't be edited")
+        raise HTTPException(status_code=400, detail="State is derived from the crawl for this lead and can't be edited")
     if not result:
         raise HTTPException(status_code=404, detail="Lead not found")
     db.write_audit(user.id, "lead.update", "lead", lead_id, detail=updates, ip=client_ip(request))

@@ -91,7 +91,7 @@ class CurrentUser:
 def _extract_token(request: Request) -> str | None:
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
-        return auth_header[len("Bearer "):]
+        return auth_header[len("Bearer ") :]
     return request.cookies.get("access")
 
 

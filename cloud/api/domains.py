@@ -43,15 +43,15 @@ async def get_org_types(category: str = Query(None), state: str = Query(None), d
 
 @router.get("/api/domains")
 async def get_domains(
-        category: str = Query(None),
-        state: str = Query(None),
-        org_type: str = Query(None),
-        search: str = Query(None),
-        sort_by: str = Query(None),
-        sort_dir: str = Query("desc"),
-        page: int = Query(1, ge=1),
-        limit: int = Query(50, ge=1, le=200),
-        db: Database = Depends(get_db),
+    category: str = Query(None),
+    state: str = Query(None),
+    org_type: str = Query(None),
+    search: str = Query(None),
+    sort_by: str = Query(None),
+    sort_dir: str = Query("desc"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    db: Database = Depends(get_db),
 ):
     domains, total = db.get_domains(
         category=category or None,
@@ -74,11 +74,11 @@ async def get_domains(
 
 @router.get("/api/domains/ids")
 async def get_domain_ids(
-        category: str = Query(None),
-        state: str = Query(None),
-        org_type: str = Query(None),
-        search: str = Query(None),
-        db: Database = Depends(get_db),
+    category: str = Query(None),
+    state: str = Query(None),
+    org_type: str = Query(None),
+    search: str = Query(None),
+    db: Database = Depends(get_db),
 ):
     ids = db.get_domain_ids(
         category=category or None,
@@ -91,11 +91,11 @@ async def get_domain_ids(
 
 @router.get("/api/domains/stats")
 async def get_domain_stats(
-        category: str = Query(None),
-        state: str = Query(None),
-        org_type: str = Query(None),
-        search: str = Query(None),
-        db: Database = Depends(get_db),
+    category: str = Query(None),
+    state: str = Query(None),
+    org_type: str = Query(None),
+    search: str = Query(None),
+    db: Database = Depends(get_db),
 ):
     return db.get_domain_stats(
         category=category or None,
@@ -107,11 +107,11 @@ async def get_domain_stats(
 
 @router.patch("/api/domains/{domain_id}")
 async def update_domain_url(
-        domain_id: int,
-        req: UpdateDomainUrlRequest,
-        request: Request,
-        db: Database = Depends(get_db),
-        user: CurrentUser = Depends(require("domains.import")),
+    domain_id: int,
+    req: UpdateDomainUrlRequest,
+    request: Request,
+    db: Database = Depends(get_db),
+    user: CurrentUser = Depends(require("domains.import")),
 ):
     main_url = _normalize_domain_url(req.main_url)
     contact_url = _normalize_domain_url(req.contact_url) if req.contact_url else None
@@ -119,6 +119,12 @@ async def update_domain_url(
     updated = db.update_domain_url(domain_id, main_url=main_url, contact_url=contact_url)
     if not updated:
         raise HTTPException(status_code=404, detail="Domain not found")
-    db.write_audit(user.id, "domain.set_url", "domain", domain_id,
-                   detail={"main_url": main_url, "contact_url": contact_url}, ip=client_ip(request))
+    db.write_audit(
+        user.id,
+        "domain.set_url",
+        "domain",
+        domain_id,
+        detail={"main_url": main_url, "contact_url": contact_url},
+        ip=client_ip(request),
+    )
     return updated
