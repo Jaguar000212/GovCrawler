@@ -91,7 +91,7 @@ Secrets follow an env-first-else-persist rule: if the env var is set it wins (an
   `obfuscation` (bracketed `[at]`/`[dot]`/`[hyphen]` → `@`/`.`/`-`), `context_chars` (200).
 - `max_input_chars` (200000; 0 = uncapped) — proximity-scan bound.
 - `role_local_parts` (webmaster, info, admin, contact, support, helpdesk, grievance) — flagged as `role`/`org`.
-- `confidence`: `high_rungs` (`mailto_tel`, `microdata`), `mid_rungs` (`table_block`, `proximity_text`).
+- `confidence`: `high_rungs` (`mailto_tel`, `microdata`) — the rungs scored `HIGH`; everything else is `LOW`.
 - `person`: `enabled`, `title_prefixes` (Shri, Smt, Dr, …), `designation_keywords`, `proximity_chars` (300).
 
 ### `lead_score` (policy — `app_settings.crawl_policy`)
