@@ -11,9 +11,8 @@ config file at all, only this loader module."""
 import logging
 import os
 import shutil
-from pathlib import Path
-
 import yaml
+from pathlib import Path
 
 from .paths import AGENT_DEFAULT_CONFIG_PATH, AGENT_LIVE_CONFIG_PATH, DEFAULT_CONFIG_PATH, LIVE_CONFIG_PATH, bootstrap
 

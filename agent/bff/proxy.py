@@ -8,14 +8,14 @@ before it (agent/api.py's job-lifecycle routes, local_auth.py, local_system.py)
 win on any path overlap — FastAPI matches path+method in registration order.
 See plan.md §19.1 Phase 9 Part 2, 2.4."""
 
-import logging
 import httpx
+import logging
 from fastapi import APIRouter, Depends, Request, Response
 
 from . import security
+from .local_auth import _cloud_base_url
 from .. import identity
 from ..cloud_client import request_with_retry
-from .local_auth import _cloud_base_url
 
 log = logging.getLogger(__name__)
 

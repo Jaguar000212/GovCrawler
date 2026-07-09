@@ -25,19 +25,31 @@ log = logging.getLogger(__name__)
 _DEFAULT_PATH = DATA_DIR / "agent_local.db"
 
 _SCHEMA_V1 = """
-CREATE TABLE IF NOT EXISTS local_settings (
-    key TEXT PRIMARY KEY,
-    value TEXT
-);
-"""
+             CREATE TABLE IF NOT EXISTS local_settings
+             (
+                 key
+                 TEXT
+                 PRIMARY
+                 KEY,
+                 value
+                 TEXT
+             ); \
+             """
 
 _SCHEMA_V2 = """
-CREATE TABLE IF NOT EXISTS visited_history (
-    url TEXT PRIMARY KEY,
-    visited_at REAL NOT NULL
-);
-CREATE INDEX IF NOT EXISTS ix_visited_history_visited_at ON visited_history (visited_at);
-"""
+             CREATE TABLE IF NOT EXISTS visited_history
+             (
+                 url
+                 TEXT
+                 PRIMARY
+                 KEY,
+                 visited_at
+                 REAL
+                 NOT
+                 NULL
+             );
+             CREATE INDEX IF NOT EXISTS ix_visited_history_visited_at ON visited_history (visited_at); \
+             """
 
 _lock = threading.RLock()  # re-entrant: _require_conn() takes it and is itself called from within a `with _lock:` block
 _conn: sqlite3.Connection | None = None

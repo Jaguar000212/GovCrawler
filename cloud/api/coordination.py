@@ -3,7 +3,6 @@
 and .docs/resilience.md."""
 
 import logging
-
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
@@ -201,7 +200,7 @@ async def coordination_resume_job(
         # originating machine to resume from (plan.md §19.1 Phase 9 Part 2,
         # judgment call #2).
         raise HTTPException(status_code=403, detail="This job was started by a different agent and can "
-                                                     "only be resumed from that machine")
+                                                    "only be resumed from that machine")
     db.resume_job(job_id)
     if job["source_type"] == "custom_urls":
         seeds = [[c["main_url"], None] for c in db.get_job_custom_urls(job_id)]

@@ -14,9 +14,8 @@ with an inspector per the 0011-0016 precedent.
 """
 import logging
 import os
-import sys
-
 import sqlalchemy as sa
+import sys
 import yaml
 
 from alembic import op

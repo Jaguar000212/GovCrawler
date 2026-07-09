@@ -34,8 +34,8 @@ def upgrade():
     # SQLite recreate, this avoids the "Constraint must have a name" error
     # 0014/0015/0016 hit for the same underlying reason.
     with op.batch_alter_table(
-        'crawl_jobs',
-        naming_convention={"fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s"},
+            'crawl_jobs',
+            naming_convention={"fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s"},
     ) as batch_op:
         if 'cancel_requested' not in columns:
             batch_op.add_column(sa.Column('cancel_requested', sa.Boolean(), nullable=False,
@@ -48,8 +48,8 @@ def upgrade():
 
 def downgrade():
     with op.batch_alter_table(
-        'crawl_jobs',
-        naming_convention={"fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s"},
+            'crawl_jobs',
+            naming_convention={"fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s"},
     ) as batch_op:
         batch_op.drop_column('last_heartbeat_at')
         batch_op.drop_column('agent_hostname')

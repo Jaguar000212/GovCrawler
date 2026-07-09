@@ -15,4 +15,4 @@ class AppSetting(Base):
     value = Column(JSON, nullable=False)
     updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     updated_at = Column(DateTime, nullable=False,
-                         default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+                        default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)

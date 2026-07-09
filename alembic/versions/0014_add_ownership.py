@@ -10,7 +10,6 @@ invisible even to the admin who created it under a plain "my jobs" view.
 Guarded with an inspector per the 0011-0013 precedent.
 """
 import logging
-
 import sqlalchemy as sa
 
 from alembic import op
@@ -43,8 +42,8 @@ def upgrade():
             # FKs from earlier migrations). Postgres needs neither the batch
             # wrapper nor the naming_convention — this only matters on SQLite.
             with op.batch_alter_table(
-                table,
-                naming_convention={"fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s"},
+                    table,
+                    naming_convention={"fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s"},
             ) as batch_op:
                 batch_op.add_column(sa.Column('owner_id', sa.Integer(), sa.ForeignKey('users.id')))
 
@@ -70,7 +69,7 @@ def upgrade():
 def downgrade():
     for table in _TABLES:
         with op.batch_alter_table(
-            table,
-            naming_convention={"fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s"},
+                table,
+                naming_convention={"fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s"},
         ) as batch_op:
             batch_op.drop_column('owner_id')

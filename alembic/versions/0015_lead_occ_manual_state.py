@@ -18,7 +18,6 @@ VARCHAR(32) (Alembic's own default), and the original longer id
 ('0015_lead_occurrences_and_manual_state') overflowed it.
 """
 import logging
-
 import sqlalchemy as sa
 
 from alembic import op
@@ -101,8 +100,8 @@ def upgrade():
     # must have a name" error 0014 did for a freshly-added FK, just for a
     # pre-existing one instead. See 0014/0016 for the same fix.
     with op.batch_alter_table(
-        'leads',
-        naming_convention={"fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s"},
+            'leads',
+            naming_convention={"fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s"},
     ) as batch_op:
         if 'domain_id' in lead_columns:
             batch_op.drop_column('domain_id')

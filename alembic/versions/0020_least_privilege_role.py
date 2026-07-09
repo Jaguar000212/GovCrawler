@@ -23,7 +23,6 @@ DATABASE_URL_APP) for how the role is actually used at runtime.
 """
 import logging
 import os
-
 import sqlalchemy as sa
 
 from alembic import op
@@ -66,7 +65,7 @@ def upgrade():
     op.execute(f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {_APP_ROLE}")
     op.execute(f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {_APP_ROLE}")
     op.execute(f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE "
-              f"ON TABLES TO {_APP_ROLE}")
+               f"ON TABLES TO {_APP_ROLE}")
     op.execute(f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO {_APP_ROLE}")
 
     # audit_log append-only at the DB-grant level: no UPDATE/DELETE, ever.
@@ -81,7 +80,7 @@ def downgrade():
     # api/dispatcher process — intentional; downgrading this migration means
     # you're reverting to the single-superuser-role model.
     op.execute(f"ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE SELECT, INSERT, UPDATE, DELETE "
-              f"ON TABLES FROM {_APP_ROLE}")
+               f"ON TABLES FROM {_APP_ROLE}")
     op.execute(f"ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE USAGE, SELECT ON SEQUENCES FROM {_APP_ROLE}")
     op.execute(f"REVOKE ALL ON ALL TABLES IN SCHEMA public FROM {_APP_ROLE}")
     op.execute(f"REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM {_APP_ROLE}")

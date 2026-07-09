@@ -26,7 +26,7 @@ services:
     ports:
       - "127.0.0.1:5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U govcrawler"]
+      test: [ "CMD-SHELL", "pg_isready -U govcrawler" ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -75,7 +75,7 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/healthz')"]
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/healthz')" ]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -110,5 +110,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  pgdata: {}
-  caddy_data: {}
+  pgdata: { }
+  caddy_data: { }

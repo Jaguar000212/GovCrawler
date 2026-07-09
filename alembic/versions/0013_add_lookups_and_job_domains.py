@@ -13,7 +13,6 @@ this migration runs.
 """
 import json
 import logging
-
 import sqlalchemy as sa
 
 from alembic import op

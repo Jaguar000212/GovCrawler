@@ -20,12 +20,13 @@ argon2id via `argon2-cffi` (`cloud/security/hashing.py`): `hash_password`, `veri
   (`auth.refresh_ttl_days`, default 14).
 
 **Clients:**
+
 - Launcher — logs in **directly against the cloud** (`cloud_api_base_url`, not its own local server); Bearer
   access token cached in `agent/identity.py`, refresh token in the OS **keyring**; auto-refreshes on 401.
   Effective permissions ride along in every login/refresh response (`UserOut.permissions`) and are cached
   too, so a mid-session role change is picked up on the next refresh with no extra round trip.
 - Browser (admin, direct cloud access) — `access`/`refresh` as **httpOnly, Secure, SameSite=Strict** cookies
-  + a non-httpOnly `csrf` cookie for double-submit CSRF.
+    + a non-httpOnly `csrf` cookie for double-submit CSRF.
 - Browser (operator, via the agent) — never sees the real cloud session at all. The agent's own local BFF
   (`agent/bff/local_auth.py`) hands it a local `session`/`csrf` cookie pair instead (see
   [architecture.md](architecture.md) and plan.md §19.1 Phase 9 Part 2) and forwards every proxied request
@@ -94,26 +95,26 @@ action-prefix/date-range).
 
 ## Permission catalog (`shared/permissions.py`)
 
-| Key | Guards |
-|-----|--------|
-| `users.manage` / `roles.manage` / `audit.view` | User & role admin; read the audit log |
-| `settings.manage` | Edit global crawl policy / extraction / score weights |
-| `domains.view` / `domains.import` | Browse catalog / trigger a central import |
-| `crawl.run` / `crawl.cancel_all` | Create+start jobs (cancel own) / cancel any user's job |
-| `jobs.view_all` | See all users' jobs (else own only) |
-| `leads.view` / `leads.edit` / `leads.export` / `leads.import` | Shared-pool lead operations |
-| `campaigns.manage` / `campaigns.dispatch` / `campaigns.view_all` | Create/edit own / dispatch / see all |
-| `templates.manage` / `credentials.manage` / `blacklist.manage` | Outreach configuration |
+| Key                                                              | Guards                                                 |
+|------------------------------------------------------------------|--------------------------------------------------------|
+| `users.manage` / `roles.manage` / `audit.view`                   | User & role admin; read the audit log                  |
+| `settings.manage`                                                | Edit global crawl policy / extraction / score weights  |
+| `domains.view` / `domains.import`                                | Browse catalog / trigger a central import              |
+| `crawl.run` / `crawl.cancel_all`                                 | Create+start jobs (cancel own) / cancel any user's job |
+| `jobs.view_all`                                                  | See all users' jobs (else own only)                    |
+| `leads.view` / `leads.edit` / `leads.export` / `leads.import`    | Shared-pool lead operations                            |
+| `campaigns.manage` / `campaigns.dispatch` / `campaigns.view_all` | Create/edit own / dispatch / see all                   |
+| `templates.manage` / `credentials.manage` / `blacklist.manage`   | Outreach configuration                                 |
 
 ## Built-in roles (`ROLE_DEFAULTS`)
 
-| Capability group | Admin | Operator | Viewer |
-|------------------|:-----:|:--------:|:------:|
-| users / roles / audit / settings | ✔ | — | — |
-| jobs.view_all / campaigns.view_all / crawl.cancel_all | ✔ | — | — |
-| crawl.run / domains.import | ✔ | ✔ | — |
-| leads.edit/export/import · campaigns.* · templates/credentials/blacklist.manage | ✔ | ✔ | — |
-| domains.view / leads.view | ✔ | ✔ | ✔ |
+| Capability group                                                                | Admin | Operator | Viewer |
+|---------------------------------------------------------------------------------|:-----:|:--------:|:------:|
+| users / roles / audit / settings                                                |   ✔   |    —     |   —    |
+| jobs.view_all / campaigns.view_all / crawl.cancel_all                           |   ✔   |    —     |   —    |
+| crawl.run / domains.import                                                      |   ✔   |    ✔     |   —    |
+| leads.edit/export/import · campaigns.* · templates/credentials/blacklist.manage |   ✔   |    ✔     |   —    |
+| domains.view / leads.view                                                       |   ✔   |    ✔     |   ✔    |
 
 `is_admin` short-circuits every check; a per-user `deny` does not apply to an admin (a limited "admin" is a
 non-admin role with broad grants). The field name stays `is_admin` in code/DB/JWT — only the admin

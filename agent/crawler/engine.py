@@ -16,7 +16,6 @@ from dataclasses import dataclass, field
 from urllib.parse import urlparse, urlsplit
 
 from shared.urls import strip_www
-
 from . import pagination
 from .parser import parse_for_engine
 from ..cloud_client import CloudApiClient
@@ -324,7 +323,7 @@ class CrawlerEngine:
 
     def _save_checkpoint(self):
         chain_keys: dict[int, str] = {}  # id(chain_budget list) -> chain_key
-        chains: dict[str, int] = {}      # chain_key -> current budget value
+        chains: dict[str, int] = {}  # chain_key -> current budget value
         items = []
         for item in self._pending.values():
             chain_key = None

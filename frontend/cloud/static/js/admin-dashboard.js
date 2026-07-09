@@ -95,7 +95,7 @@ function userRowHtml(u) {
             <select onchange="changeUserRole(${u.id}, this.value)" style="font-size:12px;">
                 <option value="">— none —</option>
                 ${['Admin', 'Operator', 'Viewer'].map(r =>
-                    `<option value="${r}" ${u.role === r ? 'selected' : ''}>${r}</option>`).join('')}
+        `<option value="${r}" ${u.role === r ? 'selected' : ''}>${r}</option>`).join('')}
             </select>
         </td>
         <td style="text-align:center">

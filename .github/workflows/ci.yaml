@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ["main", "develop"]
+    branches: [ "main", "develop" ]
   pull_request:
 
 jobs:
@@ -83,7 +83,7 @@ jobs:
           POSTGRES_USER: govcrawler
           POSTGRES_PASSWORD: govcrawler
           POSTGRES_DB: govcrawler
-        ports: ["5432:5432"]
+        ports: [ "5432:5432" ]
         options: >-
           --health-cmd "pg_isready -U govcrawler"
           --health-interval 5s

@@ -26,7 +26,8 @@
         <div class="settings-tab" id="tab-overview" style="overflow-y:auto;">
             <div class="tab-header">
                 <h2>Overview</h2>
-                <div style="font-size:12px; color:var(--muted);">Auto-refreshes every 3s · <span id="ad-last-updated">—</span></div>
+                <div style="font-size:12px; color:var(--muted);">Auto-refreshes every 3s · <span
+                        id="ad-last-updated">—</span></div>
             </div>
             <div style="display:flex; flex-direction:column; gap:20px;">
                 <section>
@@ -89,7 +90,7 @@
                     permissions per user from the Users tab instead.
                 </div>
             </div>
-            <div id="ad-roles-grid" class="table-wrap">
+            <div class="table-wrap" id="ad-roles-grid">
                 <div class="empty-state">Loading...</div>
             </div>
         </div>
@@ -192,7 +193,8 @@
         <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">
             Each permission is either inherited from the user's role, explicitly granted, or explicitly denied.
         </p>
-        <div id="perm-modal-grid" style="display:flex; flex-direction:column; gap:6px; max-height:50vh; overflow-y:auto;"></div>
+        <div id="perm-modal-grid"
+             style="display:flex; flex-direction:column; gap:6px; max-height:50vh; overflow-y:auto;"></div>
         <div class="modal-actions">
             <button class="btn-secondary" onclick="closePermissionsModal()">Close</button>
         </div>

@@ -15,12 +15,12 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from playwright.async_api import async_playwright
 
+from portal.paths import APP_DIR
+from shared.errors import format_validation_errors
 from . import local_auth, local_system, pages, proxy, security
 from .proxy import CloudUnreachableError
 from .. import api as agent_api
 from .. import state
-from portal.paths import APP_DIR
-from shared.errors import format_validation_errors
 
 log = logging.getLogger(__name__)
 

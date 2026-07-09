@@ -151,7 +151,7 @@ async def cmd_crawl(config: dict, job_id: int):
 
     outbox_path = DATA_DIR / f"outbox_job_{job_id}.db"
     cloud = CloudApiClient("http://local", token_provider, job_id, outbox_path, transport=transport,
-                          refresh=token_provider)
+                           refresh=token_provider)
     cloud.start()
 
     async with async_playwright() as p:

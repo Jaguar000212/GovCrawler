@@ -19,12 +19,12 @@ actually deploy this and roll it out to my team" walkthrough — this README is 
 
 The code is split into three tiers plus a thin entry-point shim:
 
-| Tier | Package | Runs where |
-|------|---------|-----------|
-| **Shared** | `shared/` | enums, permission catalog, wire DTOs, lead-scoring — imported by both tiers |
-| **Cloud** | `cloud/` | the VPS: FastAPI app, auth/RBAC, Postgres database of record, SMTP dispatcher, admin dashboard. Genuinely crawler-free — no Playwright, no `agent.*` import |
-| **Agent** | `agent/` | each operator's machine: a standalone local web app (`agent/bff/`) that renders the operator dashboard, proxies shared-data calls to the cloud, and owns the crawler engine + Tkinter launcher |
-| **Shim** | `portal/` | `load_config()`, path/bootstrap, and the `python -m portal` CLI (the cloud's own entry point) |
+| Tier       | Package   | Runs where                                                                                                                                                                                     |
+|------------|-----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Shared** | `shared/` | enums, permission catalog, wire DTOs, lead-scoring — imported by both tiers                                                                                                                    |
+| **Cloud**  | `cloud/`  | the VPS: FastAPI app, auth/RBAC, Postgres database of record, SMTP dispatcher, admin dashboard. Genuinely crawler-free — no Playwright, no `agent.*` import                                    |
+| **Agent**  | `agent/`  | each operator's machine: a standalone local web app (`agent/bff/`) that renders the operator dashboard, proxies shared-data calls to the cloud, and owns the crawler engine + Tkinter launcher |
+| **Shim**   | `portal/` | `load_config()`, path/bootstrap, and the `python -m portal` CLI (the cloud's own entry point)                                                                                                  |
 
 The two tiers share **zero** imports in either direction (`agent ⊥ cloud`, enforced by an `import-linter` CI
 contract) — an agent process can be built, shipped, and run with no cloud code inside it at all, and vice
@@ -98,13 +98,13 @@ independent; a crawl can only ever be resumed from the machine that started it.
 
 ## CLI (`python -m portal`)
 
-| Command | Description |
-|---------|-------------|
-| `python -m portal` / `serve` | Start the server |
-| `python -m portal import-json [path]` | Seed the catalog from `gov_domains.json` (zero API calls) |
-| `python -m portal import` | Refresh domains from the live `india.gov.in` API |
-| `python -m portal crawl <job_id>` | Re-run a crawl job synchronously (debug) |
-| `python -m portal create-admin <email> [password]` | Provision the first admin user |
+| Command                                            | Description                                               |
+|----------------------------------------------------|-----------------------------------------------------------|
+| `python -m portal` / `serve`                       | Start the server                                          |
+| `python -m portal import-json [path]`              | Seed the catalog from `gov_domains.json` (zero API calls) |
+| `python -m portal import`                          | Refresh domains from the live `india.gov.in` API          |
+| `python -m portal crawl <job_id>`                  | Re-run a crawl job synchronously (debug)                  |
+| `python -m portal create-admin <email> [password]` | Provision the first admin user                            |
 
 ## Workflow
 
@@ -142,16 +142,16 @@ tag-triggered `release.yaml` workflow builds this for Windows/macOS/Linux automa
 
 ## Documentation (`.docs/`)
 
-| Doc | Covers |
-|-----|--------|
+| Doc                                                      | Covers                                                                                                        |
+|----------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|
 | [server-manager-guide.md](.docs/server-manager-guide.md) | Step-by-step: deploy the cloud server (prod + dev), use the admin dashboard, package + roll out the agent app |
-| [architecture.md](.docs/architecture.md) | Tiers, trust model, data flow, threading |
-| [directory-structure.md](.docs/directory-structure.md) | Annotated file tree |
-| [authentication.md](.docs/authentication.md) | Auth, JWT/refresh, RBAC, permissions & roles |
-| [api-reference.md](.docs/api-reference.md) | Every REST endpoint + its permission guard |
-| [database-schema.md](.docs/database-schema.md) | Cloud schema, local store, migrations |
-| [crawler.md](.docs/crawler.md) | Crawler engine + 6-stage extraction pipeline |
-| [outreach.md](.docs/outreach.md) | Campaigns, dispatcher, credentials, blacklist |
-| [resilience.md](.docs/resilience.md) | Outbox, resume, reaping, dispatch recovery, DR |
-| [configuration.md](.docs/configuration.md) | Full config + env-var reference |
-| [deployment.md](.docs/deployment.md) | Docker/VPS stack, secrets, backups |
+| [architecture.md](.docs/architecture.md)                 | Tiers, trust model, data flow, threading                                                                      |
+| [directory-structure.md](.docs/directory-structure.md)   | Annotated file tree                                                                                           |
+| [authentication.md](.docs/authentication.md)             | Auth, JWT/refresh, RBAC, permissions & roles                                                                  |
+| [api-reference.md](.docs/api-reference.md)               | Every REST endpoint + its permission guard                                                                    |
+| [database-schema.md](.docs/database-schema.md)           | Cloud schema, local store, migrations                                                                         |
+| [crawler.md](.docs/crawler.md)                           | Crawler engine + 6-stage extraction pipeline                                                                  |
+| [outreach.md](.docs/outreach.md)                         | Campaigns, dispatcher, credentials, blacklist                                                                 |
+| [resilience.md](.docs/resilience.md)                     | Outbox, resume, reaping, dispatch recovery, DR                                                                |
+| [configuration.md](.docs/configuration.md)               | Full config + env-var reference                                                                               |
+| [deployment.md](.docs/deployment.md)                     | Docker/VPS stack, secrets, backups                                                                            |

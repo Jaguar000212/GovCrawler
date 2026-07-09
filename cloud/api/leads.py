@@ -111,7 +111,8 @@ async def get_lead_categories(job_id: list[int] = Query(None), db: Database = De
 
 
 @router.get("/api/leads/states")
-async def get_lead_states(job_id: list[int] = Query(None), category: list[str] = Query(None), db: Database = Depends(get_db)):
+async def get_lead_states(job_id: list[int] = Query(None), category: list[str] = Query(None),
+                          db: Database = Depends(get_db)):
     return db.get_lead_states(job_ids=job_id, categories=category)
 
 

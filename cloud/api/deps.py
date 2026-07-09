@@ -7,11 +7,10 @@ this lets each route module be imported and tested independently of app
 construction.
 """
 
-from dataclasses import dataclass, field
-from pathlib import Path
-
 import jwt as pyjwt
+from dataclasses import dataclass, field
 from fastapi import Depends, HTTPException, Request
+from pathlib import Path
 
 from ..db import Database
 from ..security.jwt import decode_token
@@ -92,7 +91,7 @@ class CurrentUser:
 def _extract_token(request: Request) -> str | None:
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
-        return auth_header[len("Bearer ") :]
+        return auth_header[len("Bearer "):]
     return request.cookies.get("access")
 
 

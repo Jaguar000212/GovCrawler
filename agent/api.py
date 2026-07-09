@@ -20,16 +20,16 @@ import asyncio
 import httpx
 import logging
 import time
-from urllib.parse import urlsplit
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, model_validator
+from urllib.parse import urlsplit
 
+from portal.paths import DATA_DIR
+from shared.urls import strip_www
 from . import identity, localdb, state
 from .bff.security import require_loopback
 from .cloud_client import CloudApiClient, create_remote_job, resume_remote_job
 from .crawler.engine import CrawlerEngine
-from portal.paths import DATA_DIR
-from shared.urls import strip_www
 
 log = logging.getLogger(__name__)
 
@@ -90,7 +90,7 @@ async def _run_crawl(job_id: int, seeds: list[tuple[str, int | None]], visited_b
                      cloud: CloudApiClient, config: dict, browser,
                      active_tasks: dict[int, asyncio.Task], frontier: dict | None = None):
     log.info(f"Crawl job {job_id} starting with {len(seeds)} seeds"
-            + (" (resumed from checkpoint)" if frontier else ""))
+             + (" (resumed from checkpoint)" if frontier else ""))
     cloud.start()
     try:
         engine = CrawlerEngine(config=config, cloud=cloud, job_id=job_id, browser=browser)
@@ -120,8 +120,8 @@ async def create_job(req: StartJobRequest, request: Request):
     base_url = _cloud_base_url(config)
 
     body = {"domain_ids": req.domain_ids, "custom_urls": req.custom_urls,
-           "category_filter": req.category_filter, "title_filter": req.title_filter,
-           "agent_id": localdb.get_agent_id()}
+            "category_filter": req.category_filter, "title_filter": req.title_filter,
+            "agent_id": localdb.get_agent_id()}
     try:
         created = await create_remote_job(base_url, identity.get_valid_token, identity.refresh, **body)
     except httpx.HTTPStatusError as e:

@@ -2,14 +2,13 @@
 import datetime
 import logging
 import secrets
-
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
+from shared.schemas.auth import LoginRequest, RefreshRequest, TokenResponse, UserOut
 from .deps import CurrentUser, get_config, get_current_user, get_db
 from ..db import Database, User
 from ..security.hashing import verify_password
 from ..security.jwt import create_access_token, generate_refresh_token, hash_refresh_token
-from shared.schemas.auth import LoginRequest, RefreshRequest, TokenResponse, UserOut
 
 log = logging.getLogger(__name__)
 

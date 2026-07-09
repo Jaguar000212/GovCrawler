@@ -6,9 +6,9 @@ existing frontend/login.html + login.js (unchanged, relative fetch("/auth/
 login")) keep working if the operator ever lands on that page directly (e.g.
 a stale/cleared session). See .docs/authentication.md."""
 
-import logging
 import httpx
 import keyring
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import RedirectResponse
 

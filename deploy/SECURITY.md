@@ -2,7 +2,8 @@
 
 ## Checklist status
 
-- [x] Postgres localhost-only, never public — `db` service only exposes `127.0.0.1:5432` (host-side, for the one-time migration script), everything else reaches it over the internal compose network.
+- [x] Postgres localhost-only, never public — `db` service only exposes `127.0.0.1:5432` (host-side, for the one-time
+  migration script), everything else reaches it over the internal compose network.
 - [x] TLS everywhere — Caddy (`deploy/Caddyfile`) auto-provisions TLS for `${DOMAIN}`.
 - [x] argon2id passwords, never logged; login rate-limited + lockout — `cloud/security/hashing.py`, `cloud/api/auth.py`.
 - [x] JWT secret + `CREDENTIAL_ENC_KEY` in env, **with a rotation path** — see below.
@@ -14,8 +15,10 @@
 - [x] Pydantic validation; SQLAlchemy ORM (parameterized) — no raw string SQL anywhere in route handlers.
 - [x] `audit_log` append-only at the DB-grant level — Alembic `0020_least_privilege_role`.
 - [x] Least-privilege Postgres role; ufw default-deny; SSH key-only; auto security updates — see below.
-- [ ] Formal SOC 2 / ISO 27001 — explicitly out of scope (plan.md §13); the primitives above are in place if pursued later.
-- [ ] Full metrics/alerting stack (Prometheus/Grafana) — out of scope this pass; `/healthz` (below) covers basic liveness. Candidate for Phase 6.
+- [ ] Formal SOC 2 / ISO 27001 — explicitly out of scope (plan.md §13); the primitives above are in place if pursued
+  later.
+- [ ] Full metrics/alerting stack (Prometheus/Grafana) — out of scope this pass; `/healthz` (below) covers basic
+  liveness. Candidate for Phase 6.
 
 ## Least-privilege Postgres role
 
@@ -26,6 +29,7 @@ connect at runtime via `DATABASE_URL_APP`; `migrate` keeps using the original
 (superuser-ish) `DATABASE_URL` since it needs DDL rights.
 
 Setup:
+
 1. Set `GOVCRAWLER_APP_PASSWORD` and `DATABASE_URL_APP` in `deploy/.env` (see `.env.example`).
 2. `docker compose -f deploy/docker-compose.yml up --build migrate` — creates/updates the role.
 3. `docker compose -f deploy/docker-compose.yml up --build api dispatcher`.

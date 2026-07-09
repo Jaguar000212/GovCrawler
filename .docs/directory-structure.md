@@ -190,28 +190,28 @@ GovCrawler/
 
 The pre-overhaul monolith lived entirely under `portal/`. It was split by tier:
 
-| Old location | New location |
-|--------------|--------------|
-| `portal/api/*` (data routers) | `cloud/api/*` |
-| `portal/api/jobs.py` (job creation) | `agent/api.py` (local BFF) |
-| `portal/db/*` | `cloud/db/*` |
-| `portal/crawler/*` | `agent/crawler/*` |
-| `portal/services/lead_scoring.py` | `shared/scoring.py` |
-| `portal/db/enums.py` | `shared/enums.py` (re-exported by `cloud/db/enums.py`) |
-| `launcher/` (repo root) | `agent/launcher/` |
-| `portal/frontend/` | `frontend/` (hoisted from `cloud/frontend/` in Phase 7, plan.md §19.1) |
-| `cloud/scraper/importer.py` | `cloud/services/importer.py` (Phase 7 — GovScraper's live-API calls inlined) |
-| `portal/main.py`, `portal/paths.py` | unchanged (the surviving shim) |
+| Old location                        | New location                                                                 |
+|-------------------------------------|------------------------------------------------------------------------------|
+| `portal/api/*` (data routers)       | `cloud/api/*`                                                                |
+| `portal/api/jobs.py` (job creation) | `agent/api.py` (local BFF)                                                   |
+| `portal/db/*`                       | `cloud/db/*`                                                                 |
+| `portal/crawler/*`                  | `agent/crawler/*`                                                            |
+| `portal/services/lead_scoring.py`   | `shared/scoring.py`                                                          |
+| `portal/db/enums.py`                | `shared/enums.py` (re-exported by `cloud/db/enums.py`)                       |
+| `launcher/` (repo root)             | `agent/launcher/`                                                            |
+| `portal/frontend/`                  | `frontend/` (hoisted from `cloud/frontend/` in Phase 7, plan.md §19.1)       |
+| `cloud/scraper/importer.py`         | `cloud/services/importer.py` (Phase 7 — GovScraper's live-API calls inlined) |
+| `portal/main.py`, `portal/paths.py` | unchanged (the surviving shim)                                               |
 
 ## Generated / ignored paths
 
-| Path | Why excluded from git |
-|------|-----------------------|
-| `portal/data/govcrawler.db` | Runtime SQLite DB (cloud, desktop/dev) |
-| `portal/data/agent_local.db` | Agent-local settings + visited history (`agent/localdb.py`) |
-| `portal/data/outbox_job_*.db` | Per-job durable outbox |
-| `portal/data/portal.log` | Runtime log |
-| `portal/config.yaml` | User-edited live config |
-| `playwright_browsers/` | ~600 MB Chromium |
-| `deploy/.env`, `deploy/backups/`, `deploy/wal_archive/` | Secrets + backup artefacts |
-| `dist/`, `build/`, `**/__pycache__/`, `venv/` | Build/temp/env |
+| Path                                                    | Why excluded from git                                       |
+|---------------------------------------------------------|-------------------------------------------------------------|
+| `portal/data/govcrawler.db`                             | Runtime SQLite DB (cloud, desktop/dev)                      |
+| `portal/data/agent_local.db`                            | Agent-local settings + visited history (`agent/localdb.py`) |
+| `portal/data/outbox_job_*.db`                           | Per-job durable outbox                                      |
+| `portal/data/portal.log`                                | Runtime log                                                 |
+| `portal/config.yaml`                                    | User-edited live config                                     |
+| `playwright_browsers/`                                  | ~600 MB Chromium                                            |
+| `deploy/.env`, `deploy/backups/`, `deploy/wal_archive/` | Secrets + backup artefacts                                  |
+| `dist/`, `build/`, `**/__pycache__/`, `venv/`           | Build/temp/env                                              |

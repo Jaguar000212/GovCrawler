@@ -5,10 +5,10 @@ from .tables.auth import AuditLog, Permission, Role, RolePermission, User, UserP
 from .tables.crawl import CrawlJob, CrawlJobDomain, CrawlSnapshot, Domain, JobCustomUrl
 from .tables.leads import Lead, LeadOccurrence
 from .tables.lookups import Category, OrgType
-from .tables.settings import AppSetting
 from .tables.outreach import (
     Blacklist, Campaign, CampaignCredential, CampaignEmail, EmailTemplate, SMTPCredential,
 )
+from .tables.settings import AppSetting
 
 __all__ = [
     "Base", "Database", "CampaignKind", "CampaignStatus", "EmailStatus",

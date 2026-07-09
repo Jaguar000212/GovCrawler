@@ -14,7 +14,6 @@ two old tables are dropped. Guarded with an inspector per the 0011-0015
 precedent — safe to re-run if partially applied.
 """
 import logging
-
 import sqlalchemy as sa
 
 from alembic import op
@@ -44,8 +43,8 @@ def upgrade():
         # 0014: Alembic's SQLite dialect has no support at all for adding a
         # column with an inline FK outside batch mode.
         with op.batch_alter_table(
-            'campaigns',
-            naming_convention={"fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s"},
+                'campaigns',
+                naming_convention={"fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s"},
         ) as batch_op:
             batch_op.add_column(sa.Column('test_credential_id', sa.Integer(),
                                           sa.ForeignKey('smtp_credentials.id')))
@@ -62,8 +61,8 @@ def upgrade():
             # "Constraint must have a name" error 0014 did, but for
             # PRE-EXISTING constraints rather than a new one).
             with op.batch_alter_table(
-                'campaign_emails',
-                naming_convention={"fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s"},
+                    'campaign_emails',
+                    naming_convention={"fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s"},
             ) as batch_op:
                 batch_op.alter_column('lead_id', nullable=True)
 

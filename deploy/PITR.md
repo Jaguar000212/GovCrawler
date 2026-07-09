@@ -7,11 +7,13 @@ bounded only by how far behind the archive is.
 ## What's running
 
 `docker-compose.yml`'s `db` service starts Postgres with:
+
 ```
 archive_mode = on
 wal_level = replica
 archive_command = test ! -f /wal_archive/%f && cp %p /wal_archive/%f
 ```
+
 Completed WAL segments accumulate under `./wal_archive` (a plain bind-mounted directory next to
 `docker-compose.yml`, same shape as `./backups`) — back this up offsite too, for the same reason
 `BACKUP.md` gives for `backups/`: a dump/archive that only lives on the same VPS as the database

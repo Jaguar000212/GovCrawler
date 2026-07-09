@@ -10,8 +10,8 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-from .deps import CurrentUser, current_user_or_redirect, get_current_user, require_page
 from portal.paths import APP_DIR, LOG_FILE_PATH
+from .deps import CurrentUser, current_user_or_redirect, get_current_user, require_page
 
 router = APIRouter(tags=["frontend"])
 

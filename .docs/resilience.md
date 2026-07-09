@@ -64,16 +64,16 @@ from a clean claim, never blindly re-sent mid-flight. See [outreach.md](outreach
 
 ## Failure matrix
 
-| Scenario | Lost | Survives | Recovery |
-|----------|------|----------|----------|
-| Cloud transient blip | nothing | outbox on disk; crawl keeps extracting | flusher retries with backoff |
-| Cloud extended outage | can't *start* a new job | running crawl buffers to outbox (backpressured) | drains on reconnect; job reconciled from `interrupted` |
-| Local crash / power loss | in-memory frontier since last checkpoint | flushed data + last outbox fsync + last frontier ckpt | relaunch → flush → resume |
-| VPS restart mid-dispatch | possible ambiguous send | QUEUED/SENT in Postgres | `SENDING` rows requeued at-most-once |
-| VPS disk loss | data since last backup / WAL | nightly `pg_dump` + WAL archive | restore ([deployment.md](deployment.md#backups--recovery)) |
-| Duplicate delivery to cloud | nothing | — | `ON CONFLICT` no-op / enrich |
-| Access token expires mid-crawl | nothing | outbox buffers during the one retry round-trip | `CloudApiClient` retries once on 401 via `agent/identity.py`'s self-refresh (`/auth/refresh` + keyring) |
-| Resume attempted from a different agent | nothing (rejected before any write) | the job stays `interrupted`, resumable from the correct machine | 403 from `cloud/api/coordination.py` — the job's `agent_id` doesn't match the caller's |
+| Scenario                                | Lost                                     | Survives                                                        | Recovery                                                                                                |
+|-----------------------------------------|------------------------------------------|-----------------------------------------------------------------|---------------------------------------------------------------------------------------------------------|
+| Cloud transient blip                    | nothing                                  | outbox on disk; crawl keeps extracting                          | flusher retries with backoff                                                                            |
+| Cloud extended outage                   | can't *start* a new job                  | running crawl buffers to outbox (backpressured)                 | drains on reconnect; job reconciled from `interrupted`                                                  |
+| Local crash / power loss                | in-memory frontier since last checkpoint | flushed data + last outbox fsync + last frontier ckpt           | relaunch → flush → resume                                                                               |
+| VPS restart mid-dispatch                | possible ambiguous send                  | QUEUED/SENT in Postgres                                         | `SENDING` rows requeued at-most-once                                                                    |
+| VPS disk loss                           | data since last backup / WAL             | nightly `pg_dump` + WAL archive                                 | restore ([deployment.md](deployment.md#backups--recovery))                                              |
+| Duplicate delivery to cloud             | nothing                                  | —                                                               | `ON CONFLICT` no-op / enrich                                                                            |
+| Access token expires mid-crawl          | nothing                                  | outbox buffers during the one retry round-trip                  | `CloudApiClient` retries once on 401 via `agent/identity.py`'s self-refresh (`/auth/refresh` + keyring) |
+| Resume attempted from a different agent | nothing (rejected before any write)      | the job stays `interrupted`, resumable from the correct machine | 403 from `cloud/api/coordination.py` — the job's `agent_id` doesn't match the caller's                  |
 
 ## DR targets
 

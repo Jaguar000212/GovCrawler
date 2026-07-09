@@ -1,12 +1,11 @@
 import datetime
 import json
-
 from sqlalchemy import and_, case, func, or_
 from sqlalchemy.exc import IntegrityError
 
+from shared.scoring import compute_lead_score
 from ..tables.crawl import CrawlSnapshot
 from ..tables.leads import Lead, LeadOccurrence
-from shared.scoring import compute_lead_score
 
 # Fields that a re-capture may fill in if the existing lead has them blank.
 # Never overwrites an already-populated value (enrich, not replace).
@@ -331,7 +330,8 @@ class LeadMixin:
 
     def get_lead_states(self, job_ids: list[int] | None = None, categories: list[str] = None) -> list[str]:
         with self._Session() as s:
-            q = s.query(CrawlSnapshot.state).join(Lead, Lead.snapshot_id == CrawlSnapshot.id).filter(CrawlSnapshot.state.isnot(None))
+            q = s.query(CrawlSnapshot.state).join(Lead, Lead.snapshot_id == CrawlSnapshot.id).filter(
+                CrawlSnapshot.state.isnot(None))
             if job_ids:
                 q = q.filter(Lead.job_id.in_(job_ids))
             if categories:

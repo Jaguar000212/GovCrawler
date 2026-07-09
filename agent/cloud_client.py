@@ -10,10 +10,9 @@ the exception, at hours-long crawl durations) never stalls partway through.
 See .docs/resilience.md."""
 
 import asyncio
+import httpx
 import logging
 import time
-
-import httpx
 
 from . import localdb
 from .local_store import LocalOutbox
@@ -97,7 +96,7 @@ class CloudApiClient:
                 await asyncio.sleep(_FLUSH_BUSY_SLEEP)
         if not self._outbox.is_drained(self._job_id):
             log.warning(f"job {self._job_id}: outbox did not fully drain before finish "
-                       f"(dead-lettered rows may exist) — finishing anyway")
+                        f"(dead-lettered rows may exist) — finishing anyway")
         r = await _post_with_retry(self._http, f"/api/coordination/jobs/{self._job_id}/finish",
                                    self._token_provider, self._refresh, json={"status": status, "error": error})
         r.raise_for_status()

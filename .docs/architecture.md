@@ -4,12 +4,12 @@ GovCrawler is a **multi-user, cloud-split, RBAC** platform for discovering, craw
 contact data from Indian government domains, plus an email-outreach system on top of the harvested leads.
 The codebase is organized into three tiers plus a thin entry-point shim:
 
-| Tier | Package | Runs where | Owns |
-|------|---------|-----------|------|
-| **Shared** | `shared/` | imported by both other tiers | enums, permission catalog, wire DTOs, lead-scoring — the single source of truth for anything both tiers must agree on |
-| **Cloud** | `cloud/` | the VPS (Docker Compose) | FastAPI app, auth/RBAC, the Postgres database of record, the SMTP dispatcher, the admin UI |
-| **Agent** | `agent/` | each operator's machine | the crawler engine + parser, a durable local outbox/frontier, the Tkinter launcher, and a local BFF that talks to the cloud |
-| **Entry shim** | `portal/` | both | `load_config()`, path resolution + first-run bootstrap, and the `python -m portal` CLI |
+| Tier           | Package   | Runs where                   | Owns                                                                                                                        |
+|----------------|-----------|------------------------------|-----------------------------------------------------------------------------------------------------------------------------|
+| **Shared**     | `shared/` | imported by both other tiers | enums, permission catalog, wire DTOs, lead-scoring — the single source of truth for anything both tiers must agree on       |
+| **Cloud**      | `cloud/`  | the VPS (Docker Compose)     | FastAPI app, auth/RBAC, the Postgres database of record, the SMTP dispatcher, the admin UI                                  |
+| **Agent**      | `agent/`  | each operator's machine      | the crawler engine + parser, a durable local outbox/frontier, the Tkinter launcher, and a local BFF that talks to the cloud |
+| **Entry shim** | `portal/` | both                         | `load_config()`, path resolution + first-run bootstrap, and the `python -m portal` CLI                                      |
 
 > **Dependency direction:** `cloud → shared` and `agent → shared`; `agent ⊥ cloud` — **zero** imports in
 > either direction (plan.md §19.1 Phase 9, both Parts complete) — enforced by two `import-linter` CI
@@ -105,15 +105,15 @@ for the container topology.
 
 ## The two databases
 
-| Data | Location |
-|------|----------|
-| users, roles, permissions (+ per-user overrides), sessions, audit log | **Cloud** (Postgres, or SQLite in desktop/dev) |
-| categories, org_types, domains, crawl_jobs, snapshots, job_custom_urls | **Cloud** |
-| leads, lead_occurrences (shared pool) | **Cloud** |
-| campaigns, campaign_emails, credentials, templates, blacklist | **Cloud** |
-| this machine's settings (`cloud_api_base_url`, `agent_id`) + visited-URL recrawl history | **Local SQLite** (`agent/localdb.py`) |
-| per-job outbox + frontier checkpoint | **Local SQLite** (`agent/local_store.py`) |
-| refresh token + last-login email | **OS keyring** |
+| Data                                                                                     | Location                                       |
+|------------------------------------------------------------------------------------------|------------------------------------------------|
+| users, roles, permissions (+ per-user overrides), sessions, audit log                    | **Cloud** (Postgres, or SQLite in desktop/dev) |
+| categories, org_types, domains, crawl_jobs, snapshots, job_custom_urls                   | **Cloud**                                      |
+| leads, lead_occurrences (shared pool)                                                    | **Cloud**                                      |
+| campaigns, campaign_emails, credentials, templates, blacklist                            | **Cloud**                                      |
+| this machine's settings (`cloud_api_base_url`, `agent_id`) + visited-URL recrawl history | **Local SQLite** (`agent/localdb.py`)          |
+| per-job outbox + frontier checkpoint                                                     | **Local SQLite** (`agent/local_store.py`)      |
+| refresh token + last-login email                                                         | **OS keyring**                                 |
 
 The cloud DB is one SQLAlchemy database (`cloud.db.Database`, composed from several mixins). It runs on
 **Postgres** in production and **SQLite** for desktop/dev — `database.uri` picks which. Neither local store
@@ -232,11 +232,11 @@ Three structurally separate trees, not just naming conventions, so it's never am
 template or asset (see [directory-structure.md](directory-structure.md) for the full layout):
 
 - **`frontend/shared/`** — the one page genuinely identical on both tiers (`login.html`), CSS design tokens
-  + generic components (buttons, tables, modals, badges, the sidebar-tab-nav pattern), and the shared error
-  layer: `http.js` (`apiFetch`/`ApiError`/`friendlyMessage` + the CSRF-injecting `fetch` patch) and
-  `toast.js` (`showToast`/`showApiError`) — every raw `alert()` that used to report an API error is now a
-  dismissible, human-readable toast; `confirm()` stays native for destructive-action confirmations, which
-  isn't an error-reporting concern.
+    + generic components (buttons, tables, modals, badges, the sidebar-tab-nav pattern), and the shared error
+      layer: `http.js` (`apiFetch`/`ApiError`/`friendlyMessage` + the CSRF-injecting `fetch` patch) and
+      `toast.js` (`showToast`/`showApiError`) — every raw `alert()` that used to report an API error is now a
+      dismissible, human-readable toast; `confirm()` stays native for destructive-action confirmations, which
+      isn't an error-reporting concern.
 - **`frontend/agent/`** — the full crawler + outreach UI (dashboard, leads, campaigns, settings,
   test-campaign, user guide), rendered only by `agent/bff/pages.py`. Its only admin-adjacent affordance is a
   permission-gated "Admin Portal ↗" nav button that opens the cloud's own login in a new tab — a link-out,
@@ -342,17 +342,17 @@ See [authentication.md](authentication.md) for refresh rotation, reuse detection
 
 ## Key design decisions
 
-| Decision | Rationale |
-|----------|-----------|
-| One trust boundary (the API), Postgres loopback-only | RBAC is meaningless if clients hold DB connection strings; the API is the only place permissions/ownership can be enforced |
-| Durable local outbox as the primary write path | A cloud blip or crash never loses an extracted lead; idempotent cloud writes make at-least-once retry safe |
-| Frontier checkpoint every 5 s, 100% local, no cloud copy | Interrupted crawls resume exactly from a checkpoint, not a full re-crawl — and since a job can only be resumed by the agent that started it, there's nothing to gain from a cloud-side copy |
-| Visited-URL recrawl history is per-agent, not shared | Simpler and more honest than a shared table implied cross-agent coordination that never actually existed at job-execution granularity; the tradeoff (two agents might both re-crawl a recently-visited domain) is accepted |
-| Heartbeat + stale-job reaper | A silent agent is reaped to `interrupted` (resumable), never left as a phantom `running`; late heartbeats revive it non-destructively |
-| At-most-once send (`SENDING` claim before the SMTP call) | A crash mid-send is reconciled as `failed` for manual review, never blindly re-sent — double-mailing officials wrecks sender reputation |
-| Global `UNIQUE(email)` leads with enrich-on-conflict + `lead_occurrences` | One shared lead pool deduped by email, but per-job attribution and truthful per-job counts survive dedup |
-| Leads read frozen `crawl_snapshots`, not live `domains` | Domain re-imports rebuild `domains` (reassigning ids); freezing seed metadata per crawl decouples leads from catalog churn |
-| Enums stored as `TEXT` + app-level `Enum`, not native PG `ENUM` | `ALTER TYPE` is transaction-hostile and can't drop values; text keeps future migrations cheap |
-| HTTPX-first, Playwright fallback | ~60–70% of `.gov.in` sites are static HTML; skipping Playwright for those cuts crawl time sharply |
-| Single-thread `db_pool` on the agent | Serializes local-SQLite writes without transactions; the cloud DB uses connection pooling instead |
-| Dispatcher `embedded` vs `external` | Desktop runs it in-process; the VPS runs it as its own container so an API restart never kills in-flight sends |
+| Decision                                                                  | Rationale                                                                                                                                                                                                                  |
+|---------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| One trust boundary (the API), Postgres loopback-only                      | RBAC is meaningless if clients hold DB connection strings; the API is the only place permissions/ownership can be enforced                                                                                                 |
+| Durable local outbox as the primary write path                            | A cloud blip or crash never loses an extracted lead; idempotent cloud writes make at-least-once retry safe                                                                                                                 |
+| Frontier checkpoint every 5 s, 100% local, no cloud copy                  | Interrupted crawls resume exactly from a checkpoint, not a full re-crawl — and since a job can only be resumed by the agent that started it, there's nothing to gain from a cloud-side copy                                |
+| Visited-URL recrawl history is per-agent, not shared                      | Simpler and more honest than a shared table implied cross-agent coordination that never actually existed at job-execution granularity; the tradeoff (two agents might both re-crawl a recently-visited domain) is accepted |
+| Heartbeat + stale-job reaper                                              | A silent agent is reaped to `interrupted` (resumable), never left as a phantom `running`; late heartbeats revive it non-destructively                                                                                      |
+| At-most-once send (`SENDING` claim before the SMTP call)                  | A crash mid-send is reconciled as `failed` for manual review, never blindly re-sent — double-mailing officials wrecks sender reputation                                                                                    |
+| Global `UNIQUE(email)` leads with enrich-on-conflict + `lead_occurrences` | One shared lead pool deduped by email, but per-job attribution and truthful per-job counts survive dedup                                                                                                                   |
+| Leads read frozen `crawl_snapshots`, not live `domains`                   | Domain re-imports rebuild `domains` (reassigning ids); freezing seed metadata per crawl decouples leads from catalog churn                                                                                                 |
+| Enums stored as `TEXT` + app-level `Enum`, not native PG `ENUM`           | `ALTER TYPE` is transaction-hostile and can't drop values; text keeps future migrations cheap                                                                                                                              |
+| HTTPX-first, Playwright fallback                                          | ~60–70% of `.gov.in` sites are static HTML; skipping Playwright for those cuts crawl time sharply                                                                                                                          |
+| Single-thread `db_pool` on the agent                                      | Serializes local-SQLite writes without transactions; the cloud DB uses connection pooling instead                                                                                                                          |
+| Dispatcher `embedded` vs `external`                                       | Desktop runs it in-process; the VPS runs it as its own container so an API restart never kills in-flight sends                                                                                                             |

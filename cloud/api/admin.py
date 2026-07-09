@@ -4,9 +4,9 @@ password, permission overrides, list roles) plus the audit log reader. See
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from shared.permissions import PERMISSIONS
 from .deps import CurrentUser, get_db, require
 from ..db import Database
-from shared.permissions import PERMISSIONS
 
 router = APIRouter(tags=["admin"], dependencies=[Depends(require("users.manage"))])
 

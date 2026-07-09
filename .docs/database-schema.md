@@ -19,12 +19,12 @@ values.
 
 ## Enumerations (`shared/enums.py`)
 
-| Enum | Values | Notes |
-|------|--------|-------|
-| `JobStatus` | `pending`, `running`, `done`, `failed`, `cancelled`, `interrupted`, `manual_upload` | **lowercase** values; `interrupted` = reaped/resumable; `manual_upload` = synthetic job holding CSV-imported leads |
-| `CampaignStatus` | `RUNNING`, `PAUSED`, `CANCELLED`, `COMPLETED` | **uppercase** values (mind the case difference vs `JobStatus` when filtering) |
-| `CampaignKind` | `production`, `test` | discriminator that unified the old `test_campaigns` table into `campaigns` |
-| `EmailStatus` | `DRAFT`, `QUEUED`, `SENDING`, `SENT`, `FAILED` | `SENDING` = at-most-once claim held during the SMTP call |
+| Enum             | Values                                                                              | Notes                                                                                                              |
+|------------------|-------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------|
+| `JobStatus`      | `pending`, `running`, `done`, `failed`, `cancelled`, `interrupted`, `manual_upload` | **lowercase** values; `interrupted` = reaped/resumable; `manual_upload` = synthetic job holding CSV-imported leads |
+| `CampaignStatus` | `RUNNING`, `PAUSED`, `CANCELLED`, `COMPLETED`                                       | **uppercase** values (mind the case difference vs `JobStatus` when filtering)                                      |
+| `CampaignKind`   | `production`, `test`                                                                | discriminator that unified the old `test_campaigns` table into `campaigns`                                         |
+| `EmailStatus`    | `DRAFT`, `QUEUED`, `SENDING`, `SENT`, `FAILED`                                      | `SENDING` = at-most-once claim held during the SMTP call                                                           |
 
 ---
 
@@ -39,10 +39,14 @@ values.
 
 **`roles`** — `id` PK · `name` (unique) · `description` · `is_system` (protect built-ins).
 **`permissions`** — `key` PK · `description`.
-**`role_permissions`** — `role_id` → `roles.id` (CASCADE) · `permission_key` → `permissions.key`; `UNIQUE(role_id, permission_key)`.
-**`user_permissions`** — per-user override: `user_id` · `permission_key` · `effect` (`grant`|`deny`); `UNIQUE(user_id, permission_key)`.
-**`user_sessions`** — refresh-token store: `id` · `user_id` · `refresh_token_hash` (sha256) · `user_agent` · `ip` · `created_at` · `last_used_at` · `expires_at` · `revoked_at`.
-**`audit_log`** — append-only: `id` · `user_id` (null = system) · `action` · `target_type` · `target_id` · `detail` (JSON) · `ip` · `created_at` (indexed). The runtime DB role has no `UPDATE`/`DELETE` on this table (Alembic 0020).
+**`role_permissions`** — `role_id` → `roles.id` (CASCADE) · `permission_key` → `permissions.key`;
+`UNIQUE(role_id, permission_key)`.
+**`user_permissions`** — per-user override: `user_id` · `permission_key` · `effect` (`grant`|`deny`);
+`UNIQUE(user_id, permission_key)`.
+**`user_sessions`** — refresh-token store: `id` · `user_id` · `refresh_token_hash` (sha256) · `user_agent` · `ip` ·
+`created_at` · `last_used_at` · `expires_at` · `revoked_at`.
+**`audit_log`** — append-only: `id` · `user_id` (null = system) · `action` · `target_type` · `target_id` · `detail` (
+JSON) · `ip` · `created_at` (indexed). The runtime DB role has no `UPDATE`/`DELETE` on this table (Alembic 0020).
 
 See [authentication.md](authentication.md) for the permission catalog and role defaults.
 
@@ -174,15 +178,15 @@ moment `leads.lead_score` is newly added to an old DB (not every startup — Pha
 targeted trigger in `cloud/api/config.py`'s `POST` handler, fired only when a weight actually changes) —
 plus the existing one-time `_backfill_snapshots()`.
 
-| Mixin (`cloud/db/mixins/`) | Representative methods |
-|----------------------------|------------------------|
-| `app_settings_mixin` | `get_app_setting`, `set_app_setting` (optimistic `updated_at` check), `get_crawl_policy` |
-| `auth_mixin` | `seed_rbac`, `create_user`, `get_user_by_email/id`, `set_password`, `set_user_active/role`, `record_login_success/failure`, `resolve_effective_permissions`, `create/rotate/revoke_session`, `revoke_session_family`, `write_audit` |
-| `domain_mixin` | `upsert_category/org_type/domain`, `update_domain_url`, `clear_domains`, `get_domain_stats`, `get_categories/states/org_types`, `get_domains`, `get_domain_ids`, `get_domains_by_ids` |
-| `job_mixin` | `create_job` (stamps `agent_hostname`), `start_job`, `finish_job` (no-op if terminal), `heartbeat` (revives interrupted, returns cancel), `reap_stale_jobs`, `resume_job`, `claim_or_verify_job_agent` (resume ownership guard), `set_cancel_requested`, `get_or_create_manual_upload_job`, `get_running_jobs` (DB-backed, admin activity), `get_job`/`list_jobs` (owner-filtered) |
-| `crawl_snapshot_mixin` | `create_crawl_snapshot` (get-or-insert, race-safe), `get_crawl_snapshots` |
-| `lead_mixin` | `save_lead` (enrich-on-conflict + occurrence + score), `bulk_save_leads`, `get_leads`, `get_lead_ids`, `get_all_leads_for_export`, `get_lead_categories/states/org_types`, `bulk_upsert_manual_leads`, `update_lead` |
-| `outreach_mixin` | templates/blacklist/credentials CRUD; campaigns; `claim_next_queued_email` (atomic QUEUED→SENDING), `recover_stuck_sending`, `mark_email_sent/failed`, `set_credential_cooldown`, `get_campaign_stats`, `get_credential_health` |
+| Mixin (`cloud/db/mixins/`) | Representative methods                                                                                                                                                                                                                                                                                                                                                             |
+|----------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `app_settings_mixin`       | `get_app_setting`, `set_app_setting` (optimistic `updated_at` check), `get_crawl_policy`                                                                                                                                                                                                                                                                                           |
+| `auth_mixin`               | `seed_rbac`, `create_user`, `get_user_by_email/id`, `set_password`, `set_user_active/role`, `record_login_success/failure`, `resolve_effective_permissions`, `create/rotate/revoke_session`, `revoke_session_family`, `write_audit`                                                                                                                                                |
+| `domain_mixin`             | `upsert_category/org_type/domain`, `update_domain_url`, `clear_domains`, `get_domain_stats`, `get_categories/states/org_types`, `get_domains`, `get_domain_ids`, `get_domains_by_ids`                                                                                                                                                                                              |
+| `job_mixin`                | `create_job` (stamps `agent_hostname`), `start_job`, `finish_job` (no-op if terminal), `heartbeat` (revives interrupted, returns cancel), `reap_stale_jobs`, `resume_job`, `claim_or_verify_job_agent` (resume ownership guard), `set_cancel_requested`, `get_or_create_manual_upload_job`, `get_running_jobs` (DB-backed, admin activity), `get_job`/`list_jobs` (owner-filtered) |
+| `crawl_snapshot_mixin`     | `create_crawl_snapshot` (get-or-insert, race-safe), `get_crawl_snapshots`                                                                                                                                                                                                                                                                                                          |
+| `lead_mixin`               | `save_lead` (enrich-on-conflict + occurrence + score), `bulk_save_leads`, `get_leads`, `get_lead_ids`, `get_all_leads_for_export`, `get_lead_categories/states/org_types`, `bulk_upsert_manual_leads`, `update_lead`                                                                                                                                                               |
+| `outreach_mixin`           | templates/blacklist/credentials CRUD; campaigns; `claim_next_queued_email` (atomic QUEUED→SENDING), `recover_stuck_sending`, `mark_email_sent/failed`, `set_credential_cooldown`, `get_campaign_stats`, `get_credential_health`                                                                                                                                                    |
 
 ---
 
@@ -192,23 +196,23 @@ plus the existing one-time `_backfill_snapshots()`.
 and `_add_lead_grading` both descend from `0004` and merge at `0006`). `alembic/env.py` targets
 `cloud.db.Base` and honors the `DATABASE_URL` env var (so the Docker `migrate` service points at Postgres).
 
-| Revision | Adds |
-|----------|------|
-| `0000` | core tables (domains, crawl_jobs, leads, visited_urls) |
-| `0001`–`0011` | outreach models, test campaigns, email selection, lead depth/grading, custom URLs, `external_id`, campaign credentials, pause reason, lead score, crawl snapshots |
-| `0012_add_auth` | roles, permissions, users, role/user permissions, sessions, audit_log |
-| `0013_add_lookups_and_job_domains` | categories, org_types, `crawl_job_domains` (backfilled from JSON) |
-| `0014_add_ownership` | `owner_id` on jobs/campaigns |
-| `0015_lead_occ_manual_state` | `lead_occurrences`, `leads.manual_state`; drops vestigial `leads.domain_*` |
-| `0016_merge_campaign_kind` | `campaigns.kind`; folds `test_campaigns` in; drops the test tables |
-| `0017_encrypt_credentials` | `smtp_credentials.password_encrypted` (Fernet) |
-| `0018_job_resume_cancel` | `cancel_requested`, `agent_hostname`, `last_heartbeat_at` |
-| `0019_add_sending_status` | `EmailStatus.SENDING` + `campaign_emails.sending_since` |
-| `0020_least_privilege_role` | Postgres-only `govcrawler_app` role, audit_log write-lockdown |
-| `0021_add_job_frontier` | `job_frontiers` (cross-machine resume) — later dropped by `0023` |
-| `0022_add_app_settings` | `app_settings` (DB-backed crawl policy, plan.md §19.1 Phase 8) |
-| `0023_drop_visited_and_frontier` | Drops `visited_urls` + `job_frontiers` — both went 100% agent-local (plan.md §19.1 Phase 9 Part 2) |
-| `0024_ddl_owned_ensure_columns` | `crawl_jobs.current_depth`/`active_workers`, `leads.snapshot_id` — moved from `_ensure_columns()` into Alembic so they're added by the DDL-owning `migrate` role, not the least-privilege runtime role |
+| Revision                           | Adds                                                                                                                                                                                                   |
+|------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `0000`                             | core tables (domains, crawl_jobs, leads, visited_urls)                                                                                                                                                 |
+| `0001`–`0011`                      | outreach models, test campaigns, email selection, lead depth/grading, custom URLs, `external_id`, campaign credentials, pause reason, lead score, crawl snapshots                                      |
+| `0012_add_auth`                    | roles, permissions, users, role/user permissions, sessions, audit_log                                                                                                                                  |
+| `0013_add_lookups_and_job_domains` | categories, org_types, `crawl_job_domains` (backfilled from JSON)                                                                                                                                      |
+| `0014_add_ownership`               | `owner_id` on jobs/campaigns                                                                                                                                                                           |
+| `0015_lead_occ_manual_state`       | `lead_occurrences`, `leads.manual_state`; drops vestigial `leads.domain_*`                                                                                                                             |
+| `0016_merge_campaign_kind`         | `campaigns.kind`; folds `test_campaigns` in; drops the test tables                                                                                                                                     |
+| `0017_encrypt_credentials`         | `smtp_credentials.password_encrypted` (Fernet)                                                                                                                                                         |
+| `0018_job_resume_cancel`           | `cancel_requested`, `agent_hostname`, `last_heartbeat_at`                                                                                                                                              |
+| `0019_add_sending_status`          | `EmailStatus.SENDING` + `campaign_emails.sending_since`                                                                                                                                                |
+| `0020_least_privilege_role`        | Postgres-only `govcrawler_app` role, audit_log write-lockdown                                                                                                                                          |
+| `0021_add_job_frontier`            | `job_frontiers` (cross-machine resume) — later dropped by `0023`                                                                                                                                       |
+| `0022_add_app_settings`            | `app_settings` (DB-backed crawl policy, plan.md §19.1 Phase 8)                                                                                                                                         |
+| `0023_drop_visited_and_frontier`   | Drops `visited_urls` + `job_frontiers` — both went 100% agent-local (plan.md §19.1 Phase 9 Part 2)                                                                                                     |
+| `0024_ddl_owned_ensure_columns`    | `crawl_jobs.current_depth`/`active_workers`, `leads.snapshot_id` — moved from `_ensure_columns()` into Alembic so they're added by the DDL-owning `migrate` role, not the least-privilege runtime role |
 
 Most other `_ensure_columns()` entries duplicate a column an earlier migration already adds — a defensive
 no-op there for old SQLite installs where an Alembic ALTER-added column could silently not take effect

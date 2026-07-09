@@ -19,13 +19,13 @@ Caddy provisions TLS for `${DOMAIN}` automatically; `https://${DOMAIN}` is the o
 
 ## Services (`deploy/docker-compose.yml`)
 
-| Service | Image / command | Role |
-|---------|-----------------|------|
-| `db` | `postgres:16` (WAL archiving on) | Database of record; loopback-published `127.0.0.1:5432` only for the one-time migration script |
-| `migrate` | `alembic upgrade head` (one-shot) | Applies migrations with the DDL-privileged `DATABASE_URL`; everything else waits on it |
-| `api` | `python -m portal serve` | FastAPI + admin dashboard; `DISPATCH_MODE=external`; healthcheck `/healthz` |
-| `dispatcher` | `python -m cloud.dispatch_service` | Standalone SMTP send loop (survives API restarts) |
-| `proxy` | `caddy:2` | TLS termination + reverse proxy to `api:8001` |
+| Service      | Image / command                    | Role                                                                                           |
+|--------------|------------------------------------|------------------------------------------------------------------------------------------------|
+| `db`         | `postgres:16` (WAL archiving on)   | Database of record; loopback-published `127.0.0.1:5432` only for the one-time migration script |
+| `migrate`    | `alembic upgrade head` (one-shot)  | Applies migrations with the DDL-privileged `DATABASE_URL`; everything else waits on it         |
+| `api`        | `python -m portal serve`           | FastAPI + admin dashboard; `DISPATCH_MODE=external`; healthcheck `/healthz`                    |
+| `dispatcher` | `python -m cloud.dispatch_service` | Standalone SMTP send loop (survives API restarts)                                              |
+| `proxy`      | `caddy:2`                          | TLS termination + reverse proxy to `api:8001`                                                  |
 
 All three app services build from one `deploy/Dockerfile` (a plain `python:3.11-slim` base — no Playwright,
 no Chromium, no `agent/` code copied in). Postgres is **never** published beyond loopback; only the app
@@ -33,14 +33,14 @@ services reach it over the Compose network.
 
 ## Secrets & environment (`deploy/.env`)
 
-| Var | Purpose |
-|-----|---------|
-| `POSTGRES_PASSWORD` | Postgres superuser password |
-| `DATABASE_URL` | Superuser URL — used by `migrate` for DDL |
+| Var                                            | Purpose                                                                                               |
+|------------------------------------------------|-------------------------------------------------------------------------------------------------------|
+| `POSTGRES_PASSWORD`                            | Postgres superuser password                                                                           |
+| `DATABASE_URL`                                 | Superuser URL — used by `migrate` for DDL                                                             |
 | `DATABASE_URL_APP` + `GOVCRAWLER_APP_PASSWORD` | Least-privilege runtime role (`api`/`dispatcher`); no `UPDATE`/`DELETE` on `audit_log` (Alembic 0020) |
-| `JWT_SECRET` (+ `JWT_SECRET_PREV`) | Token signing (+ rotation grace) |
-| `CREDENTIAL_ENC_KEY` (+ `_PREV`) | SMTP-password Fernet key (+ rotation) |
-| `DOMAIN` | Public hostname for Caddy TLS + `ADMIN_ORIGIN` |
+| `JWT_SECRET` (+ `JWT_SECRET_PREV`)             | Token signing (+ rotation grace)                                                                      |
+| `CREDENTIAL_ENC_KEY` (+ `_PREV`)               | SMTP-password Fernet key (+ rotation)                                                                 |
+| `DOMAIN`                                       | Public hostname for Caddy TLS + `ADMIN_ORIGIN`                                                        |
 
 Generate `JWT_SECRET` with `python -c "import secrets; print(secrets.token_urlsafe(48))"` and
 `CREDENTIAL_ENC_KEY` with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
@@ -60,10 +60,10 @@ role, CORS/CSRF) are in `deploy/SECURITY.md`.
 
 ## Backups & recovery
 
-| RPO | Mechanism | Doc |
-|-----|-----------|-----|
-| ≤24 h | Daily `pg_dump` (`backup.sh` via cron) + `restore.sh` | `deploy/BACKUP.md` |
-| minutes | WAL archiving (`archive_mode=on` in the `db` service) + point-in-time recovery | `deploy/PITR.md` |
+| RPO     | Mechanism                                                                      | Doc                |
+|---------|--------------------------------------------------------------------------------|--------------------|
+| ≤24 h   | Daily `pg_dump` (`backup.sh` via cron) + `restore.sh`                          | `deploy/BACKUP.md` |
+| minutes | WAL archiving (`archive_mode=on` in the `db` service) + point-in-time recovery | `deploy/PITR.md`   |
 
 Both `deploy/backups/` and `deploy/wal_archive/` must be copied **offsite** — they live on the same host.
 Rehearse a restore before go-live (procedures in the two docs above).

@@ -12,9 +12,9 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from portal.paths import APP_DIR
 from . import security
 from .local_auth import _cloud_base_url
-from portal.paths import APP_DIR
 
 log = logging.getLogger(__name__)
 

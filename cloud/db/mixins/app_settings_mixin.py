@@ -1,7 +1,6 @@
 import datetime
 
 from shared.scoring import DEFAULT_WEIGHTS
-
 from ..tables.settings import AppSetting
 
 _EMPTY_POLICY = {"extraction": {}, "lead_score": {"weights": DEFAULT_WEIGHTS}, "crawler": {}}

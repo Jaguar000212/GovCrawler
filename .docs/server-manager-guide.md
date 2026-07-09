@@ -17,6 +17,7 @@ operator, and they run it on their own machine — you never need to touch their
 ### 1A. Production (a real VPS)
 
 **Prerequisites**
+
 - A VPS (any provider) running Linux, with [Docker](https://docs.docker.com/engine/install/) and the
   Docker Compose plugin installed.
 - A domain name (e.g. `crawler.yourcompany.com`) with its DNS **A record** pointed at the VPS's IP address.
@@ -66,6 +67,7 @@ operator, and they run it on their own machine — you never need to touch their
 you'll give to every operator when they set up their agent app (Part 4).
 
 **Ongoing operations, in brief** (each has its own detailed runbook in `deploy/`):
+
 - **Logs:** `docker compose logs -f api` (or `dispatcher`, `db`, `proxy`).
 - **Restart after a config change:** `docker compose up -d` (rebuilds only what changed).
 - **Update to a new version:** `git pull`, then `docker compose up --build -d` again (migrations run
@@ -83,12 +85,14 @@ Use this to try things out, test an update before rolling it to production, or d
 server. Two options, from lightest to most production-like:
 
 **Option 1 — bare Python, fastest to start, no Docker:**
+
 ```bash
 git clone <your-repo-url> && cd GovCrawler
 python -m venv venv && source venv/bin/activate      # Windows: venv\Scripts\activate
 pip install -r requirements/cloud.txt
 python -m portal serve
 ```
+
 This starts the cloud server on `http://127.0.0.1:8001` using a local SQLite database file (no Postgres
 needed) — good enough for testing the admin dashboard, permissions, or a config change. Create an admin
 with `python -m portal create-admin you@example.com` in a second terminal.
@@ -124,19 +128,21 @@ Log in at `https://your-domain.example.com/` with an admin account, then open **
 not appear inside any operator's agent app.
 
 ### Creating users and admins
+
 Under **Users & Permissions**, click **+ New User**. Fill in their email, set a temporary password (they can
 be given a new one later — see below), assign a **Role**, and check **Is admin** only for people who should
 have full access to everything (admins bypass all permission checks).
 
 Built-in roles:
 
-| Role | Can do |
-|------|--------|
-| **Admin** | Everything (user/role management, settings, all data) |
+| Role         | Can do                                                                                                   |
+|--------------|----------------------------------------------------------------------------------------------------------|
+| **Admin**    | Everything (user/role management, settings, all data)                                                    |
 | **Operator** | Run crawls, manage leads/campaigns/templates/credentials/blacklist — the day-to-day role for most people |
-| **Viewer** | Browse domains and leads only, no editing |
+| **Viewer**   | Browse domains and leads only, no editing                                                                |
 
 ### Fine-tuning one person's access
+
 Every user's row has a **Permissions** button — this opens a grid of every individual permission
 (`crawl.run`, `leads.export`, `settings.manage`, etc.), each showing whether it's *Inherited from role*,
 explicitly *Granted*, or explicitly *Denied*. Use this when someone needs one extra capability without
@@ -145,22 +151,26 @@ capability *removed* without demoting them. Changes apply immediately, the next 
 refreshes (within about 15 minutes at the outside).
 
 ### Resetting a password
+
 Click **Reset PW** on a user's row and set a new one — there's no self-service "forgot password" flow yet,
 so this is the way to help someone who's locked out.
 
 ### The audit log
+
 The **Audit Log** panel records who did what, when: logins, permission changes, every crawl job
 created/cancelled/resumed, every lead/campaign/template/credential/blacklist edit. Filter by user, by an
 action prefix (e.g. type `campaign.` to see only campaign-related events), or by date range. Use this to
 answer "who changed this setting" or "who exported this data" questions.
 
 ### Settings (crawl policy)
+
 The **Settings** page (reachable from the main nav, not just admin — gated by the `settings.manage`
 permission) controls crawl depth, rate limiting, which domain suffixes are crawled, extraction rules, and
 lead-scoring weights. These apply to **every** crawl on **every** agent — there's one shared policy, not a
 per-machine one. See [`configuration.md`](configuration.md) if you need the meaning of a specific field.
 
 ### Seeding the domain catalog
+
 Before anyone can crawl, the catalog of government domains needs to be populated once. From the admin
 dashboard's dashboard page (or via CLI on the server:
 `docker compose exec api python -m portal import-json <path>` for a pre-generated file, or
@@ -168,6 +178,7 @@ dashboard's dashboard page (or via CLI on the server:
 one-time `GovScraper` step that generates that file.
 
 ### Everything else
+
 Admins also have full access to the same Leads/Campaigns/Settings pages every operator uses (via their own
 agent app) — an admin who wants to browse leads directly on the server can do so from
 `https://your-domain.example.com/leads` with their own login.
@@ -187,16 +198,20 @@ page, download `GovCrawler-windows-vX.Y.Z.zip` (or `-macos-`/`-linux-`) for each
 that zip file (email, shared drive, internal download page — however you distribute files to staff).
 
 **Option B — build it yourself**, if you've made local changes or Releases aren't set up for this repo:
+
 ```bash
 pip install -r requirements/agent.txt
 pip install pyinstaller
 pyinstaller GovCrawler.spec --clean
 ```
+
 The finished app appears in `dist/GovCrawler/` — zip that whole folder and send it the same way as Option A.
 Building must be done **on the same OS** you're targeting (build on Windows for a Windows package, etc.).
 
 ### What to tell each operator
+
 Just two things:
+
 1. Where to unzip and run the app (`GovCrawler.exe` on Windows, `GovCrawler` on macOS/Linux — no
    installer, no admin rights needed).
 2. Your cloud server's URL, e.g. `https://your-domain.example.com` — they'll be asked for this exactly once,
@@ -239,13 +254,16 @@ tied to the software itself (only to your VPS's capacity). Everyone shares the s
 catalog, but nobody can see or affect another operator's currently-running crawl.
 
 ### Developer/test setup for an agent
+
 If you're testing against a dev cloud server (Part 1B) instead of production, run the agent **from source**
 instead of the packaged exe:
+
 ```bash
 pip install -r requirements/agent.txt
 playwright install chromium
 python run.py
 ```
+
 Everything else is identical — you'll still get the Cloud Server URL prompt (enter your dev server's
 address, e.g. `http://127.0.0.1:8001`), sign-in dialog, etc.
 
@@ -253,16 +271,16 @@ address, e.g. `http://127.0.0.1:8001`), sign-in dialog, etc.
 
 ## Troubleshooting
 
-| Symptom | Likely cause / fix |
-|---|---|
-| Agent's cloud-URL prompt won't accept my URL | Make sure it includes `https://` (or `http://` for a local dev server) and has no trailing slash |
-| Need to point the agent at a different cloud server later | Stop the server first — the main window's "Cloud Server" panel has a **Change…** button, disabled while running |
-| "Not logged in" errors right after signing in | Your server clock and the agent machine's clock may be too far apart, or your account may be disabled — check with your admin |
-| Sign-in works but every page shows an error | Your agent can't reach the cloud server over the network — check the URL, check the VPS is up (`/healthz`), check any local firewall/VPN. The main window's "Cloud Server" status dot polls `/healthz` every 15 s and will show "Unreachable" |
-| "This job was started by a different agent" | Expected — a crawl can only be resumed from the exact machine that started it. Start a fresh job instead |
-| Admin dashboard link inside the agent app opens a blank/error page | It opens your cloud server's admin page in your normal browser, which requires **its own separate login** — sign in there directly |
-| Playwright/browser download fails | Check disk space (~600MB needed) and that the machine has internet access; retry via **Download Browsers** |
-| `docker compose up` fails on the VPS | Run `docker compose logs` to see which service failed; most often a missing/blank value in `.env` |
+| Symptom                                                            | Likely cause / fix                                                                                                                                                                                                                            |
+|--------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Agent's cloud-URL prompt won't accept my URL                       | Make sure it includes `https://` (or `http://` for a local dev server) and has no trailing slash                                                                                                                                              |
+| Need to point the agent at a different cloud server later          | Stop the server first — the main window's "Cloud Server" panel has a **Change…** button, disabled while running                                                                                                                               |
+| "Not logged in" errors right after signing in                      | Your server clock and the agent machine's clock may be too far apart, or your account may be disabled — check with your admin                                                                                                                 |
+| Sign-in works but every page shows an error                        | Your agent can't reach the cloud server over the network — check the URL, check the VPS is up (`/healthz`), check any local firewall/VPN. The main window's "Cloud Server" status dot polls `/healthz` every 15 s and will show "Unreachable" |
+| "This job was started by a different agent"                        | Expected — a crawl can only be resumed from the exact machine that started it. Start a fresh job instead                                                                                                                                      |
+| Admin dashboard link inside the agent app opens a blank/error page | It opens your cloud server's admin page in your normal browser, which requires **its own separate login** — sign in there directly                                                                                                            |
+| Playwright/browser download fails                                  | Check disk space (~600MB needed) and that the machine has internet access; retry via **Download Browsers**                                                                                                                                    |
+| `docker compose up` fails on the VPS                               | Run `docker compose logs` to see which service failed; most often a missing/blank value in `.env`                                                                                                                                             |
 
 For anything not covered here: [`architecture.md`](architecture.md) for how the system fits together,
 [`resilience.md`](resilience.md) for what happens during outages/crashes, and

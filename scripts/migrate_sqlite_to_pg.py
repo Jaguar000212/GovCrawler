@@ -27,10 +27,9 @@ Usage:
 """
 import json
 import logging
+import sqlalchemy as sa
 import sys
 from pathlib import Path
-
-import sqlalchemy as sa
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -312,13 +311,13 @@ def migrate(sqlite_path: str, pg_url: str) -> None:
 
         count("user_permissions")
         copy_table(src_conn, dst_conn, "user_permissions", {"users": user_id_map},
-                  fk_map={"user_id": "users"})
+                   fk_map={"user_id": "users"})
         count("user_sessions")
         copy_table(src_conn, dst_conn, "user_sessions", {"users": user_id_map},
-                  fk_map={"user_id": "users"})
+                   fk_map={"user_id": "users"})
         count("audit_log")
         copy_table(src_conn, dst_conn, "audit_log", {"users": user_id_map},
-                  fk_map={"user_id": "users"}, soft_fk={"user_id"})
+                   fk_map={"user_id": "users"}, soft_fk={"user_id"})
 
         count("domains")
         domain_id_map = copy_table(src_conn, dst_conn, "domains", {})
@@ -331,7 +330,7 @@ def migrate(sqlite_path: str, pg_url: str) -> None:
 
         count("job_custom_urls")
         copy_table(src_conn, dst_conn, "job_custom_urls", {"crawl_jobs": job_id_map},
-                  fk_map={"job_id": "crawl_jobs"})
+                   fk_map={"job_id": "crawl_jobs"})
 
         count("crawl_snapshots")
         snapshot_id_map = copy_table(
@@ -341,7 +340,7 @@ def migrate(sqlite_path: str, pg_url: str) -> None:
 
         count("visited_urls")
         copy_table(src_conn, dst_conn, "visited_urls", {"crawl_jobs": job_id_map},
-                  fk_map={"job_id": "crawl_jobs"})
+                   fk_map={"job_id": "crawl_jobs"})
 
         count("leads")
         lead_id_map = copy_table(

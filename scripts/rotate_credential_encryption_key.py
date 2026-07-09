@@ -34,7 +34,8 @@ def main():
         sys.exit(1)
 
     if not os.environ.get("CREDENTIAL_ENC_KEY_PREV"):
-        log.error("CREDENTIAL_ENC_KEY_PREV is not set — nothing to rotate FROM. See the runbook in this file's docstring.")
+        log.error(
+            "CREDENTIAL_ENC_KEY_PREV is not set — nothing to rotate FROM. See the runbook in this file's docstring.")
         sys.exit(1)
 
     db = Database({"database": {"uri": sys.argv[1]}, "auth": {}})

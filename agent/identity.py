@@ -6,10 +6,9 @@ and keyring, both already a dependency of the launcher's own login flow.
 """
 
 import asyncio
-import logging
-
 import httpx
 import keyring
+import logging
 from keyring.errors import PasswordDeleteError
 
 log = logging.getLogger(__name__)

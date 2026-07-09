@@ -104,8 +104,8 @@ class OutreachMixin:
             status = CampaignStatus.RUNNING
         with self._Session() as s:
             c = Campaign(name=name, template_id=template_id, kind=kind,
-                        test_credential_id=test_credential_id, status=status,
-                        owner_id=owner_id)
+                         test_credential_id=test_credential_id, status=status,
+                         owner_id=owner_id)
             s.add(c)
             s.commit()
             return c.id

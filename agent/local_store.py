@@ -23,32 +23,83 @@ log = logging.getLogger(__name__)
 MAX_ATTEMPTS = 8
 
 _SCHEMA = """
-CREATE TABLE IF NOT EXISTS outbox (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    job_id INTEGER NOT NULL,
-    kind TEXT NOT NULL,
-    payload_json TEXT NOT NULL,
-    created_at REAL NOT NULL,
-    attempts INTEGER NOT NULL DEFAULT 0,
-    last_error TEXT
-);
-CREATE INDEX IF NOT EXISTS ix_outbox_job_kind ON outbox (job_id, kind);
+          CREATE TABLE IF NOT EXISTS outbox
+          (
+              id
+              INTEGER
+              PRIMARY
+              KEY
+              AUTOINCREMENT,
+              job_id
+              INTEGER
+              NOT
+              NULL,
+              kind
+              TEXT
+              NOT
+              NULL,
+              payload_json
+              TEXT
+              NOT
+              NULL,
+              created_at
+              REAL
+              NOT
+              NULL,
+              attempts
+              INTEGER
+              NOT
+              NULL
+              DEFAULT
+              0,
+              last_error
+              TEXT
+          );
+          CREATE INDEX IF NOT EXISTS ix_outbox_job_kind ON outbox (job_id, kind);
 
-CREATE TABLE IF NOT EXISTS outbox_dead (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    job_id INTEGER NOT NULL,
-    kind TEXT NOT NULL,
-    payload_json TEXT NOT NULL,
-    last_error TEXT,
-    died_at REAL NOT NULL
-);
+          CREATE TABLE IF NOT EXISTS outbox_dead
+          (
+              id
+              INTEGER
+              PRIMARY
+              KEY
+              AUTOINCREMENT,
+              job_id
+              INTEGER
+              NOT
+              NULL,
+              kind
+              TEXT
+              NOT
+              NULL,
+              payload_json
+              TEXT
+              NOT
+              NULL,
+              last_error
+              TEXT,
+              died_at
+              REAL
+              NOT
+              NULL
+          );
 
-CREATE TABLE IF NOT EXISTS frontier (
-    job_id INTEGER PRIMARY KEY,
-    snapshot_json TEXT NOT NULL,
-    saved_at REAL NOT NULL
-);
-"""
+          CREATE TABLE IF NOT EXISTS frontier
+          (
+              job_id
+              INTEGER
+              PRIMARY
+              KEY,
+              snapshot_json
+              TEXT
+              NOT
+              NULL,
+              saved_at
+              REAL
+              NOT
+              NULL
+          ); \
+          """
 
 
 class LocalOutbox:

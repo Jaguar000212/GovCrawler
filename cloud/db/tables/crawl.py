@@ -89,5 +89,3 @@ class JobCustomUrl(Base):
     __table_args__ = (
         UniqueConstraint("job_id", "url", name="uq_job_custom_url"),
     )
-
-

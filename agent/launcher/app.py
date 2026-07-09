@@ -19,9 +19,9 @@ from enum import Enum, auto
 from tkinter import messagebox, simpledialog, ttk
 
 from portal.paths import BROWSER_PATH, DATA_DIR, ICON_PATH
-from .. import identity, localdb
 from .notifications import notify
 from .tray import TrayController
+from .. import identity, localdb
 
 log = logging.getLogger(__name__)
 
@@ -272,7 +272,7 @@ class CrawlerLauncher:
         self.btn_download.config(state=tk.NORMAL if self.state == AppState.IDLE else tk.DISABLED)
 
         can_toggle = self.state in (AppState.IDLE, AppState.RUNNING) and (
-            self.state != AppState.IDLE or self._browsers_ok
+                self.state != AppState.IDLE or self._browsers_ok
         )
         self.btn_toggle.config(
             text="Start Server" if self.state == AppState.IDLE else "Stop Server",

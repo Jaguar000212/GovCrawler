@@ -1,8 +1,8 @@
 import datetime
 import json
 
-from ..tables.auth import AuditLog, Permission, Role, RolePermission, User, UserPermission, UserSession
 from shared.permissions import PERMISSIONS, ROLE_DEFAULTS
+from ..tables.auth import AuditLog, Permission, Role, RolePermission, User, UserPermission, UserSession
 from ...security.hashing import hash_password
 
 
@@ -37,13 +37,13 @@ class AuthMixin:
     # ── Users ─────────────────────────────────────────────────────────────────
 
     def create_user(
-        self,
-        email: str,
-        password: str,
-        full_name: str | None = None,
-        is_admin: bool = False,
-        role_name: str | None = None,
-        created_by: int | None = None,
+            self,
+            email: str,
+            password: str,
+            full_name: str | None = None,
+            is_admin: bool = False,
+            role_name: str | None = None,
+            created_by: int | None = None,
     ) -> int:
         email = email.strip().lower()
         with self._Session() as s:
@@ -226,12 +226,12 @@ class AuthMixin:
     # ── Sessions (refresh tokens) ─────────────────────────────────────────────
 
     def create_session(
-        self,
-        user_id: int,
-        refresh_token_hash: str,
-        expires_at: datetime.datetime,
-        user_agent: str | None = None,
-        ip: str | None = None,
+            self,
+            user_id: int,
+            refresh_token_hash: str,
+            expires_at: datetime.datetime,
+            user_agent: str | None = None,
+            ip: str | None = None,
     ) -> int:
         with self._Session() as s:
             session = UserSession(
@@ -284,13 +284,13 @@ class AuthMixin:
     # ── Audit ─────────────────────────────────────────────────────────────────
 
     def write_audit(
-        self,
-        user_id: int | None,
-        action: str,
-        target_type: str | None = None,
-        target_id: str | None = None,
-        detail: dict | None = None,
-        ip: str | None = None,
+            self,
+            user_id: int | None,
+            action: str,
+            target_type: str | None = None,
+            target_id: str | None = None,
+            detail: dict | None = None,
+            ip: str | None = None,
     ):
         with self._Session() as s:
             s.add(
@@ -306,13 +306,13 @@ class AuthMixin:
             s.commit()
 
     def list_audit_log(
-        self,
-        user_id: int | None = None,
-        action_prefix: str | None = None,
-        date_from: datetime.datetime | None = None,
-        date_to: datetime.datetime | None = None,
-        page: int = 1,
-        limit: int = 50,
+            self,
+            user_id: int | None = None,
+            action_prefix: str | None = None,
+            date_from: datetime.datetime | None = None,
+            date_to: datetime.datetime | None = None,
+            page: int = 1,
+            limit: int = 50,
     ) -> tuple[list[dict], int]:
         with self._Session() as s:
             q = s.query(AuditLog)

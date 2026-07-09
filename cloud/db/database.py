@@ -3,6 +3,8 @@ from pathlib import Path
 from sqlalchemy import create_engine, inspect as sa_inspect, text
 from sqlalchemy.orm import sessionmaker
 
+from portal.paths import LIVE_CONFIG_PATH
+from shared.scoring import DEFAULT_WEIGHTS, compute_lead_score
 from .base import Base
 from .migrations import run_migrations
 from .mixins.app_settings_mixin import AppSettingsMixin
@@ -13,8 +15,6 @@ from .mixins.job_mixin import JobMixin
 from .mixins.lead_mixin import LeadMixin
 from .mixins.outreach_mixin import OutreachMixin
 from ..security.crypto import ensure_credential_enc_key
-from portal.paths import LIVE_CONFIG_PATH
-from shared.scoring import DEFAULT_WEIGHTS, compute_lead_score
 
 log = logging.getLogger(__name__)
 

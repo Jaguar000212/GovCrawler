@@ -53,12 +53,12 @@ least one usable credential, flips the campaign to **RUNNING**, and queues selec
    by **credential id** and shared across all campaigns, so different credentials send back-to-back while the
    same one is rate-limited.
 4. `_send_one_email` via `aiosmtplib`. Outcomes:
-   - **success** → `SENT`;
-   - **hard bounce** (550/553, recipients refused) → add to `blacklist` + `FAILED`;
-   - **rate limit** (421/450/451) → 1 h cooldown on the credential, retry;
-   - **auth failure** → `disable_credential`, retry (email not marked failed);
-   - **connect/OS/timeout** → 15 min cooldown, retry;
-   - **no usable credential** → campaign auto-**PAUSED** with a `pause_reason`.
+    - **success** → `SENT`;
+    - **hard bounce** (550/553, recipients refused) → add to `blacklist` + `FAILED`;
+    - **rate limit** (421/450/451) → 1 h cooldown on the credential, retry;
+    - **auth failure** → `disable_credential`, retry (email not marked failed);
+    - **connect/OS/timeout** → 15 min cooldown, retry;
+    - **no usable credential** → campaign auto-**PAUSED** with a `pause_reason`.
 
 Completion flips the campaign to **COMPLETED**, or back to **PAUSED** if deselected drafts remain.
 

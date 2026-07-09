@@ -36,7 +36,8 @@
         </button>
         {% if user is defined and user and user.can('jobs.view_all') %}
         <button class="btn-secondary btn-sm" data-cloud-admin-url="{{ cloud_admin_url or '' }}"
-                onclick="openAdminPortal(this)" title="Opens the cloud's admin dashboard in a new tab — requires its own login">
+                onclick="openAdminPortal(this)"
+                title="Opens the cloud's admin dashboard in a new tab — requires its own login">
             🛡️ Admin Portal ↗
         </button>
         {% endif %}
@@ -335,6 +336,7 @@
             window.location.href = "/login";
         }
     }
+
     function openAdminPortal(btn) {
         // This template is only ever rendered by the agent's own BFF — the
         // admin dashboard itself never renders here (plan.md §19.1 Phase 9

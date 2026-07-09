@@ -9,16 +9,16 @@ what THIS machine is doing. `GET /api/logs` also moves here: the operator's
 own crawl log is more useful locally than the VPS's server log (still
 reachable only from the cloud-hosted admin dashboard)."""
 
-import logging
 import httpx
+import logging
 from fastapi import APIRouter, Depends
 
+from portal.paths import LOG_FILE_PATH
 from . import security
 from .local_auth import _cloud_base_url
 from .. import api as agent_api
 from .. import identity, state
 from ..cloud_client import request_with_retry
-from portal.paths import LOG_FILE_PATH
 
 log = logging.getLogger(__name__)
 
