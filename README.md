@@ -1,6 +1,7 @@
 # GovCrawler
 
 ![CI](https://github.com/Jaguar000212/GovCrawler/actions/workflows/ci.yaml/badge.svg)
+![Release](https://img.shields.io/github/v/release/Jaguar000212/GovCrawler)
 
 A multi-user platform for discovering, crawling, and extracting contact data from Indian government domains
 (`.gov.in`, `.nic.in`), with an email-outreach system on top of the harvested leads. It pairs a direct API
