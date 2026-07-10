@@ -910,7 +910,7 @@ async function fetchJobLeads() {
 // ── Recent jobs sidebar ───────────────────────────────────────────────────────
 async function loadRecentJobs(limit = 6) {
     try {
-        const jobs = await apiFetch(`/api/jobs?limit=${limit}`);
+        const {jobs} = await apiFetch(`/api/jobs?limit=${limit}`);
         const el = document.getElementById('jobs-list');
         if (!el) return;
         if (!jobs.length) {

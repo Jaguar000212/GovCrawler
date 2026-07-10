@@ -75,7 +75,7 @@ def _get_admin_activity(db: Database) -> dict:
     for campaign in campaigns:
         campaign["stats"] = db.get_campaign_stats(campaign["id"])
 
-    recent_jobs = db.list_jobs(limit=5, view_all=True)
+    recent_jobs, _ = db.list_jobs(limit=5, view_all=True)
     recent_campaigns, _ = db.list_campaigns(limit=5, view_all=True)
 
     return {

@@ -193,13 +193,17 @@ class JobMixin:
             j = q.first()
             return self._job_dict(j) if j else None
 
-    def list_jobs(self, limit: int = 20, owner_id: int | None = None, view_all: bool = False) -> list[dict]:
+    def list_jobs(
+        self, limit: int = 20, page: int = 1, owner_id: int | None = None, view_all: bool = False
+    ) -> tuple[list[dict], int]:
         with self._Session() as s:
             q = s.query(CrawlJob)
             if not view_all:
                 q = q.filter(CrawlJob.owner_id == owner_id)
-            rows = q.order_by(CrawlJob.created_at.desc()).limit(limit).all()
-            return [self._job_dict(j) for j in rows]
+            total = q.count()
+            offset = (page - 1) * limit
+            rows = q.order_by(CrawlJob.created_at.desc()).offset(offset).limit(limit).all()
+            return [self._job_dict(j) for j in rows], total
 
     def get_running_jobs(self) -> list[dict]:
         """DB-backed, org-wide — the cloud process never runs a crawl engine

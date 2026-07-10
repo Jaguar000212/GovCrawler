@@ -228,7 +228,7 @@ async function loadLeadsFilters() {
         // Populate Job multi-select dropdown
         createMsDropdown('leads-job-msdropdown', {allLabel: 'All Jobs', onChange: onLeadsJobFilterChange});
         try {
-            const jobs = await apiFetch('/api/jobs?limit=100');
+            const {jobs} = await apiFetch('/api/jobs?limit=100');
             const options = jobs.map(j => {
                 const date = j.created_at ? j.created_at.slice(0, 10) : '';
                 const leadCount = (j.leads_found ?? 0).toLocaleString();

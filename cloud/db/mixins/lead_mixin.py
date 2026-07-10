@@ -420,6 +420,75 @@ class LeadMixin:
             )
             return [r[0] for r in q.all()]
 
+    def _build_export_query(
+        self,
+        s,
+        job_ids: list[int] | None = None,
+        categories: list[str] = None,
+        states: list[str] = None,
+        search: str = None,
+        lead_ids: list[int] = None,
+        complete_only: bool = False,
+        min_score: int | None = None,
+        org_types: list[str] = None,
+        entry_type: str = "both",
+        require_name: bool = False,
+        require_designation: bool = False,
+        require_phone: bool = False,
+    ):
+        q = s.query(
+            Lead,
+            CrawlSnapshot.title.label("domain_title"),
+            CrawlSnapshot.category_code,
+            CrawlSnapshot.category_title,
+            CrawlSnapshot.state.label("snap_state"),
+            CrawlSnapshot.org_type_title,
+            CrawlSnapshot.source_domain_id,
+        ).outerjoin(CrawlSnapshot, Lead.snapshot_id == CrawlSnapshot.id)
+        if lead_ids:
+            q = q.filter(Lead.id.in_(lead_ids))
+        else:
+            q = self._apply_lead_filters(
+                q,
+                job_ids,
+                categories,
+                states,
+                search,
+                complete_only,
+                min_score,
+                org_types=org_types,
+                entry_type=entry_type,
+                require_name=require_name,
+                require_designation=require_designation,
+                require_phone=require_phone,
+            )
+        # source_domain_id (via the snapshot) groups the same org together
+        # across jobs; snapshot_id would split it per-job. Manual leads
+        # (no snapshot) sort after, grouped by nothing in particular.
+        return q.order_by(CrawlSnapshot.source_domain_id, Lead.captured_at)
+
+    @staticmethod
+    def _export_row_dict(lead, dt, cc, ct, snap_state, ot) -> dict:
+        return {
+            "email": lead.email,
+            "person_name": lead.person_name or "",
+            "designation": lead.designation or "",
+            "department": lead.department or "",
+            "domain_title": dt or "",
+            "domain_state": (lead.manual_state if lead.channel_tag == "manual" else (snap_state or UNKNOWN)) or "",
+            "domain_org_type": ot or "",
+            "category_title": ct or cc or "",
+            "source_url": lead.source_url or "",
+            "source_title": lead.source_title or "",
+            "context_snippet": lead.context_snippet or "",
+            "confidence_band": lead.confidence_band or "",
+            "field_provenance": lead.field_provenance or "",
+            "phone": lead.phone or "",
+            "lead_score": lead.lead_score or 0,
+            "depth": lead.depth or 0,
+            "captured_at": lead.captured_at.isoformat() if lead.captured_at else "",
+        }
+
     def get_all_leads_for_export(
         self,
         job_ids: list[int] | None = None,
@@ -436,59 +505,61 @@ class LeadMixin:
         require_phone: bool = False,
     ) -> list[dict]:
         with self._Session() as s:
-            q = s.query(
-                Lead,
-                CrawlSnapshot.title.label("domain_title"),
-                CrawlSnapshot.category_code,
-                CrawlSnapshot.category_title,
-                CrawlSnapshot.state.label("snap_state"),
-                CrawlSnapshot.org_type_title,
-                CrawlSnapshot.source_domain_id,
-            ).outerjoin(CrawlSnapshot, Lead.snapshot_id == CrawlSnapshot.id)
-            if lead_ids:
-                q = q.filter(Lead.id.in_(lead_ids))
-            else:
-                q = self._apply_lead_filters(
-                    q,
-                    job_ids,
-                    categories,
-                    states,
-                    search,
-                    complete_only,
-                    min_score,
-                    org_types=org_types,
-                    entry_type=entry_type,
-                    require_name=require_name,
-                    require_designation=require_designation,
-                    require_phone=require_phone,
-                )
-            # source_domain_id (via the snapshot) groups the same org together
-            # across jobs; snapshot_id would split it per-job. Manual leads
-            # (no snapshot) sort after, grouped by nothing in particular.
-            rows = q.order_by(CrawlSnapshot.source_domain_id, Lead.captured_at).all()
-            return [
-                {
-                    "email": lead.email,
-                    "person_name": lead.person_name or "",
-                    "designation": lead.designation or "",
-                    "department": lead.department or "",
-                    "domain_title": dt or "",
-                    "domain_state": (lead.manual_state if lead.channel_tag == "manual" else (snap_state or UNKNOWN))
-                    or "",
-                    "domain_org_type": ot or "",
-                    "category_title": ct or cc or "",
-                    "source_url": lead.source_url or "",
-                    "source_title": lead.source_title or "",
-                    "context_snippet": lead.context_snippet or "",
-                    "confidence_band": lead.confidence_band or "",
-                    "field_provenance": lead.field_provenance or "",
-                    "phone": lead.phone or "",
-                    "lead_score": lead.lead_score or 0,
-                    "depth": lead.depth or 0,
-                    "captured_at": lead.captured_at.isoformat() if lead.captured_at else "",
-                }
-                for lead, dt, cc, ct, snap_state, ot, _sdi in rows
-            ]
+            q = self._build_export_query(
+                s,
+                job_ids,
+                categories,
+                states,
+                search,
+                lead_ids,
+                complete_only,
+                min_score,
+                org_types,
+                entry_type,
+                require_name,
+                require_designation,
+                require_phone,
+            )
+            return [self._export_row_dict(lead, dt, cc, ct, snap_state, ot) for lead, dt, cc, ct, snap_state, ot, _sdi in q.all()]
+
+    def iter_leads_for_export(
+        self,
+        job_ids: list[int] | None = None,
+        categories: list[str] = None,
+        states: list[str] = None,
+        search: str = None,
+        lead_ids: list[int] = None,
+        complete_only: bool = False,
+        min_score: int | None = None,
+        org_types: list[str] = None,
+        entry_type: str = "both",
+        require_name: bool = False,
+        require_designation: bool = False,
+        require_phone: bool = False,
+        batch_size: int = 500,
+    ):
+        """Same filtering/output shape as get_all_leads_for_export, but yields
+        rows one at a time via a server-side cursor (yield_per) instead of
+        loading the whole result set into memory — for CSV export, which is
+        unbounded (the whole shared lead pool, no page/limit)."""
+        with self._Session() as s:
+            q = self._build_export_query(
+                s,
+                job_ids,
+                categories,
+                states,
+                search,
+                lead_ids,
+                complete_only,
+                min_score,
+                org_types,
+                entry_type,
+                require_name,
+                require_designation,
+                require_phone,
+            )
+            for lead, dt, cc, ct, snap_state, ot, _sdi in q.yield_per(batch_size):
+                yield self._export_row_dict(lead, dt, cc, ct, snap_state, ot)
 
     def _unattributed_count(self, s, job_ids: list[int] | None = None) -> int:
         q = s.query(func.count(Lead.id)).filter(_unattributed_predicate())
@@ -628,8 +699,23 @@ class LeadMixin:
                     lead_score=lead_score,
                     depth=0,
                 )
-                s.add(lead)
-                s.flush()  # assign lead.id for the occurrence row below
+                try:
+                    with s.begin_nested():
+                        s.add(lead)
+                        s.flush()  # assign lead.id for the occurrence row below
+                except IntegrityError:
+                    # Another session inserted this email concurrently between
+                    # our existence check and this insert (email is now a
+                    # global-unique column — see 0028 migration) — skip rather
+                    # than fail the whole batch; a later upload retries it.
+                    skipped.append(
+                        {
+                            "row": row.get("row"),
+                            "email": row["email"],
+                            "reason": "email inserted concurrently by another job",
+                        }
+                    )
+                    continue
                 self._record_occurrence_nested(s, lead.id, job_id, "manual-csv-upload", captured_by)
                 imported += 1
             s.commit()

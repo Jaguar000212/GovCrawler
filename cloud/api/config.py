@@ -10,6 +10,7 @@ to the frontend — the wire shape is unchanged either way:
 """
 
 import copy
+import os
 import yaml
 from fastapi import APIRouter, BackgroundTasks, Depends, Request
 
@@ -85,7 +86,8 @@ async def save_config(
     db: Database = Depends(get_db),
     user: CurrentUser = Depends(require("settings.manage")),
 ):
-    # ── Machine-local (config.yaml) ─────────────────────────────────────────
+    # ── Machine-local (config.yaml) — built here, written after app_settings
+    # below succeeds (see that section's comment for why the order matters).
     cfg = copy.deepcopy(c)
 
     local_int_keys = {"workers", "per_url_timeout", "playwright_timeout"}
@@ -101,10 +103,6 @@ async def save_config(
     for k in local_bool_keys:
         if k in body:
             cfg["crawler"][k] = bool(body[k])
-
-    c.update(cfg)
-    with open(config_path, "w") as f:
-        yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
     # ── Policy (app_settings) ────────────────────────────────────────────────
     policy = copy.deepcopy(db.get_crawl_policy())
@@ -178,7 +176,19 @@ async def save_config(
     if "pagination_max_chain_children" in body:
         pagination["max_chain_children"] = int(body["pagination_max_chain_children"])
 
+    # DB write first: it's transactional (all-or-nothing). Only once it has
+    # durably succeeded do we touch the yaml file, and that write itself is
+    # atomic (temp file + os.replace) — so a crash mid-write can never leave
+    # config.yaml half-written/corrupt, and a failure here never leaves the
+    # two config backends disagreeing about which write "took".
     db.set_app_setting("crawl_policy", policy, updated_by=user.id)
+
+    tmp_path = config_path.with_name(config_path.name + ".tmp")
+    with open(tmp_path, "w") as f:
+        yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    os.replace(tmp_path, config_path)
+    c.update(cfg)
+
     db.write_audit(user.id, "settings.update", detail={"fields": sorted(body.keys())}, ip=client_ip(request))
 
     if weights != old_weights:
