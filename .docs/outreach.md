@@ -13,8 +13,10 @@ the SMTP send loop is `cloud/api/dispatcher.py`, run either in-process or by the
   leads) or `test` (dummy recipients). Owned by its creator; visible to others only with `campaigns.view_all`.
 - **Campaign email** (`campaign_emails`) — one rendered draft per recipient, with a lifecycle status and an
   `is_selected` flag.
-- **Credential** (`smtp_credentials`) — an SMTP account. The password is Fernet-encrypted at rest and
-  decrypted only in the dispatcher. Port 465 → implicit TLS, 587 → STARTTLS.
+- **Credential** (`smtp_credentials`) — an SMTP account, `provider` `basic` (password) or
+  `microsoft`/`google` (OAuth2/XOAUTH2). The password/refresh/access tokens are all Fernet-encrypted
+  at rest and decrypted only in the dispatcher. Port 465 → implicit TLS, 587 → STARTTLS. See
+  [OAuth2 SMTP credentials](#oauth2-smtp-credentials-microsoftgoogle) below.
 
 ## Templates
 
@@ -90,3 +92,62 @@ unimplemented). The email check is also case-sensitive at the comparison site (`
 mitigated only because `save_lead` lowercases emails on write. Fix pending. Credentials expose health (sent/failed totals, sent-today) and honor `daily_send_limit` — a
 credential at its limit is excluded from the pool. `POST /api/credentials/{id}/test` does a live connect +
 login and auto-activates on success / disables on failure.
+
+## OAuth2 SMTP credentials (Microsoft/Google)
+
+Exchange Online (and Gmail, years earlier) dropped SMTP AUTH with a plain password — sending through
+those mailboxes needs OAuth2 (Authorization Code + PKCE) instead. `smtp_credentials.provider` is
+`basic` (unchanged — username + Fernet-encrypted password), `microsoft`, or `google`; the latter two
+carry Fernet-encrypted `refresh_token`/`access_token` + `token_expires_at` instead of a password.
+
+**One consent per mailbox, no tenant-admin consent required** — the Microsoft app is registered
+multi-tenant + personal accounts (`common` endpoint), so mailboxes across different organizations
+(or personal outlook.com/hotmail addresses) each just sign in once, individually.
+
+**Connect flow** (`frontend/agent/templates/settings.html`'s SMTP Credentials tab):
+
+1. Create the credential with `provider: microsoft|google`, host/port pre-filled
+   (`smtp.office365.com:587` / `smtp.gmail.com:587`), no password.
+2. Click **Connect via Microsoft/Google** — `POST /api/credentials/{id}/oauth/start` returns an
+   `authorize_url` (built by `cloud/security/oauth.py`'s authlib wrapper, PKCE state persisted in
+   `oauth_pending_flows`); the frontend opens it in a new tab.
+3. Sign in and consent on Microsoft's/Google's own page — this tab never touches the agent or cloud.
+4. The provider redirects the browser directly to the cloud's public
+   `GET /oauth/callback/{provider}` (bare, unauthenticated — mirrors `auth.router`'s callback-style
+   mounting; the state param, not a session, ties it back to the credential). The cloud exchanges the
+   code for tokens, stores them, flips the credential active, and shows a plain "Connected" page.
+5. Back in Settings, click Refresh — the credential now shows **Connected**.
+
+**Sending**: `cloud/api/dispatcher.py:_send_one_email` and `POST /api/credentials/{id}/test` both
+branch on `provider`. Non-`basic` credentials call `cloud/security/oauth.get_valid_access_token()`
+(refreshes if `token_expires_at` is within 60s, persisting the new pair via
+`Database.update_credential_tokens`) then `aiosmtplib.SMTP.auth_xoauth2()` — aiosmtplib's native
+XOAUTH2 support (added in 5.1.0) in place of `smtp.login()`. A revoked-consent/expired-refresh-token
+failure (`OAuthTokenError`) is caught everywhere `SMTPAuthenticationError` already was, so it disables
+the credential and retries exactly like a wrong password does.
+
+**One-time setup** (per deployment, not per credential):
+
+- **Azure AD** — register a public client app (no client secret). Supported account types:
+  "Accounts in any organizational directory and personal Microsoft accounts". Redirect URI (platform
+  "Web"): `{oauth.redirect_base_url}/oauth/callback/microsoft`.
+  API permissions: **API permissions → Add a permission → APIs my organization uses** tab, search
+  the exact string **"Office 365 Exchange Online"** (searching "Exchange" alone often returns
+  nothing; if it still doesn't show, search by its GUID
+  `00000002-0000-0ff1-ce00-000000000000` — if that also comes up empty, the tenant likely has no
+  Exchange Online plan associated) → **Delegated permissions** (not Application permissions — that's
+  the client-credentials/app-only flow this project doesn't use) → `SMTP.Send` → Add permissions,
+  then **Grant admin consent**. `offline_access` is a standard OIDC scope, not something you add
+  here — it's requested automatically by the authorize URL.
+  **Do not** use the `SMTP.Send` permission listed under *Microsoft Graph* — same name, different
+  resource/audience (`graph.microsoft.com` vs `outlook.office365.com`); a Graph-scoped token is
+  rejected by the SMTP server. Put the resulting client id in `oauth.microsoft.client_id`
+  (`OAUTH_MS_CLIENT_ID`).
+- **Google Cloud** — enable the Gmail API, create an OAuth client of type **Web application** (not
+  Desktop — this is a confidential server-side exchange with a fixed redirect URI and a real
+  `client_secret` kept only in `config.yaml`/env). Redirect URI:
+  `{oauth.redirect_base_url}/oauth/callback/google`. Scope: `https://mail.google.com/`. Put the
+  resulting client id/secret in `oauth.google.client_id`/`client_secret`
+  (`OAUTH_GOOGLE_CLIENT_ID`/`OAUTH_GOOGLE_CLIENT_SECRET`).
+
+See [configuration.md](configuration.md#oauth) for where these values live.

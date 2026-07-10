@@ -344,33 +344,33 @@ class LeadMixin:
             return (
                 [
                     {
-                        "id": l.id,
-                        "email": l.email,
-                        "person_name": l.person_name,
-                        "designation": l.designation,
-                        "department": l.department,
-                        "source_url": l.source_url,
-                        "source_title": l.source_title,
-                        "context_snippet": l.context_snippet,
+                        "id": lead.id,
+                        "email": lead.email,
+                        "person_name": lead.person_name,
+                        "designation": lead.designation,
+                        "department": lead.department,
+                        "source_url": lead.source_url,
+                        "source_title": lead.source_title,
+                        "context_snippet": lead.context_snippet,
                         "domain_title": dt,
                         "category_code": cc,
                         # display-only: manual leads show manual_state; a crawled
                         # lead shows its snapshot's frozen state, or "Unknown" if
                         # source_url couldn't be attributed to any catalog domain
                         # (never falls through to manual_state — see WI-5).
-                        "domain_state": l.manual_state if l.channel_tag == "manual" else (snap_state or UNKNOWN),
+                        "domain_state": lead.manual_state if lead.channel_tag == "manual" else (snap_state or UNKNOWN),
                         "domain_org_type": ot,
-                        "manual_state": l.manual_state,
-                        "is_manual": l.channel_tag == "manual",
-                        "confidence_band": l.confidence_band,
-                        "field_provenance": l.field_provenance,
-                        "channel_tag": l.channel_tag,
-                        "phone": l.phone,
-                        "lead_score": l.lead_score or 0,
-                        "depth": l.depth or 0,
-                        "captured_at": l.captured_at.isoformat() if l.captured_at else None,
+                        "manual_state": lead.manual_state,
+                        "is_manual": lead.channel_tag == "manual",
+                        "confidence_band": lead.confidence_band,
+                        "field_provenance": lead.field_provenance,
+                        "channel_tag": lead.channel_tag,
+                        "phone": lead.phone,
+                        "lead_score": lead.lead_score or 0,
+                        "depth": lead.depth or 0,
+                        "captured_at": lead.captured_at.isoformat() if lead.captured_at else None,
                     }
-                    for l, dt, cc, snap_state, ot in rows
+                    for lead, dt, cc, snap_state, ot in rows
                 ],
                 total,
             )
@@ -455,25 +455,25 @@ class LeadMixin:
             rows = q.order_by(CrawlSnapshot.source_domain_id, Lead.captured_at).all()
             return [
                 {
-                    "email": l.email,
-                    "person_name": l.person_name or "",
-                    "designation": l.designation or "",
-                    "department": l.department or "",
+                    "email": lead.email,
+                    "person_name": lead.person_name or "",
+                    "designation": lead.designation or "",
+                    "department": lead.department or "",
                     "domain_title": dt or "",
-                    "domain_state": (l.manual_state if l.channel_tag == "manual" else (snap_state or UNKNOWN)) or "",
+                    "domain_state": (lead.manual_state if lead.channel_tag == "manual" else (snap_state or UNKNOWN)) or "",
                     "domain_org_type": ot or "",
                     "category_title": ct or cc or "",
-                    "source_url": l.source_url or "",
-                    "source_title": l.source_title or "",
-                    "context_snippet": l.context_snippet or "",
-                    "confidence_band": l.confidence_band or "",
-                    "field_provenance": l.field_provenance or "",
-                    "phone": l.phone or "",
-                    "lead_score": l.lead_score or 0,
-                    "depth": l.depth or 0,
-                    "captured_at": l.captured_at.isoformat() if l.captured_at else "",
+                    "source_url": lead.source_url or "",
+                    "source_title": lead.source_title or "",
+                    "context_snippet": lead.context_snippet or "",
+                    "confidence_band": lead.confidence_band or "",
+                    "field_provenance": lead.field_provenance or "",
+                    "phone": lead.phone or "",
+                    "lead_score": lead.lead_score or 0,
+                    "depth": lead.depth or 0,
+                    "captured_at": lead.captured_at.isoformat() if lead.captured_at else "",
                 }
-                for l, dt, cc, ct, snap_state, ot, _sdi in rows
+                for lead, dt, cc, ct, snap_state, ot, _sdi in rows
             ]
 
     def _unattributed_count(self, s, job_ids: list[int] | None = None) -> int:
