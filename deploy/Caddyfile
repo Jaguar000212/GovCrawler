@@ -1,3 +1,19 @@
+# GovCrawler reverse proxy — Caddy 2
+#
+# TLS is controlled entirely by the DOMAIN env var (set in .env):
+#
+#   DOMAIN=app.yourorg.com   — Caddy auto-provisions a Let's Encrypt cert.
+#                              Needs a public DNS A record + ports 80/443 open.
+#
+#   DOMAIN=:80               — Plain HTTP on port 80. No cert, no redirect.
+#                              Use this for localhost testing (see override.yml)
+#                              or when TLS is terminated upstream.
+#
+# Org LAN with internal CA (no public internet):
+#   Set DOMAIN=govcrawler.internal and add `tls internal` inside the site block
+#   below, then run once: docker compose exec proxy caddy trust
+#   to install the Caddy root CA on org machines.
+
 {$DOMAIN} {
 	reverse_proxy api:8001
 }

@@ -1,4 +1,25 @@
+# Local-development overrides — automatically merged by `docker compose up`
+# when this file is present alongside docker-compose.yml.
+#
+# For production deploys, exclude this file explicitly:
+#   docker compose -f docker-compose.yml up -d
+#
+# What this adds locally:
+#   - api:18001   → direct HTTP access to the API, bypassing Caddy.
+#                   Use http://localhost:18001 in a browser or curl.
+#                   Port 18001 avoids colliding with the agent BFF on 8001.
+#   - db:5433     → direct Postgres access for psql / DBeaver / migration scripts.
+#   - DOMAIN=:80  → Caddy listens on plain HTTP at http://localhost (no cert needed).
+
 services:
   api:
     ports:
-      - "127.0.0.1:8001:8001"
+      - "127.0.0.1:18001:8001"
+
+  db:
+    ports:
+      - "127.0.0.1:5433:5432"
+
+  proxy:
+    environment:
+      DOMAIN: ":80"

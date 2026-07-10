@@ -3,6 +3,11 @@
 # no Playwright/Chromium, no agent/ code. Crawling only ever happens on an
 # operator's own machine via the agent's standalone BFF (agent/bff/app.py,
 # a PyInstaller build — see GovCrawler.spec), never inside this container.
+#
+# No config.yaml is baked into the image — portal/config.py's _CLOUD_DEFAULTS
+# provide the full baseline; all security-sensitive values (DATABASE_URL*,
+# JWT_SECRET, CREDENTIAL_ENC_KEY, …) come in via env vars at runtime.
+# portal/paths.bootstrap() creates portal/data/ on first start.
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -16,9 +21,6 @@ COPY shared/ shared/
 COPY frontend/ frontend/
 COPY alembic/ alembic/
 COPY alembic.ini .
-COPY deploy/config.docker.yaml portal/config.yaml
-
-RUN mkdir -p portal/data
 
 ENV PYTHONUNBUFFERED=1
 

@@ -20,11 +20,11 @@ services:
       - wal_level=replica
       - -c
       - "archive_command=test ! -f /wal_archive/%f && cp %p /wal_archive/%f"
-    # Loopback-only, for running scripts/migrate_sqlite_to_pg.py from the host.
-    # Remove this once the one-time migration is done — nothing else needs it,
-    # migrate/api/proxy all reach `db` over the internal compose network.
-    ports:
-      - "127.0.0.1:5433:5432"
+    # No host-side port mapping — db is only reachable over the internal
+    # compose network (by migrate, api, dispatcher).  If you need to run
+    # scripts/migrate_sqlite_to_pg.py from the host, temporarily add:
+    #   ports: ["127.0.0.1:5433:5432"]
+    # and remove it again when done.
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U govcrawler" ]
       interval: 5s
@@ -58,22 +58,21 @@ services:
       CREDENTIAL_ENC_KEY: ${CREDENTIAL_ENC_KEY}
       CREDENTIAL_ENC_KEY_PREV: ${CREDENTIAL_ENC_KEY_PREV:-}
       DISPATCH_MODE: external
-      ADMIN_ORIGIN: https://${DOMAIN}
-      OAUTH_REDIRECT_BASE_URL: https://${DOMAIN}
+      COOKIE_SECURE: "true"
+      # Must be 0.0.0.0 so uvicorn binds all interfaces — 127.0.0.1 (the dev
+      # default) is loopback-only and Caddy can't reach it over Docker's network.
+      API_HOST: "0.0.0.0"
+      ADMIN_ORIGIN: ${ADMIN_ORIGIN:-https://${DOMAIN}}
+      OAUTH_REDIRECT_BASE_URL: ${OAUTH_REDIRECT_BASE_URL:-https://${DOMAIN}}
       OAUTH_MS_CLIENT_ID: ${OAUTH_MS_CLIENT_ID:-}
       OAUTH_GOOGLE_CLIENT_ID: ${OAUTH_GOOGLE_CLIENT_ID:-}
       OAUTH_GOOGLE_CLIENT_SECRET: ${OAUTH_GOOGLE_CLIENT_SECRET:-}
     expose:
       - "8001"
-    # Loopback-only, for local dev/test (server-manager-guide.md Part 1B Option 2) — lets an
-    # agent on the same machine reach the API directly over plain HTTP, bypassing Caddy. Caddy
-    # can't get a real cert for `localhost`/an IP (falls back to its own untrusted internal CA),
-    # so this is the practical way to rehearse the Docker stack without a real domain. Host port
-    # 18001, not 8001 — the agent's own local BFF (portal/default_agent_config.yaml) binds 8001
-    # on the same machine for this exact dev loop, so 8001 would collide. Remove this mapping for
-    # a real VPS deploy, where the proxy service is the only public entry point.
-    ports:
-      - "127.0.0.1:18001:8001"
+    # No host-side port mapping — the proxy service is the only entry point.
+    # For local dev/test on the same machine as the server, temporarily add:
+    #   ports: ["127.0.0.1:18001:8001"]
+    # (use 18001 to avoid colliding with the agent BFF on 8001).
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -94,7 +93,7 @@ services:
       DATABASE_URL_APP: ${DATABASE_URL_APP}
       CREDENTIAL_ENC_KEY: ${CREDENTIAL_ENC_KEY}
       CREDENTIAL_ENC_KEY_PREV: ${CREDENTIAL_ENC_KEY_PREV:-}
-      OAUTH_REDIRECT_BASE_URL: https://${DOMAIN}
+      OAUTH_REDIRECT_BASE_URL: ${OAUTH_REDIRECT_BASE_URL:-https://${DOMAIN}}
       OAUTH_MS_CLIENT_ID: ${OAUTH_MS_CLIENT_ID:-}
       OAUTH_GOOGLE_CLIENT_ID: ${OAUTH_GOOGLE_CLIENT_ID:-}
       OAUTH_GOOGLE_CLIENT_SECRET: ${OAUTH_GOOGLE_CLIENT_SECRET:-}
