@@ -36,6 +36,7 @@ from . import (
     jobs,
     leads,
     oauth,
+    roles,
     system,
     templates,
 )
@@ -177,6 +178,7 @@ def create_app(config_dict: dict, db: Database) -> FastAPI:
     # covers it) gap, closed incidentally while adding the permission-override
     # route here (plan.md §19.1 Phase 9 Part 2, 2.0).
     app.include_router(admin.router, dependencies=[Depends(get_current_user), Depends(verify_csrf)])
+    app.include_router(roles.router, dependencies=[Depends(get_current_user), Depends(verify_csrf)])
     app.include_router(audit.router, dependencies=[Depends(get_current_user), Depends(verify_csrf)])
     app.include_router(frontend.router)
     app.include_router(domains.router, dependencies=[Depends(get_current_user), Depends(verify_csrf)])

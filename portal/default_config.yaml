@@ -183,6 +183,8 @@ auth:
   cookie_secure: false
   lockout_threshold: 5
   lockout_minutes: 15
+  login_rate_limit_attempts: 20
+  login_rate_limit_window_minutes: 15
 dispatch:
   mode: embedded  # embedded (default, desktop/dev) | external (VPS: separate dispatcher process)
 oauth:

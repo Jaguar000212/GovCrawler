@@ -28,6 +28,27 @@ class ApiError extends Error {
     }
 }
 
+// A 401 means the session is gone (expired, or the account was disabled/
+// deactivated mid-session — see cloud/api/auth.py's revoke_session_family).
+// Centralized here, not left to each call site's catch block: most poll
+// loops across the app (dashboard filters, job/import status polling) only
+// console.error() their failures, so without this a killed session just
+// spins silently forever instead of sending the operator back to /login.
+// Guarded so concurrent failures (a poll storm all 401-ing at once) only
+// trigger one toast + one redirect.
+let _sessionExpiredHandled = false;
+
+function handleSessionExpired() {
+    if (_sessionExpiredHandled) return;
+    _sessionExpiredHandled = true;
+    if (typeof showToast === 'function') {
+        showToast('Your session has expired — please log in again.', {type: 'error'});
+    }
+    setTimeout(() => {
+        window.location.href = '/login';
+    }, 1200);
+}
+
 // Every backend error response is guaranteed a string `detail` (see
 // cloud/api/server.py's RequestValidationError/Exception handlers and
 // agent/bff/app.py's equivalents) — agent/bff/proxy.py additionally sets
@@ -50,6 +71,7 @@ async function apiFetch(url, opts = {}) {
         } catch {
             // Non-JSON error body — keep the statusText fallback.
         }
+        if (r.status === 401) handleSessionExpired();
         throw new ApiError(r.status, code, detail);
     }
     if (r.status === 204) return null;

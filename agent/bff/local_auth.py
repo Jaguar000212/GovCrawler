@@ -14,6 +14,7 @@ from fastapi.responses import RedirectResponse
 
 from . import security
 from .. import identity, localdb
+from ..cloud_client import request_with_retry
 
 log = logging.getLogger(__name__)
 
@@ -29,6 +30,17 @@ def _cloud_base_url() -> str:
     return url
 
 
+def _relay_error_detail(r: httpx.Response) -> str:
+    """Pulls the cloud's `detail` string out of a non-2xx relayed response
+    instead of passing the raw JSON body text straight through as our own
+    `detail` — otherwise it gets double-JSON-encoded (e.g. the browser ends
+    up showing the literal text `{"detail":"Account is disabled"}`)."""
+    try:
+        return r.json().get("detail", r.text)
+    except ValueError:
+        return r.text
+
+
 @router.post("/auth/login", dependencies=[Depends(security.verify_trusted_host)])
 async def login(body: dict, response: Response):
     """Straight relay: forwards {email, password} to the cloud's real
@@ -40,7 +52,7 @@ async def login(body: dict, response: Response):
     async with httpx.AsyncClient(base_url=cloud_url, timeout=15) as http:
         r = await http.post("/auth/login", json=body)
     if r.status_code != 200:
-        raise HTTPException(status_code=r.status_code, detail=r.text)
+        raise HTTPException(status_code=r.status_code, detail=_relay_error_detail(r))
     data = r.json()
     user = data["user"]
 
@@ -49,7 +61,7 @@ async def login(body: dict, response: Response):
         user["email"], data["access_token"], cloud_url, permissions=user["permissions"], is_admin=user["is_admin"]
     )
     security.set_local_session_cookies(response)
-    return data
+    return {"user": user}
 
 
 @router.get("/local-bootstrap")
@@ -78,3 +90,55 @@ async def logout(response: Response):
 async def me():
     ctx = identity.get_operator_context()
     return {"email": ctx.email, "is_admin": ctx.is_admin, "permissions": sorted(ctx.permissions)}
+
+
+# ── Self-service session management (relayed to the cloud) ──────────────────
+# Not covered by proxy.py's generic reverse proxy (that one's scoped to
+# /api/* only) — these three hand-relay the same way /auth/login above does,
+# using the standing operator token (request_with_retry) instead of a bare
+# httpx call, since these calls need to be authenticated as the operator.
+
+
+@router.get("/auth/sessions", dependencies=[Depends(security.require_local_session)])
+async def list_sessions():
+    cloud_url = _cloud_base_url()
+    refresh_token = identity.get_current_refresh_token()
+    cookies = {"refresh": refresh_token} if refresh_token else {}
+    async with httpx.AsyncClient(base_url=cloud_url, timeout=15) as http:
+        r = await request_with_retry(
+            "GET", http, "/auth/sessions", identity.get_valid_token, identity.refresh, cookies=cookies
+        )
+    if r.status_code != 200:
+        raise HTTPException(status_code=r.status_code, detail=_relay_error_detail(r))
+    return r.json()
+
+
+@router.delete("/auth/sessions/{session_id}", dependencies=[Depends(security.verify_local_csrf)])
+async def revoke_session(session_id: int):
+    cloud_url = _cloud_base_url()
+    async with httpx.AsyncClient(base_url=cloud_url, timeout=15) as http:
+        r = await request_with_retry(
+            "DELETE", http, f"/auth/sessions/{session_id}", identity.get_valid_token, identity.refresh
+        )
+    if r.status_code >= 400:
+        raise HTTPException(status_code=r.status_code, detail=_relay_error_detail(r))
+    return r.json()
+
+
+@router.post("/auth/sessions/revoke-others", dependencies=[Depends(security.verify_local_csrf)])
+async def revoke_other_sessions():
+    cloud_url = _cloud_base_url()
+    refresh_token = identity.get_current_refresh_token()
+    cookies = {"refresh": refresh_token} if refresh_token else {}
+    async with httpx.AsyncClient(base_url=cloud_url, timeout=15) as http:
+        r = await request_with_retry(
+            "POST",
+            http,
+            "/auth/sessions/revoke-others",
+            identity.get_valid_token,
+            identity.refresh,
+            cookies=cookies,
+        )
+    if r.status_code >= 400:
+        raise HTTPException(status_code=r.status_code, detail=_relay_error_detail(r))
+    return r.json()

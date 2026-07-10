@@ -45,6 +45,9 @@
         <a class="btn-icon" href="/user-guide"
            style="font-size:15px; text-decoration:none; padding:5px 10px; color:var(--text);"
            title="User Guide">?</a>
+        <button class="btn-secondary btn-sm" onclick="openSessionsModal()" title="Manage your active sessions">🔑
+            Sessions
+        </button>
         <button class="btn-secondary btn-sm" onclick="logout()" title="Log out">⎋ Logout</button>
     </div>
 </header>
@@ -324,8 +327,24 @@
     </div>
 </div>
 
+<!-- My Sessions Modal -->
+<div class="modal-overlay" id="modal-sessions" style="display:none;">
+    <div class="modal modal-lg">
+        <h3>My Sessions</h3>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">
+            Every device currently signed in as you. Revoke a session to sign it out immediately.
+        </p>
+        <div id="sessions-list" style="display:flex; flex-direction:column; gap:4px; max-height:50vh; overflow-y:auto;"></div>
+        <div class="modal-actions">
+            <button class="btn-secondary" onclick="revokeOtherSessions()">Sign out other sessions</button>
+            <button class="btn-secondary" onclick="closeSessionsModal()">Close</button>
+        </div>
+    </div>
+</div>
+
 <script src="/assets/js/http.js"></script>
 <script src="/assets/js/toast.js"></script>
+<script src="/assets/js/sessions.js"></script>
 <script src="/static/js/base.js"></script>
 {% block extra_scripts %}{% endblock %}
 <script>

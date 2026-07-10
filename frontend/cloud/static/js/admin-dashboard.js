@@ -208,11 +208,11 @@ async function openPermissionsModal(userId, email) {
     grid.innerHTML = Object.keys(_permissionsCatalog).sort().map(key => {
         const current = overrideByKey[key] || 'inherit';
         return `<div style="display:flex; align-items:center; justify-content:space-between; gap:12px; border-bottom:1px solid var(--border, #30363d); padding:6px 0;">
-            <div>
+            <div style="flex:1; min-width:0;">
                 <div style="font-size:13px;">${esc(key)}</div>
                 <div style="font-size:11px; color:var(--muted);">${esc(_permissionsCatalog[key])}</div>
             </div>
-            <select onchange="setPermissionOverride(${userId}, '${key}', this.value)" style="font-size:12px;">
+            <select onchange="setPermissionOverride(${userId}, '${key}', this.value)" style="font-size:12px; width:160px; flex-shrink:0;">
                 <option value="inherit" ${current === 'inherit' ? 'selected' : ''}>Inherited from role</option>
                 <option value="grant" ${current === 'grant' ? 'selected' : ''}>Granted</option>
                 <option value="deny" ${current === 'deny' ? 'selected' : ''}>Denied</option>
@@ -296,7 +296,10 @@ function auditRowHtml(e) {
     </tr>`;
 }
 
-// ── Roles (read-only — built-in roles have no create/edit backend) ─────────
+// ── Roles ─────────────────────────────────────────────────────────────────
+
+let _rolesCache = [];
+let _editingRoleId = null;
 
 async function loadRoles() {
     const grid = document.getElementById('ad-roles-grid');
@@ -309,6 +312,13 @@ async function loadRoles() {
     } catch (e) {
         grid.innerHTML = '<div class="empty-state">Failed to load roles.</div>';
         return;
+    }
+    _rolesCache = roles;
+    _permissionsCatalog = permissions;
+
+    const tbody = document.getElementById('ad-roles-tbody');
+    if (tbody) {
+        tbody.innerHTML = roles.map(roleRowHtml).join('') || '<tr><td colspan="4">No roles</td></tr>';
     }
 
     const permKeys = Object.keys(permissions).sort();
@@ -327,6 +337,120 @@ async function loadRoles() {
     });
     html += '</div>';
     grid.innerHTML = html;
+}
+
+function roleRowHtml(role) {
+    const typeBadge = role.is_system
+        ? '<span class="badge badge-muted">Built-in</span>'
+        : '<span class="badge badge-green">Custom</span>';
+    const editDelete = role.is_system
+        ? ''
+        : `<button class="btn-secondary btn-sm" onclick="openEditRoleModal(${role.id})">Edit</button>
+           <button class="btn-danger btn-sm" onclick="deleteRole(${role.id}, '${esc(role.name)}')">Delete</button>`;
+    return `<tr>
+        <td>${esc(role.name)}</td>
+        <td>${esc(role.description || '')}</td>
+        <td style="text-align:center">${typeBadge}</td>
+        <td style="white-space:nowrap;">
+            <button class="btn-secondary btn-sm" onclick="cloneRole(${role.id}, '${esc(role.name)}')">Clone</button>
+            ${editDelete}
+        </td>
+    </tr>`;
+}
+
+function _renderRolePermissionsGrid(checkedKeys) {
+    const grid = document.getElementById('role-permissions-grid');
+    const checked = new Set(checkedKeys || []);
+    grid.innerHTML = Object.keys(_permissionsCatalog || {}).sort().map(key => `
+        <label style="display:flex; align-items:center; gap:8px; font-size:12px; border-bottom:1px solid var(--border, #30363d); padding:4px 0;">
+            <input type="checkbox" class="role-perm-checkbox" value="${esc(key)}" ${checked.has(key) ? 'checked' : ''}>
+            <span>${esc(key)} <span style="color:var(--muted);">— ${esc(_permissionsCatalog[key])}</span></span>
+        </label>
+    `).join('');
+}
+
+function openNewRoleModal() {
+    _editingRoleId = null;
+    document.getElementById('role-modal-title').textContent = 'New Role';
+    document.getElementById('role-name').value = '';
+    document.getElementById('role-name').disabled = false;
+    document.getElementById('role-description').value = '';
+    _renderRolePermissionsGrid([]);
+    document.getElementById('modal-role').style.display = 'flex';
+}
+
+function openEditRoleModal(roleId) {
+    const role = _rolesCache.find(r => r.id === roleId);
+    if (!role) return;
+    _editingRoleId = roleId;
+    document.getElementById('role-modal-title').textContent = `Edit Role — ${role.name}`;
+    document.getElementById('role-name').value = role.name;
+    document.getElementById('role-name').disabled = true;
+    document.getElementById('role-description').value = role.description || '';
+    _renderRolePermissionsGrid(role.permissions);
+    document.getElementById('modal-role').style.display = 'flex';
+}
+
+function closeRoleModal() {
+    document.getElementById('modal-role').style.display = 'none';
+}
+
+async function submitRoleModal() {
+    const permissions = Array.from(document.querySelectorAll('.role-perm-checkbox:checked')).map(el => el.value);
+    const description = document.getElementById('role-description').value.trim() || null;
+    try {
+        if (_editingRoleId === null) {
+            const name = document.getElementById('role-name').value.trim();
+            if (!name) {
+                showToast('Role name is required.', {type: 'warning'});
+                return;
+            }
+            await apiFetch('/api/admin/roles', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name, description, permissions}),
+            });
+            showToast('Role created.', {type: 'success'});
+        } else {
+            await apiFetch(`/api/admin/roles/${_editingRoleId}`, {
+                method: 'PATCH',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({description, permissions}),
+            });
+            showToast('Role updated.', {type: 'success'});
+        }
+        closeRoleModal();
+        loadRoles();
+    } catch (e) {
+        showApiError(e);
+    }
+}
+
+async function cloneRole(roleId, sourceName) {
+    const name = prompt('Name for the cloned role:', `${sourceName} copy`);
+    if (!name) return;
+    try {
+        await apiFetch(`/api/admin/roles/${roleId}/clone`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name}),
+        });
+        showToast('Role cloned.', {type: 'success'});
+        loadRoles();
+    } catch (e) {
+        showApiError(e);
+    }
+}
+
+async function deleteRole(roleId, name) {
+    if (!confirm(`Delete role "${name}"? This cannot be undone.`)) return;
+    try {
+        await apiFetch(`/api/admin/roles/${roleId}`, {method: 'DELETE'});
+        showToast('Role deleted.', {type: 'success'});
+        loadRoles();
+    } catch (e) {
+        showApiError(e);
+    }
 }
 
 // ── System / health ──────────────────────────────────────────────────────────

@@ -3,13 +3,21 @@ password, permission overrides, list roles) plus the audit log reader. See
 .docs/authentication.md and .docs/api-reference.md."""
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from shared.permissions import PERMISSIONS
-from .deps import CurrentUser, get_db, require
+from .deps import CurrentUser, client_ip, get_db, require
 from ..db import Database
 
 router = APIRouter(tags=["admin"], dependencies=[Depends(require("users.manage"))])
+
+_MIN_PASSWORD_LENGTH = 8
+
+
+def _validate_password_strength(v: str) -> str:
+    if len(v) < _MIN_PASSWORD_LENGTH:
+        raise ValueError(f"Password must be at least {_MIN_PASSWORD_LENGTH} characters")
+    return v
 
 
 class UserCreate(BaseModel):
@@ -18,6 +26,8 @@ class UserCreate(BaseModel):
     full_name: str | None = None
     role: str | None = None
     is_admin: bool = False
+
+    _validate_password = field_validator("password")(_validate_password_strength)
 
 
 class UserPatch(BaseModel):
@@ -28,13 +38,11 @@ class UserPatch(BaseModel):
 class PasswordReset(BaseModel):
     password: str
 
+    _validate_password = field_validator("password")(_validate_password_strength)
+
 
 class PermissionOverrideSet(BaseModel):
     effect: str | None = None  # "grant" | "deny" | None (None clears the override)
-
-
-def _client_ip(request: Request) -> str | None:
-    return request.client.host if request.client else None
 
 
 @router.get("/api/admin/users")
@@ -76,7 +84,7 @@ async def create_user(
         role_name=req.role,
         created_by=user.id,
     )
-    db.write_audit(user.id, "user.create", "user", user_id, ip=_client_ip(request))
+    db.write_audit(user.id, "user.create", "user", user_id, ip=client_ip(request))
     return {"id": user_id, "message": "User created"}
 
 
@@ -88,16 +96,22 @@ async def patch_user(
     db: Database = Depends(get_db),
     user: CurrentUser = Depends(require("users.manage")),
 ):
+    if req.is_active is False:
+        target = db.get_user_by_id(user_id)
+        if not target:
+            raise HTTPException(status_code=404, detail="User not found")
+        if target["is_admin"] and target["is_active"] and db.count_active_admins() <= 1:
+            raise HTTPException(status_code=409, detail="Cannot deactivate the last remaining admin account")
     if req.is_active is not None:
         if not db.set_user_active(user_id, req.is_active):
             raise HTTPException(status_code=404, detail="User not found")
         db.write_audit(
-            user.id, "user.set_active", "user", user_id, detail={"is_active": req.is_active}, ip=_client_ip(request)
+            user.id, "user.set_active", "user", user_id, detail={"is_active": req.is_active}, ip=client_ip(request)
         )
     if req.role is not None:
         if not db.set_user_role(user_id, req.role):
             raise HTTPException(status_code=404, detail="User or role not found")
-        db.write_audit(user.id, "user.set_role", "user", user_id, detail={"role": req.role}, ip=_client_ip(request))
+        db.write_audit(user.id, "user.set_role", "user", user_id, detail={"role": req.role}, ip=client_ip(request))
     return {"message": "User updated"}
 
 
@@ -111,7 +125,7 @@ async def reset_password(
 ):
     if not db.set_password(user_id, req.password):
         raise HTTPException(status_code=404, detail="User not found")
-    db.write_audit(user.id, "user.reset_password", "user", user_id, ip=_client_ip(request))
+    db.write_audit(user.id, "user.reset_password", "user", user_id, ip=client_ip(request))
     return {"message": "Password reset"}
 
 
@@ -126,8 +140,9 @@ async def set_user_permission(
 ):
     """Grant/deny/clear a single permission override on top of the target
     user's role bundle (`shared.permissions.PERMISSIONS` is the whole
-    catalog — role edits aren't supported, only per-user overrides, per
-    plan.md §19.1 Phase 9 Part 2)."""
+    catalog). Role bundles themselves can be edited via cloud/api/roles.py
+    (gated by `roles.manage`) — this endpoint is for per-user exceptions on
+    top of whatever role a user is assigned."""
     if permission_key not in PERMISSIONS:
         raise HTTPException(status_code=404, detail=f"Unknown permission: {permission_key}")
     if req.effect is not None and req.effect not in ("grant", "deny"):
@@ -140,7 +155,7 @@ async def set_user_permission(
         "user",
         user_id,
         detail={"permission_key": permission_key, "effect": req.effect},
-        ip=_client_ip(request),
+        ip=client_ip(request),
     )
     return {"message": "Permission override updated"}
 

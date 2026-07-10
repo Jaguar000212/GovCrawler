@@ -3,21 +3,44 @@
 import datetime
 import logging
 import secrets
+import time
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from shared.schemas.auth import LoginRequest, RefreshRequest, TokenResponse, UserOut
-from .deps import CurrentUser, get_config, get_current_user, get_db
+from .deps import CurrentUser, client_ip, get_config, get_current_user, get_db, verify_csrf
 from ..db import Database, User
-from ..security.hashing import verify_password
+from ..security.hashing import DUMMY_PASSWORD_HASH, verify_password
 from ..security.jwt import create_access_token, generate_refresh_token, hash_refresh_token
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["auth"])
 
+# ── Login rate limiting ──────────────────────────────────────────────────────
+# Per-IP sliding window over failed attempts only (mirrors the per-account
+# lockout_threshold/lockout_minutes design so legitimate repeated correct
+# logins are never punished). In-memory is safe here — this app always runs
+# as a single process (see CLAUDE.md "Deployment reality").
+_failed_login_attempts: dict[str, list[float]] = {}
 
-def _client_ip(request: Request) -> str | None:
-    return request.client.host if request.client else None
+
+def _check_login_rate_limit(ip: str | None, config: dict) -> None:
+    if not ip:
+        return
+    auth_cfg = config["auth"]
+    limit = auth_cfg.get("login_rate_limit_attempts", 20)
+    window_seconds = auth_cfg.get("login_rate_limit_window_minutes", 15) * 60
+    now = time.monotonic()
+    attempts = [t for t in _failed_login_attempts.get(ip, []) if now - t < window_seconds]
+    _failed_login_attempts[ip] = attempts
+    if len(attempts) >= limit:
+        raise HTTPException(status_code=429, detail="Too many login attempts from this network. Try again later.")
+
+
+def _record_login_failure_for_rate_limit(ip: str | None) -> None:
+    if not ip:
+        return
+    _failed_login_attempts.setdefault(ip, []).append(time.monotonic())
 
 
 def _set_auth_cookies(response: Response, access_token: str, refresh_token: str, config: dict):
@@ -67,7 +90,7 @@ def _issue_tokens(db: Database, user: dict, config: dict, request: Request) -> t
         refresh_token_hash=hash_refresh_token(refresh_token),
         expires_at=expires_at,
         user_agent=request.headers.get("User-Agent"),
-        ip=_client_ip(request),
+        ip=client_ip(request),
     )
     return access_token, refresh_token
 
@@ -93,8 +116,15 @@ async def login(
     db: Database = Depends(get_db),
     config: dict = Depends(get_config),
 ):
+    ip = client_ip(request)
+    _check_login_rate_limit(ip, config)
+
     user = db.get_user_by_email(req.email)
     if not user:
+        # Pay the same argon2 cost a wrong-password attempt would, so response
+        # timing can't be used to enumerate which emails have accounts.
+        verify_password(DUMMY_PASSWORD_HASH, req.password)
+        _record_login_failure_for_rate_limit(ip)
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     if user["locked_until"] and user["locked_until"] > datetime.datetime.utcnow():
@@ -108,13 +138,14 @@ async def login(
 
     if not verify_password(password_hash, req.password):
         db.record_login_failure(user["id"], config["auth"]["lockout_threshold"], config["auth"]["lockout_minutes"])
-        db.write_audit(user["id"], "user.login_failed", "user", user["id"], ip=_client_ip(request))
+        db.write_audit(user["id"], "user.login_failed", "user", user["id"], ip=ip)
+        _record_login_failure_for_rate_limit(ip)
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     db.record_login_success(user["id"])
     access_token, refresh_token = _issue_tokens(db, user, config, request)
     _set_auth_cookies(response, access_token, refresh_token, config)
-    db.write_audit(user["id"], "user.login", "user", user["id"], ip=_client_ip(request))
+    db.write_audit(user["id"], "user.login", "user", user["id"], ip=ip)
 
     return TokenResponse(access_token=access_token, refresh_token=refresh_token, user=_user_out(db, user))
 
@@ -184,3 +215,55 @@ async def logout(
 async def me(user: CurrentUser = Depends(get_current_user), db: Database = Depends(get_db)):
     db_user = db.get_user_by_id(user.id)
     return _user_out(db, db_user)
+
+
+def _current_session_id(request: Request, db: Database) -> int | None:
+    presented = request.cookies.get("refresh")
+    if not presented:
+        return None
+    session = db.get_session_by_hash(hash_refresh_token(presented))
+    return session["id"] if session else None
+
+
+@router.get("/auth/sessions")
+async def list_sessions(
+    request: Request, user: CurrentUser = Depends(get_current_user), db: Database = Depends(get_db)
+):
+    """Self-service session list for the logged-in user — powers the "My
+    Sessions" panel in both frontends' headers."""
+    current_id = _current_session_id(request, db)
+    sessions = db.list_active_sessions(user.id)
+    return [
+        {
+            "id": s["id"],
+            "user_agent": s["user_agent"],
+            "ip": s["ip"],
+            "created_at": s["created_at"],
+            "last_used_at": s["last_used_at"],
+            "expires_at": s["expires_at"],
+            "is_current": s["id"] == current_id,
+        }
+        for s in sessions
+    ]
+
+
+@router.delete("/auth/sessions/{session_id}", dependencies=[Depends(verify_csrf)])
+async def revoke_session(
+    session_id: int, user: CurrentUser = Depends(get_current_user), db: Database = Depends(get_db)
+):
+    session = db.get_session_by_id(session_id)
+    if not session or session["user_id"] != user.id:
+        raise HTTPException(status_code=404, detail="Session not found")
+    db.revoke_session(session_id)
+    db.write_audit(user.id, "user.session_revoke", "session", session_id)
+    return {"message": "Session revoked"}
+
+
+@router.post("/auth/sessions/revoke-others", dependencies=[Depends(verify_csrf)])
+async def revoke_other_sessions(
+    request: Request, user: CurrentUser = Depends(get_current_user), db: Database = Depends(get_db)
+):
+    current_id = _current_session_id(request, db)
+    count = db.revoke_sessions_except(user.id, keep_session_id=current_id)
+    db.write_audit(user.id, "user.session_revoke_others", "user", user.id, detail={"count": count})
+    return {"message": f"Revoked {count} other session(s)"}

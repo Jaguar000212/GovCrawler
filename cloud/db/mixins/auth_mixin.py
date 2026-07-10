@@ -101,7 +101,8 @@ class AuthMixin:
             user.password_hash = hash_password(password)
             user.token_version += 1
             s.commit()
-            return True
+        self.revoke_session_family(user_id)
+        return True
 
     def set_user_active(self, user_id: int, is_active: bool) -> bool:
         with self._Session() as s:
@@ -112,7 +113,13 @@ class AuthMixin:
             if not is_active:
                 user.token_version += 1
             s.commit()
-            return True
+        if not is_active:
+            self.revoke_session_family(user_id)
+        return True
+
+    def count_active_admins(self) -> int:
+        with self._Session() as s:
+            return s.query(User).filter_by(is_admin=True, is_active=True).count()
 
     def set_user_role(self, user_id: int, role_name: str | None) -> bool:
         with self._Session() as s:
@@ -196,6 +203,71 @@ class AuthMixin:
                 for r in roles
             ]
 
+    def get_role(self, role_id: int) -> dict | None:
+        with self._Session() as s:
+            role = s.query(Role).filter_by(id=role_id).first()
+            if not role:
+                return None
+            perms = sorted(p[0] for p in s.query(RolePermission.permission_key).filter_by(role_id=role_id).all())
+            return {
+                "id": role.id,
+                "name": role.name,
+                "description": role.description,
+                "is_system": role.is_system,
+                "permissions": perms,
+            }
+
+    def create_role(self, name: str, description: str | None, permission_keys: list[str]) -> int:
+        with self._Session() as s:
+            role = Role(name=name, description=description, is_system=False)
+            s.add(role)
+            s.flush()
+            for key in permission_keys:
+                s.add(RolePermission(role_id=role.id, permission_key=key))
+            s.commit()
+            return role.id
+
+    def update_role(self, role_id: int, description: str | None = None, permission_keys: list[str] | None = None):
+        """Returns True on success, False if the role doesn't exist, or raises
+        ValueError("system_role") if it's one of the built-in roles (Admin/
+        Operator/Viewer) — those stay fixed, per the `is_system` flag they were
+        seeded with."""
+        with self._Session() as s:
+            role = s.query(Role).filter_by(id=role_id).first()
+            if not role:
+                return False
+            if role.is_system:
+                raise ValueError("system_role")
+            if description is not None:
+                role.description = description
+            if permission_keys is not None:
+                s.query(RolePermission).filter_by(role_id=role_id).delete()
+                for key in permission_keys:
+                    s.add(RolePermission(role_id=role_id, permission_key=key))
+            s.commit()
+            return True
+
+    def role_in_use(self, role_id: int) -> bool:
+        with self._Session() as s:
+            return s.query(User.id).filter_by(role_id=role_id).first() is not None
+
+    def delete_role(self, role_id: int) -> bool:
+        """Returns True on success, False if the role doesn't exist, or raises
+        ValueError("system_role") / ValueError("in_use") when deletion is
+        refused."""
+        with self._Session() as s:
+            role = s.query(Role).filter_by(id=role_id).first()
+            if not role:
+                return False
+            if role.is_system:
+                raise ValueError("system_role")
+            if s.query(User.id).filter_by(role_id=role_id).first() is not None:
+                raise ValueError("in_use")
+            s.query(RolePermission).filter_by(role_id=role_id).delete()
+            s.delete(role)
+            s.commit()
+            return True
+
     # ── Per-user permission overrides ────────────────────────────────────────
 
     def set_user_permission_override(self, user_id: int, permission_key: str, effect: str | None) -> bool:
@@ -257,6 +329,41 @@ class AuthMixin:
                 "revoked_at": session.revoked_at,
             }
 
+    def get_session_by_id(self, session_id: int) -> dict | None:
+        with self._Session() as s:
+            session = s.query(UserSession).filter_by(id=session_id).first()
+            if not session:
+                return None
+            return {
+                "id": session.id,
+                "user_id": session.user_id,
+                "refresh_token_hash": session.refresh_token_hash,
+                "expires_at": session.expires_at,
+                "revoked_at": session.revoked_at,
+            }
+
+    def list_active_sessions(self, user_id: int) -> list[dict]:
+        with self._Session() as s:
+            sessions = (
+                s.query(UserSession)
+                .filter_by(user_id=user_id, revoked_at=None)
+                .filter(UserSession.expires_at > datetime.datetime.utcnow())
+                .order_by(UserSession.created_at.desc())
+                .all()
+            )
+            return [
+                {
+                    "id": sess.id,
+                    "refresh_token_hash": sess.refresh_token_hash,
+                    "user_agent": sess.user_agent,
+                    "ip": sess.ip,
+                    "created_at": sess.created_at,
+                    "last_used_at": sess.last_used_at,
+                    "expires_at": sess.expires_at,
+                }
+                for sess in sessions
+            ]
+
     def rotate_session(self, session_id: int, new_refresh_token_hash: str, new_expires_at: datetime.datetime):
         with self._Session() as s:
             session = s.query(UserSession).filter_by(id=session_id).first()
@@ -273,13 +380,21 @@ class AuthMixin:
                 session.revoked_at = datetime.datetime.utcnow()
                 s.commit()
 
-    def revoke_session_family(self, user_id: int):
-        """Reuse-detection response: revoke every session for this user."""
+    def revoke_sessions_except(self, user_id: int, keep_session_id: int | None = None) -> int:
+        """Bulk-revokes every live session for this user, optionally sparing
+        `keep_session_id`. Returns the number of sessions revoked."""
         with self._Session() as s:
-            s.query(UserSession).filter_by(user_id=user_id, revoked_at=None).update(
-                {"revoked_at": datetime.datetime.utcnow()}
-            )
+            q = s.query(UserSession).filter_by(user_id=user_id, revoked_at=None)
+            if keep_session_id is not None:
+                q = q.filter(UserSession.id != keep_session_id)
+            count = q.update({"revoked_at": datetime.datetime.utcnow()}, synchronize_session=False)
             s.commit()
+            return count
+
+    def revoke_session_family(self, user_id: int):
+        """Reuse-detection response (and password reset / deactivation):
+        revoke every session for this user."""
+        self.revoke_sessions_except(user_id)
 
     # ── Audit ─────────────────────────────────────────────────────────────────
 

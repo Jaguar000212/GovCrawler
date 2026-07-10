@@ -86,10 +86,30 @@
         <div class="settings-tab" id="tab-roles" style="display:none;">
             <div class="tab-header">
                 <h2>Roles</h2>
-                <div style="font-size:13px; color:var(--muted);">Built-in roles are fixed — grant or deny individual
-                    permissions per user from the Users tab instead.
-                </div>
+                {% if user.can('roles.manage') %}
+                <button class="btn-primary btn-sm" onclick="openNewRoleModal()">+ New Role</button>
+                {% endif %}
             </div>
+            <div style="font-size:13px; color:var(--muted); margin-bottom:12px;">Built-in roles (Admin, Operator,
+                Viewer) are fixed. Custom roles can be created, edited, cloned, or deleted here; per-user overrides
+                are still available from the Users tab.
+            </div>
+            {% if user.can('roles.manage') %}
+            <div class="table-wrap" style="margin-bottom:20px;">
+                <table>
+                    <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Description</th>
+                        <th style="text-align:center">Type</th>
+                        <th></th>
+                    </tr>
+                    </thead>
+                    <tbody id="ad-roles-tbody"></tbody>
+                </table>
+            </div>
+            {% endif %}
+            <div class="section-label">Permission overview</div>
             <div class="table-wrap" id="ad-roles-grid">
                 <div class="empty-state">Loading...</div>
             </div>
@@ -164,20 +184,31 @@
 <div class="modal-overlay" id="modal-new-user" style="display:none;">
     <div class="modal">
         <h3>New User</h3>
-        <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:16px;">
-            <label>Email<input id="nu-email" type="email"></label>
-            <label>Password<input id="nu-password" type="password"></label>
-            <label>Full name<input id="nu-full-name" type="text"></label>
-            <label>Role
-                <select id="nu-role">
-                    <option value="">— none —</option>
-                    <option value="Admin">Admin</option>
-                    <option value="Operator">Operator</option>
-                    <option value="Viewer">Viewer</option>
-                </select>
-            </label>
-            <label><input id="nu-is-admin" type="checkbox"> Super Admin (bypasses every permission check — distinct
-                from the "Admin" role above, which is just a permission bundle)</label>
+        <div class="form-group">
+            <label for="nu-email">Email</label>
+            <input id="nu-email" type="email">
+        </div>
+        <div class="form-group">
+            <label for="nu-password">Password</label>
+            <input id="nu-password" type="password">
+        </div>
+        <div class="form-group">
+            <label for="nu-full-name">Full name</label>
+            <input id="nu-full-name" type="text">
+        </div>
+        <div class="form-group">
+            <label for="nu-role">Role</label>
+            <select id="nu-role">
+                <option value="">— none —</option>
+                <option value="Admin">Admin</option>
+                <option value="Operator">Operator</option>
+                <option value="Viewer">Viewer</option>
+            </select>
+        </div>
+        <div class="form-group checkbox-group">
+            <input id="nu-is-admin" type="checkbox">
+            <label for="nu-is-admin" style="text-transform:none; letter-spacing:normal;">Super Admin (bypasses every
+                permission check — distinct from the "Admin" role above, which is just a permission bundle)</label>
         </div>
         <div class="modal-actions">
             <button class="btn-secondary" onclick="closeNewUserModal()">Cancel</button>
@@ -197,6 +228,27 @@
              style="display:flex; flex-direction:column; gap:6px; max-height:50vh; overflow-y:auto;"></div>
         <div class="modal-actions">
             <button class="btn-secondary" onclick="closePermissionsModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- New/Edit Role Modal -->
+<div class="modal-overlay" id="modal-role" style="display:none;">
+    <div class="modal modal-lg">
+        <h3 id="role-modal-title">New Role</h3>
+        <div class="form-group">
+            <label for="role-name">Name</label>
+            <input id="role-name" type="text">
+        </div>
+        <div class="form-group">
+            <label for="role-description">Description</label>
+            <input id="role-description" type="text">
+        </div>
+        <div id="role-permissions-grid"
+             style="display:flex; flex-direction:column; gap:4px; max-height:40vh; overflow-y:auto; margin-bottom:12px;"></div>
+        <div class="modal-actions">
+            <button class="btn-secondary" onclick="closeRoleModal()">Cancel</button>
+            <button class="btn-primary" onclick="submitRoleModal()">Save</button>
         </div>
     </div>
 </div>

@@ -166,7 +166,13 @@ def forbid_unless_owner(owner_id: int | None, user: CurrentUser, *, allow: str |
 
 
 def client_ip(request: Request) -> str | None:
-    """Shared by every router that writes an audit_log row."""
+    """Shared by every router that writes an audit_log row. Prefers
+    X-Forwarded-For (set by the Caddy reverse proxy in front of the cloud
+    tier — see deploy/Caddyfile) over the proxied connection's own address,
+    falling back to it when the header is absent (e.g. direct/dev access)."""
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
     return request.client.host if request.client else None
 
 
