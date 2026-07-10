@@ -460,7 +460,8 @@ class LeadMixin:
                     "designation": lead.designation or "",
                     "department": lead.department or "",
                     "domain_title": dt or "",
-                    "domain_state": (lead.manual_state if lead.channel_tag == "manual" else (snap_state or UNKNOWN)) or "",
+                    "domain_state": (lead.manual_state if lead.channel_tag == "manual" else (snap_state or UNKNOWN))
+                    or "",
                     "domain_org_type": ot or "",
                     "category_title": ct or cc or "",
                     "source_url": lead.source_url or "",
