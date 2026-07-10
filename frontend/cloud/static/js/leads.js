@@ -214,7 +214,7 @@ async function loadLeadsFilters() {
             // No view_all param needed — GET /api/jobs derives it server-side
             // from the caller's jobs.view_all permission, which every user who
             // can reach this admin page already holds.
-            const jobs = await apiFetch('/api/jobs?limit=100');
+            const {jobs} = await apiFetch('/api/jobs?limit=100');
             const options = jobs.map(j => {
                 const date = j.created_at ? j.created_at.slice(0, 10) : '';
                 const leadCount = (j.leads_found ?? 0).toLocaleString();

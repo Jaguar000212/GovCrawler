@@ -25,7 +25,7 @@ class Lead(Base):
     lead_score = Column(Integer, nullable=False, default=0)
     depth = Column(Integer, nullable=False, default=0)
     captured_at = Column(DateTime, default=datetime.datetime.utcnow)
-    __table_args__ = (UniqueConstraint("job_id", "email", name="uq_lead_job_email"),)
+    __table_args__ = (UniqueConstraint("email", name="uq_lead_email"),)
 
 
 class LeadOccurrence(Base):

@@ -3,6 +3,7 @@
 
 import csv
 import io
+from itertools import chain
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -159,7 +160,7 @@ async def export_leads(
     db: Database = Depends(get_db),
     user: CurrentUser = Depends(require("leads.export")),
 ):
-    rows = db.get_all_leads_for_export(
+    row_iter = db.iter_leads_for_export(
         job_ids=req.job_ids,
         categories=req.categories,
         states=req.states,
@@ -173,10 +174,9 @@ async def export_leads(
         require_designation=req.require_designation,
         require_phone=req.require_phone,
     )
-    if not rows:
+    first_row = next(row_iter, None)
+    if first_row is None:
         raise HTTPException(status_code=404, detail="No leads for this job")
-
-    db.write_audit(user.id, "lead.export", detail={"count": len(rows)}, ip=client_ip(request))
 
     # Keep only the requested fields (email always included), preserving canonical order
     if req.fields:
@@ -185,14 +185,22 @@ async def export_leads(
     else:
         fieldnames = _ALL_EXPORT_FIELDS
 
-    output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction="ignore")
-    writer.writeheader()
-    writer.writerows(rows)
-    output.seek(0)
+    def _stream():
+        count = 0
+        buf = io.StringIO()
+        writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        for row in chain((first_row,), row_iter):
+            writer.writerow(row)
+            count += 1
+            chunk = buf.getvalue()
+            buf.seek(0)
+            buf.truncate(0)
+            yield chunk
+        db.write_audit(user.id, "lead.export", detail={"count": count}, ip=client_ip(request))
 
     return StreamingResponse(
-        iter([output.getvalue()]),
+        _stream(),
         media_type="text/csv",
         headers={"Content-Disposition": 'attachment; filename="leads_export.csv"'},
     )

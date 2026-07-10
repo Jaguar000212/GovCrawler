@@ -273,4 +273,7 @@ _bmad-output/
 .claude
 docs/
 CLAUDE.md
+CLAUDE.local.md
 deploy/wal_archive/*
+BRANCH_PLAN_fable_58.md
+PLAN_attribution_and_parser.md

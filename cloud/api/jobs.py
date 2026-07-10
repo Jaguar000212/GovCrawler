@@ -44,9 +44,13 @@ def _normalize_custom_urls(urls: list[str], max_urls: int) -> list[str]:
 
 @router.get("/api/jobs")
 async def list_jobs(
-    limit: int = Query(20, ge=1, le=100), db: Database = Depends(get_db), user: CurrentUser = Depends(get_current_user)
+    limit: int = Query(20, ge=1, le=100),
+    page: int = Query(1, ge=1),
+    db: Database = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
 ):
-    return db.list_jobs(limit=limit, owner_id=user.id, view_all=user.can("jobs.view_all"))
+    jobs, total = db.list_jobs(limit=limit, page=page, owner_id=user.id, view_all=user.can("jobs.view_all"))
+    return {"jobs": jobs, "total": total}
 
 
 @router.get("/api/jobs/{job_id}")
