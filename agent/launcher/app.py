@@ -29,6 +29,21 @@ _KEYRING_SERVICE = "govcrawler"
 _KEYRING_LAST_EMAIL_KEY = "_last_email"
 
 
+def _friendly_http_error(e: Exception) -> str:
+    """Extracts the server's `detail` message from an HTTPStatusError body
+    instead of surfacing httpx's verbose repr (status line + a link to the
+    MDN status-code docs) — mirrors frontend/shared/static/js/http.js's
+    friendlyMessage() intent for the launcher's own dialogs."""
+    if isinstance(e, httpx.HTTPStatusError):
+        try:
+            detail = e.response.json().get("detail")
+            if detail:
+                return str(detail)
+        except ValueError:
+            pass
+    return str(e)
+
+
 def browsers_installed() -> bool:
     """Heuristic check: has Playwright already installed a chromium build under
     BROWSER_PATH? Checks for the chromium-<rev> folder rather than a specific
@@ -174,6 +189,14 @@ class CrawlerLauncher:
         url = self._cloud_base_url()
         threading.Thread(target=self._check_cloud_health_task, args=(url,), daemon=True).start()
 
+    def _retry_cloud_health(self):
+        """Manual re-check from the ⟳ button — resets to the neutral
+        "Checking…" state immediately so the click feels responsive instead
+        of leaving a stale "Unreachable" reading up until the next poll."""
+        self.cloud_status_dot.config(foreground="#808080")
+        self.cloud_status_lbl.config(text="Checking…", foreground="#808080")
+        self._check_cloud_health_now()
+
     def _check_cloud_health_task(self, url: str):
         try:
             resp = httpx.get(f"{url}/healthz", timeout=5)
@@ -215,8 +238,14 @@ class CrawlerLauncher:
         self.cloud_status_dot.pack(side="left", padx=(0, 6))
         self.cloud_url_lbl = ttk.Label(cloud_url_row, text=self._cloud_base_url(), wraplength=280)
         self.cloud_url_lbl.pack(side="left", fill="x", expand=True)
-        self.cloud_status_lbl = ttk.Label(cloud_frame, text="Checking…", foreground="#808080")
-        self.cloud_status_lbl.pack(anchor="w", padx=10, pady=(0, 4))
+        cloud_status_row = ttk.Frame(cloud_frame)
+        cloud_status_row.pack(fill="x", padx=10, pady=(0, 4))
+        self.cloud_status_lbl = ttk.Label(cloud_status_row, text="Checking…", foreground="#808080")
+        self.cloud_status_lbl.pack(side="left")
+        self.btn_retry_cloud_health = ttk.Button(
+            cloud_status_row, text="⟳", width=2, style="Toolbutton", command=self._retry_cloud_health
+        )
+        self.btn_retry_cloud_health.pack(side="left", padx=(6, 0))
         self.btn_change_cloud_url = ttk.Button(cloud_frame, text="Change…", command=self.change_cloud_url)
         self.btn_change_cloud_url.pack(anchor="w", padx=10, pady=(0, 2))
         ttk.Label(
@@ -334,7 +363,7 @@ class CrawlerLauncher:
                 data = resp.json()
                 self.root.after(0, on_done, data, None)
             except Exception as e:
-                self.root.after(0, on_done, None, e)
+                self.root.after(0, on_done, None, _friendly_http_error(e))
 
         threading.Thread(target=task, daemon=True).start()
 
@@ -360,7 +389,7 @@ class CrawlerLauncher:
             )
             return True
         except Exception as e:
-            log.warning(f"Token refresh failed: {e}")
+            log.warning(f"Token refresh failed: {_friendly_http_error(e)}")
             return False
 
     # --- ACTION: Download Browsers ------------------------------------------
@@ -494,7 +523,7 @@ class CrawlerLauncher:
             data = resp.json()
             self.root.after(0, self._on_login_success, email, data)
         except Exception as e:
-            self.root.after(0, self._on_login_failed, str(e))
+            self.root.after(0, self._on_login_failed, _friendly_http_error(e))
 
     def _on_login_success(self, email: str, data: dict):
         self._access_token = data["access_token"]

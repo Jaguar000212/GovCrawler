@@ -25,6 +25,17 @@ _state = {
 _lock = asyncio.Lock()
 
 
+class SessionExpiredError(Exception):
+    """Raised by refresh() when the cloud rejects the refresh token itself —
+    expired, or revoked server-side (a password reset or deactivation calls
+    revoke_session_family, see cloud/api/auth.py). Distinct from a plain
+    httpx.HTTPStatusError so every caller (agent/api.py's job routes,
+    agent/bff/proxy.py's generic proxy, local_auth.py, local_system.py) can
+    catch one exception type and surface a clean "log in again" instead of
+    each hand-rolling status-code parsing, or worse, letting it bubble up
+    as a raw 500."""
+
+
 class OperatorContext:
     """Duck-typed to match cloud.api.deps.CurrentUser's `.can()` method, so
     the same Jinja templates (`{% if user.can(...) %}`) render unchanged
@@ -78,6 +89,19 @@ def has_session() -> bool:
     return _state["access_token"] is not None
 
 
+def get_current_refresh_token() -> str | None:
+    """The refresh token backing this standing session, straight from the
+    keyring. Needed so a relayed /auth/sessions call can tell the cloud which
+    session is "this device" — the cloud identifies the caller's own session
+    via the `refresh` cookie (see cloud/api/auth.py's _current_session_id),
+    which the agent doesn't have since it holds the token in keyring instead
+    of a browser cookie."""
+    email = _state["email"]
+    if not email:
+        return None
+    return keyring.get_password(_KEYRING_SERVICE, email)
+
+
 def get_operator_context() -> OperatorContext:
     if not has_session():
         raise RuntimeError("No operator session — the launcher hasn't logged in yet")
@@ -121,16 +145,29 @@ async def refresh() -> str:
     already proves, just async and usable from a background crawl task that
     outlives any one browser request or Tk-thread call. The response's
     embedded `user` also carries fresh effective permissions — no separate
-    /auth/me round trip needed to keep the cached permission set current."""
+    /auth/me round trip needed to keep the cached permission set current.
+
+    Raises SessionExpiredError (never a raw HTTPStatusError) whenever the
+    refresh token itself is unusable — missing, or rejected by the cloud —
+    so callers get one exception type to catch instead of an uncaught 401
+    from /auth/refresh surfacing as a generic 500."""
     async with _lock:
         email, base_url = _state["email"], _state["base_url"]
         if not email or not base_url:
-            raise RuntimeError("No operator session — the launcher hasn't logged in yet")
+            raise SessionExpiredError("No operator session — please log in again.")
         refresh_token = keyring.get_password(_KEYRING_SERVICE, email)
         if not refresh_token:
-            raise RuntimeError("No refresh token in keyring — operator must log in again")
+            clear_session()
+            raise SessionExpiredError("No refresh token found — please log in again.")
         async with httpx.AsyncClient(base_url=base_url, timeout=10) as http:
             r = await http.post("/auth/refresh", json={"refresh_token": refresh_token})
+            if r.status_code == 401:
+                clear_session()
+                try:
+                    keyring.delete_password(_KEYRING_SERVICE, email)
+                except PasswordDeleteError:
+                    pass
+                raise SessionExpiredError("Your session has expired — please log in again.")
             r.raise_for_status()
             data = r.json()
         _state["access_token"] = data["access_token"]

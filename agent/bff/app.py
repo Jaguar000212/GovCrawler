@@ -21,6 +21,7 @@ from . import local_auth, local_system, pages, proxy, security
 from .proxy import CloudUnreachableError
 from .. import api as agent_api
 from .. import state
+from ..identity import SessionExpiredError
 
 log = logging.getLogger(__name__)
 
@@ -52,6 +53,16 @@ def create_app(config: dict) -> FastAPI:
     @app.exception_handler(CloudUnreachableError)
     async def _cloud_unreachable_handler(request: Request, exc: CloudUnreachableError):
         return JSONResponse(status_code=502, content={"detail": exc.message, "code": "cloud_unreachable"})
+
+    # Raised by identity.refresh() whenever the operator's refresh token is
+    # rejected (expired, or revoked by a password reset/deactivation) —
+    # without this, an uncaught 401 from /auth/refresh inside proxy.py's
+    # generic reverse proxy (or local_auth.py's session relays, or
+    # local_system.py) would surface as a raw 500 instead of a clean
+    # "log in again", per shared/static/js/http.js's 401 handling.
+    @app.exception_handler(SessionExpiredError)
+    async def _session_expired_handler(request: Request, exc: SessionExpiredError):
+        return JSONResponse(status_code=401, content={"detail": str(exc), "code": "session_expired"})
 
     # Every error response is guaranteed a plain-string `detail` — see
     # cloud/api/server.py's identical handlers and shared/errors.py.

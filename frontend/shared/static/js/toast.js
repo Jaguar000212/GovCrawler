@@ -39,16 +39,17 @@ function showToast(message, opts = {}) {
     return card;
 }
 
-// Renders friendlyMessage(err) as an error toast, and — for an expired
-// session (401) — follows up with a redirect to /login so the operator
-// isn't left staring at a page that can no longer do anything.
+// Renders friendlyMessage(err) as an error toast. A 401 is handled entirely
+// by http.js's handleSessionExpired() instead (apiFetch calls it as soon as
+// the response comes back, before this ever runs) — deferring to it here
+// rather than also toasting+redirecting avoids showing the same "session
+// expired" message twice for call sites that use both.
 function showApiError(err) {
+    if (typeof ApiError !== 'undefined' && err instanceof ApiError && err.status === 401) {
+        if (typeof handleSessionExpired === 'function') handleSessionExpired();
+        return (typeof friendlyMessage === 'function') ? friendlyMessage(err) : (err?.message || String(err));
+    }
     const message = (typeof friendlyMessage === 'function') ? friendlyMessage(err) : (err?.message || String(err));
     showToast(message, {type: 'error'});
-    if (typeof ApiError !== 'undefined' && err instanceof ApiError && err.status === 401) {
-        setTimeout(() => {
-            window.location.href = '/login';
-        }, 1200);
-    }
     return message;
 }

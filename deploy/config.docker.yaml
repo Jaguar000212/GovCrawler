@@ -167,6 +167,8 @@ auth:
   cookie_secure: true
   lockout_threshold: 5
   lockout_minutes: 15
+  login_rate_limit_attempts: 20
+  login_rate_limit_window_minutes: 15
 dispatch:
   mode: embedded  # overridden to 'external' via DISPATCH_MODE env for the api service
 oauth:
